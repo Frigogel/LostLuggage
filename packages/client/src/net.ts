@@ -16,6 +16,7 @@ import {
   TICK_HZ,
   updateFacing,
   SNAPSHOT_EVERY,
+  type EmoteInfo,
   type Gun,
   type JoinOptions,
   type LobbyInfo,
@@ -78,6 +79,8 @@ export class NetSession {
   /** What the server saved to your account for the last run that ended (accounts only). */
   reward?: RewardInfo;
   onReward?: (r: RewardInfo) => void;
+  /** Someone in the room (maybe you) played an emote. */
+  onEmote?: (e: EmoteInfo) => void;
   /** Round-trip time in ms, refreshed every few seconds. */
   rtt = 0;
   /** How well the netcode is keeping up, for tests and debugging. */
@@ -117,6 +120,7 @@ export class NetSession {
       this.onLobby?.(l);
     });
     room.onMessage("s", (s: Snapshot) => this.onSnapshot(s));
+    room.onMessage("emote", (e: EmoteInfo) => this.onEmote?.(e));
     room.onMessage("reward", (r: RewardInfo) => {
       this.reward = r;
       this.onReward?.(r);
@@ -168,6 +172,20 @@ export class NetSession {
 
   again(): void {
     this.room.send("again");
+  }
+
+  /** Changed hero or outfit: accounts sync first and the server reloads them; guests send what they picked. */
+  updateMe(me: JoinOptions): void {
+    this.room.send("me", me);
+  }
+
+  /** Host only, between runs. */
+  setBiome(biome: string): void {
+    this.room.send("biome", biome);
+  }
+
+  emote(id: string): void {
+    this.room.send("emote", id);
   }
 
   setAway(away: boolean): void {

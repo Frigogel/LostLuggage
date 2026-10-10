@@ -15,6 +15,7 @@ import { ELITE_IDS } from "./elites";
 import { BOOSTS, PERKS, RARITIES } from "./loot";
 import { clamp, fromAngle, angleOf, type Vec } from "./math";
 import { EMPTY_INPUT } from "./players";
+import type { Outfit } from "./data/cosmetics";
 import type { Profile, RunReward } from "./progress";
 import { EXIT, LAYOUTS } from "./room";
 import { ARENA } from "./room";
@@ -561,6 +562,8 @@ export interface JoinOptions {
   heroId?: string;
   /** Account session token: the server loads your hero, loadout and skills, and saves your rewards. */
   token?: string;
+  /** Guests only: what to wear (starter cosmetics). Accounts wear their saved outfit. */
+  outfit?: Partial<Outfit>;
 }
 
 /** Sent as "reward" to each account when its run ends (or when it leaves a run early). */
@@ -579,6 +582,13 @@ export interface SeatInfo {
   /** The sim player this seat drives, or -1 before the run starts. */
   playerId: number;
   connected: boolean;
+  outfit: Outfit;
+}
+
+/** Broadcast as "emote" when someone in the room plays one. */
+export interface EmoteInfo {
+  sessionId: string;
+  emote: string;
 }
 
 /** Broadcast as "lobby" whenever the party or the run changes. */

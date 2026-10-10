@@ -124,6 +124,13 @@ class Sfx {
       case "pickup":
         if (this.ok(name, 60)) [523, 659, 784].forEach((f, i) => this.tone(f, f, 0.1, "square", 0.18, i * 0.06));
         break;
+      // Lobby: someone lands on the stage, someone emotes.
+      case "land":
+        if (this.ok(name, 80)) { this.tone(180, 60, 0.12, "square", 0.25); this.noise(0.1, 0.2, 800, 200); }
+        break;
+      case "emote":
+        if (this.ok(name, 80)) [784, 988].forEach((f, i) => this.tone(f, f * 1.05, 0.07, "triangle", 0.16, i * 0.07));
+        break;
       // Enemy telegraphs: each attack type has its own warning sound.
       case "windupMelee":
         if (this.ok(name, 90)) this.tone(1400, 2200, 0.08, "square", 0.1);

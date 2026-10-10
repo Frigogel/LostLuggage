@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   createWorld,
+  DEFAULT_OUTFIT,
   enterRoom,
   distToSegment,
   DT,
@@ -21,6 +22,7 @@ import {
   type Biome,
   type Enemy,
   type Gadget,
+  type Outfit,
   type Pickup,
   type Player,
   type PlayerInput,
@@ -33,7 +35,9 @@ import {
 } from "@lostluggage/sim";
 import type { LocalShot, NetSession } from "../net";
 import { DEFENSE_COLORS, ELEMENT_COLORS, ELITE_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR, SLOT_COLORS } from "../render/colors";
+import { gunKey, HAT_ANCHOR, hatKey } from "../render/cosmetics";
 import { BIOME_ART, drawSpikes } from "../render/pixels";
+import { trailFx, trailGap, type FxHost } from "../render/trails";
 import { sfx } from "../sfx";
 import { FLOOR_PAD } from "./BootScene";
 import type { UIScene } from "./UIScene";
@@ -44,6 +48,8 @@ export interface GameData {
   profile?: PlayerOptions;
   /** Solo: which adventure. Co-op gets it from the server. */
   biome?: Biome;
+  /** Solo: what you're wearing. Co-op gets everyone's from the lobby. */
+  outfit?: Outfit;
   /** Solo: saves the run (XP, loot) and says what it earned. Co-op rewards come from the server instead. */
   onRunEnd?: (w: World, me: Player) => RunReward | undefined;
 }
@@ -94,6 +100,7 @@ interface PlayerView {
   body: Phaser.GameObjects.Image;
   shadow: Phaser.GameObjects.Image;
   gun: Phaser.GameObjects.Image;
+  hat: Phaser.GameObjects.Image;
   light: Phaser.GameObjects.Image;
   chargeGlow: Phaser.GameObjects.Image;
   tag: Phaser.GameObjects.BitmapText;
@@ -122,6 +129,7 @@ export class GameScene extends Phaser.Scene {
   myId = -1;
 
   private profile: PlayerOptions = {};
+  private outfit: Outfit = DEFAULT_OUTFIT;
   private biome?: Biome;
   private onRunEnd?: GameData["onRunEnd"];
   /** Solo: what this run earned, once it has been saved. */
@@ -164,6 +172,7 @@ export class GameScene extends Phaser.Scene {
     // Scene instances are reused on restart, so reset all per-run state here.
     this.net = data.net;
     this.profile = data.profile ?? {};
+    this.outfit = data.outfit ?? DEFAULT_OUTFIT;
     this.biome = data.biome;
     this.onRunEnd = data.onRunEnd;
     this.reward = undefined;
@@ -347,6 +356,7 @@ export class GameScene extends Phaser.Scene {
       shadow: this.add.image(0, 0, "shadow-m").setDepth(D.ground + 1),
       body: this.add.image(0, 0, heroKey(p)).setOrigin(0.5, 1),
       gun: this.add.image(0, 0, "gun_pistol").setOrigin(0.15, 0.5),
+      hat: this.add.image(0, 0, "px").setOrigin(0.5, 1).setVisible(false),
       light: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(SLOT_COLORS[p.slot] ?? 0x5fb3ff).setAlpha(0.18).setScale(3).setDepth(D.light),
       chargeGlow: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x9ff3ff).setDepth(D.light).setVisible(false),
       tag: this.add.bitmapText(0, 0, "pixel", p.name, 8).setOrigin(0.5, 1).setLetterSpacing(-1).setTint(SLOT_COLORS[p.slot] ?? 0xffffff).setDepth(D.text),
@@ -356,7 +366,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   private destroyPlayerView(v: PlayerView): void {
-    for (const o of [v.shadow, v.body, v.gun, v.light, v.chargeGlow, v.tag]) o.destroy();
+    for (const o of [v.shadow, v.body, v.gun, v.hat, v.light, v.chargeGlow, v.tag]) o.destroy();
+  }
+
+  /** What a player is wearing: yours from the menu in solo, everyone's from the lobby in co-op. */
+  private outfitOf(p: Player): Outfit {
+    if (!this.net) return this.outfit;
+    return this.net.lobby?.seats.find((s) => s.playerId === p.id)?.outfit ?? DEFAULT_OUTFIT;
+  }
+
+  /** The hat follows the head; when the hero goes down it falls off beside them. */
+  private placeHat(v: PlayerView, p: Player, pos: Vec, bob: number, left: boolean, hat: string): void {
+    if (!hat) {
+      v.hat.setVisible(false);
+      return;
+    }
+    v.hat.setTexture(hatKey(hat)).setVisible(true).setFlipX(left).setAlpha(v.body.alpha);
+    if (p.downed) {
+      v.hat.setPosition(pos.x + (left ? -9 : 9), pos.y + p.radius).setAngle(left ? -25 : 25).setDepth(pos.y - 0.2).clearTint();
+      return;
+    }
+    const a = HAT_ANCHOR[p.heroId] ?? HAT_ANCHOR.vanguard!;
+    v.hat
+      .setPosition(pos.x + (left ? -a.x : a.x), pos.y + p.radius + bob + a.y)
+      .setAngle(0)
+      .setDepth(pos.y + 0.1);
+    if (p.hurtT > 0 && !p.away) v.hat.setTintFill(0xffffff);
+    else v.hat.clearTint();
   }
 
   private lavaGlow(x: number, y: number): void {
@@ -611,6 +647,9 @@ export class GameScene extends Phaser.Scene {
     if (img) return img.setVisible(true).setAlpha(1).setScale(1).setAngle(0).clearTint().setOrigin(0.5);
     return this.add.image(0, 0, key);
   }
+
+  /** Pooled images for effects drawn by shared code (dash trails). */
+  private readonly fx: FxHost = { scene: this, take: (key) => this.take(key), give: (img) => this.give(img) };
 
   private give(img: Phaser.GameObjects.Image): void {
     img.setVisible(false);
@@ -1095,6 +1134,7 @@ export class GameScene extends Phaser.Scene {
     const bob = moving && p.dashT <= 0 ? -Math.abs(Math.sin(t * 0.02)) * 1.5 : 0;
     const left = p.facing.x < 0;
     const key = heroKey(p);
+    const outfit = this.outfitOf(p);
 
     v.shadow.setPosition(pos.x, pos.y + p.radius - 1);
     v.body.setTexture(key).setPosition(pos.x, pos.y + p.radius + bob).setFlipX(left).setDepth(pos.y);
@@ -1109,6 +1149,7 @@ export class GameScene extends Phaser.Scene {
       v.body.setAngle(left ? -90 : 90).setTint(0x9a8a9a).setAlpha(1);
       v.gun.setVisible(false);
       v.chargeGlow.setVisible(false);
+      this.placeHat(v, p, pos, 0, left, outfit.hat);
       if (coop && p.reviveT === Infinity) this.drawReviveRing(p, pos, t, mine);
       return;
     }
@@ -1118,19 +1159,20 @@ export class GameScene extends Phaser.Scene {
       v.body.clearTint().setAlpha(0.35);
       v.gun.setVisible(false);
       v.chargeGlow.setVisible(false);
+      this.placeHat(v, p, pos, bob, left, outfit.hat);
       return;
     }
     if (p.hurtT > 0) v.body.setTintFill(0xffffff);
     else v.body.clearTint();
     // Blink while invulnerable after a hit (not during a dash: the trail shows that).
     v.body.setAlpha(p.iframes > 0 && p.dashT <= 0 && Math.floor(t / 60) % 2 === 0 ? 0.4 : 1);
+    this.placeHat(v, p, pos, bob, left, outfit.hat);
 
     if (p.dashT > 0) {
       v.ghostTimer -= dt;
       if (v.ghostTimer <= 0) {
-        v.ghostTimer = 0.025;
-        const g = this.take(key).setOrigin(0.5, 1).setPosition(pos.x, pos.y + p.radius).setFlipX(left).setTintFill(0x5fd3e8).setAlpha(0.6).setDepth(pos.y - 1);
-        this.tweens.add({ targets: g, alpha: 0, duration: 180, onComplete: () => this.give(g) });
+        v.ghostTimer = trailGap(outfit.trail);
+        trailFx(this.fx, outfit.trail, { x: pos.x, y: pos.y + p.radius, heroKey: key, flip: left, scale: 1, depth: pos.y - 1, t });
       }
     }
 
@@ -1142,7 +1184,7 @@ export class GameScene extends Phaser.Scene {
     const hand = { x: pos.x + p.facing.x * (4 - v.gunKick), y: pos.y - 1 + bob + p.facing.y * (3 - v.gunKick) };
     v.gun
       .setVisible(true)
-      .setTexture("gun_" + s.archetype)
+      .setTexture(gunKey(s.archetype, outfit.skin))
       .setPosition(hand.x, hand.y)
       .setRotation(ang)
       .setFlipY(left)

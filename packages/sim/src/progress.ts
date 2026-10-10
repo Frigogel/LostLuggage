@@ -7,6 +7,7 @@
 //
 // Actions carry their own ids (for exactly-once syncing) and every random choice (new stash ids, the souvenir roll)
 // is decided from data inside the action, never inside the reducer.
+import { COSMETIC_IDS, COSMETICS, cleanOutfit, cosmeticDropChance, DEFAULT_OUTFIT, isStarter, type CosmeticSlot, type Outfit } from "./data/cosmetics";
 import { GUNS } from "./data/guns";
 import { HEROES, MAX_LEVEL, tierLevel } from "./data/heroes";
 import { LEGENDARIES } from "./data/legendaries";
@@ -16,7 +17,7 @@ import { validSkills } from "./data/skills";
 import { SOUVENIR_CAP, SOUVENIR_IDS, SOUVENIRS, souvenirTotal, type SouvenirId, type SouvenirRanks } from "./data/souvenirs";
 import { gunData, PERKS, RARITIES } from "./loot";
 import type { PlayerOptions } from "./players";
-import type { Element, GunData, MakerId, PerkId, Player, Rarity, World } from "./types";
+import type { Biome, Element, GunData, MakerId, PerkId, Player, Rarity, World } from "./types";
 
 export const PROFILE_VERSION = 1;
 /** Guns kept at home. Overflow scraps the worst unequipped ones. */
@@ -57,6 +58,13 @@ export interface Profile {
   /** Local date (YYYY-MM-DD) of the last first-win-of-the-day bonus. */
   lastDailyWin: string;
   stats: { runs: number; wins: number; kills: number; legendaries: number };
+  /** Cosmetics earned (starters aren't listed: everyone has them). */
+  cosmetics: string[];
+  /** Earned but not looked at in the wardrobe yet. */
+  newCosmetics: string[];
+  outfit: Outfit;
+  /** Adventures won, as "biome:tier", for first-clear cosmetics. */
+  clears: string[];
 }
 
 export interface RunResult {
@@ -77,6 +85,8 @@ export interface RunResult {
   helped?: boolean;
   /** Co-op: a signature power dropped for you. */
   signature?: string;
+  /** Which adventure, for first-clear cosmetics. */
+  biome?: Biome;
 }
 
 export interface RunReward {
@@ -93,6 +103,8 @@ export interface RunReward {
   souvenir: boolean;
   /** A new signature power was found. */
   signature?: string;
+  /** Cosmetics earned by this run. */
+  cosmetics?: string[];
 }
 
 export type Action =
@@ -104,7 +116,9 @@ export type Action =
   | { type: "name"; id: string; name: string }
   | { type: "hero"; id: string; heroId: string }
   | { type: "signature"; id: string; heroId: string; signature: string }
-  | { type: "seen"; id: string };
+  | { type: "seen"; id: string }
+  | { type: "outfit"; id: string; slot: CosmeticSlot; cosmetic: string }
+  | { type: "seenWardrobe"; id: string };
 
 // ---------------------------------------------------------------- basics
 
@@ -163,7 +177,36 @@ export function newProfile(name = ""): Profile {
     offerSeed: 1,
     lastDailyWin: "",
     stats: { runs: 0, wins: 0, kills: 0, legendaries: 0 },
+    cosmetics: [],
+    newCosmetics: [],
+    outfit: { ...DEFAULT_OUTFIT },
+    clears: [],
   };
+}
+
+export function ownsCosmetic(p: Profile, id: string): boolean {
+  return !!COSMETICS[id] && (isStarter(id) || p.cosmetics.includes(id));
+}
+
+function give(p: Profile, ids: readonly string[]): void {
+  for (const id of ids) {
+    if (p.cosmetics.includes(id)) continue;
+    p.cosmetics.push(id);
+    p.newCosmetics.push(id);
+  }
+}
+
+/** Gives every stat or level cosmetic the profile has earned. Returns the new ones. */
+function grantMilestones(p: Profile): string[] {
+  const got: string[] = [];
+  const topLevel = Math.max(1, ...Object.values(p.heroes).map((h) => h.level));
+  for (const id of COSMETIC_IDS) {
+    const u = COSMETICS[id]!.unlock;
+    if (u.kind !== "stat" || p.cosmetics.includes(id)) continue;
+    if ((u.stat === "level" ? topLevel : p.stats[u.stat]) >= u.n) got.push(id);
+  }
+  give(p, got);
+  return got;
 }
 
 export function heroOf(p: Profile, heroId = p.heroId): HeroProgress {
@@ -247,6 +290,11 @@ export function cleanProfile(raw: unknown, name = ""): Profile {
   p.lastDailyWin = typeof r.lastDailyWin === "string" ? r.lastDailyWin.slice(0, 10) : "";
   const s = r.stats;
   if (s) p.stats = { runs: int(s.runs, 0, 1e9), wins: int(s.wins, 0, 1e9), kills: int(s.kills, 0, 1e9), legendaries: int(s.legendaries, 0, 1e9) };
+  const known = (x: unknown): x is string => typeof x === "string" && !!COSMETICS[x] && !isStarter(x);
+  if (Array.isArray(r.cosmetics)) p.cosmetics = [...new Set(r.cosmetics.filter(known))];
+  if (Array.isArray(r.newCosmetics)) p.newCosmetics = [...new Set(r.newCosmetics.filter((x) => known(x) && p.cosmetics.includes(x)))];
+  p.outfit = cleanOutfit(r.outfit, (id) => ownsCosmetic(p, id));
+  if (Array.isArray(r.clears)) p.clears = [...new Set(r.clears.filter((c): c is string => typeof c === "string" && /^[a-z]+:[0-2]$/.test(c)))].slice(0, 20);
   return p;
 }
 
@@ -308,6 +356,7 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
     hand: p.guns.map((g) => g.sid ?? ids.get(g.uid) ?? ""),
     day: opts.day,
     helped: opts.helped || undefined,
+    biome: w.run.biome,
   };
 }
 
@@ -357,6 +406,24 @@ function scrap(p: Profile, ids: readonly string[]): number {
   return xp;
 }
 
+/** A win's cosmetics: the first clear of an adventure and tier, and sometimes a boss drop. */
+function runCosmetics(p: Profile, id: string, r: RunResult): string[] {
+  if (!r.victory) return [];
+  const got: string[] = [];
+  const clear = `${r.biome}:${r.tier}`;
+  if (!p.clears.includes(clear)) {
+    p.clears.push(clear);
+    for (const cid of COSMETIC_IDS) {
+      const u = COSMETICS[cid]!.unlock;
+      if (u.kind === "clear" && u.biome === r.biome && u.tier === r.tier && !p.cosmetics.includes(cid)) got.push(cid);
+    }
+  }
+  const drops = COSMETIC_IDS.filter((cid) => COSMETICS[cid]!.unlock.kind === "drop" && !p.cosmetics.includes(cid));
+  if (drops.length > 0 && hash01(`cosmetic:${id}`) < cosmeticDropChance(r.mode, r.tier)) got.push(drops[Math.floor(hash01(`cosmetic-pick:${id}`) * drops.length)]!);
+  give(p, got);
+  return got;
+}
+
 function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   const heroId = HEROES[raw.heroId] ? raw.heroId : p.heroId;
   const r: RunResult = {
@@ -370,6 +437,7 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     hand: (Array.isArray(raw.hand) ? raw.hand : []).slice(0, 2).map((h) => String(h ?? "")),
     day: String(raw.day ?? "").slice(0, 10),
     helped: raw.helped === true,
+    biome: raw.biome === "caverns" ? "caverns" : "foundry",
   };
   // Signature powers only come from co-op dungeons.
   const sig = raw.mode === "coop" && typeof raw.signature === "string" && SIGNATURES[raw.signature] && !p.signatures.includes(raw.signature) ? raw.signature : undefined;
@@ -416,8 +484,10 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   if (r.victory) p.stats.wins++;
   p.stats.kills += r.kills;
   p.stats.legendaries += legendaries;
+  const cosmetics = [...runCosmetics(p, id, r), ...grantMilestones(p)];
   const reward: RunReward = { xp: xp + scrapXp, bonuses, levelBefore, levelAfter: heroOf(p, heroId).level, kept, scrapped, legendaries, souvenir };
   if (sig) reward.signature = sig;
+  if (cosmetics.length) reward.cosmetics = cosmetics;
   return reward;
 }
 
@@ -440,6 +510,8 @@ export function applyAction(profile: Profile, action: Action): { profile: Profil
     case "scrap": {
       const xp = scrap(p, (Array.isArray(action.gunIds) ? action.gunIds : []).map(String));
       addXp(p, p.heroId, xp);
+      // Scrapping can level a hero up to the crown.
+      grantMilestones(p);
       return { profile: p, xp };
     }
     case "skills": {
@@ -474,6 +546,17 @@ export function applyAction(profile: Profile, action: Action): { profile: Profil
     }
     case "seen":
       for (const g of p.stash) delete g.new;
+      break;
+    case "outfit": {
+      const slot = action.slot;
+      const id = String(action.cosmetic ?? "");
+      if (!(slot in p.outfit)) break;
+      // Hats, trails and skins can be taken off; there's always an emote.
+      if (id === "" ? slot !== "emote" : COSMETICS[id]?.slot === slot && ownsCosmetic(p, id)) p.outfit[slot] = id;
+      break;
+    }
+    case "seenWardrobe":
+      p.newCosmetics = [];
       break;
   }
   return { profile: p };

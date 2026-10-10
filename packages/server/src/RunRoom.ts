@@ -11,7 +11,9 @@ import {
   signatureChance,
   signatureDrop,
   BIOMES,
+  cleanOutfit,
   HEROES,
+  isStarter,
   type Biome,
   createWorld,
   decodeInput,
@@ -25,12 +27,13 @@ import {
   step,
   TIER_LEVELS,
   type PlayerInput,
+  type Outfit,
   type PlayerOptions,
   type RewardInfo,
   type SimEvent,
   type World,
 } from "@lostluggage/sim";
-import type { JoinOptions, LobbyInfo, RoomOptions } from "@lostluggage/sim";
+import type { EmoteInfo, JoinOptions, LobbyInfo, RoomOptions } from "@lostluggage/sim";
 import { getDb } from "./db";
 
 export { cleanName };
@@ -41,6 +44,8 @@ const MAX_QUEUE = 4;
 const STALE_INPUT_MS = 250;
 /** A dropped phone keeps its seat this long, as the doc asks for mobile sessions. */
 const RECONNECT_S = 60;
+/** Emotes are fun until someone holds the button down. */
+const EMOTE_GAP_MS = 1200;
 
 // Codes skip I and O so nobody reads them as 1 and 0.
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -62,6 +67,8 @@ interface Seat {
   name: string;
   level: number;
   heroId: string;
+  outfit: Outfit;
+  lastEmoteAt: number;
   /** Signed-in players: rewards are saved to this account. Guests have none and keep nothing. */
   accountId?: number;
   /** Guests: what they asked for when joining. Accounts reload their saved hero at every run start. */
@@ -121,6 +128,27 @@ export class RunRoom extends Room {
       const w = this.world;
       if (this.isHost(client) && w && (w.gameOver || w.run.victory)) this.startRun();
     });
+    // Changed hero or outfit in the lobby. Accounts saved it already, so their profile is reloaded; guests say what they picked.
+    this.onMessage("me", (client, msg: unknown) => {
+      const seat = this.seats.get(client.sessionId);
+      if (!seat) return;
+      if (seat.accountId === undefined) this.setGuest(seat, (msg ?? {}) as JoinOptions);
+      else this.refresh(seat);
+      this.broadcastLobby();
+    });
+    // The host picks the adventure from the lobby, between runs.
+    this.onMessage("biome", (client, biome: unknown) => {
+      if (!this.isHost(client) || this.world || typeof biome !== "string" || !(biome in BIOMES)) return;
+      this.biome = biome as Biome;
+      this.broadcastLobby();
+    });
+    this.onMessage("emote", (client, emote: unknown) => {
+      const seat = this.seats.get(client.sessionId);
+      const now = Date.now();
+      if (!seat || emote !== seat.outfit.emote || now - seat.lastEmoteAt < EMOTE_GAP_MS) return;
+      seat.lastEmoteAt = now;
+      this.broadcast("emote", { sessionId: seat.sessionId, emote } satisfies EmoteInfo);
+    });
     this.onMessage("away", (client, away: unknown) => {
       const seat = this.seats.get(client.sessionId);
       if (!seat) return;
@@ -133,16 +161,15 @@ export class RunRoom extends Room {
 
   onJoin(client: Client, options: JoinOptions = {}): void {
     const account = getDb().accountForToken(options.token);
-    const name = cleanName(options.name, `PLAYER ${this.seats.size + 1}`);
-    const level = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(options.level) || 1)));
-    const heroId = typeof options.heroId === "string" && HEROES[options.heroId] ? options.heroId : "vanguard";
     const seat: Seat = {
       sessionId: client.sessionId,
-      name,
-      level,
-      heroId,
+      name: "",
+      level: 1,
+      heroId: "vanguard",
+      outfit: cleanOutfit(undefined, isStarter),
+      lastEmoteAt: 0,
       accountId: account?.id,
-      guest: { name, level, heroId },
+      guest: {},
       awardedRun: -1,
       playerId: -1,
       queue: [],
@@ -152,6 +179,7 @@ export class RunRoom extends Room {
       backgrounded: false,
       connected: true,
     };
+    this.setGuest(seat, options);
     this.refresh(seat);
     this.seats.set(client.sessionId, seat);
     this.order.push(client.sessionId);
@@ -211,6 +239,15 @@ export class RunRoom extends Room {
     if (p) p.away = seat.backgrounded || !seat.connected;
   }
 
+  /** What a guest asked for. Guests wear starter cosmetics only: the rest are earned on an account. */
+  private setGuest(seat: Seat, options: JoinOptions): void {
+    seat.name = cleanName(options.name, seat.name || `PLAYER ${this.seats.size + 1}`);
+    seat.level = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(options.level) || 1)));
+    seat.heroId = typeof options.heroId === "string" && HEROES[options.heroId] ? options.heroId : "vanguard";
+    seat.outfit = cleanOutfit(options.outfit, isStarter);
+    seat.guest = { name: seat.name, level: seat.level, heroId: seat.heroId };
+  }
+
   /** Reloads a signed-in seat's saved hero: the loadout may have changed since the last run. */
   private refresh(seat: Seat): void {
     if (seat.accountId === undefined) return;
@@ -219,6 +256,7 @@ export class RunRoom extends Room {
     const opts = playerOptions(profile);
     seat.level = opts.level ?? 1;
     seat.heroId = opts.heroId ?? "vanguard";
+    seat.outfit = profile.outfit;
   }
 
   private optionsFor(seat: Seat): PlayerOptions {
@@ -276,7 +314,7 @@ export class RunRoom extends Room {
       running: !!this.world,
       seats: this.order.map((id) => {
         const s = this.seats.get(id)!;
-        return { sessionId: s.sessionId, name: s.name, level: s.level, heroId: s.heroId, playerId: s.playerId, connected: s.connected };
+        return { sessionId: s.sessionId, name: s.name, level: s.level, heroId: s.heroId, playerId: s.playerId, connected: s.connected, outfit: s.outfit };
       }),
     };
     this.broadcast("lobby", info);

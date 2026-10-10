@@ -12,6 +12,21 @@ export { inCone } from "./enemies";
 export { LEGENDARIES, LEGENDARY_IDS, type LegendaryDef } from "./data/legendaries";
 export { MAKERS, MAKER_IDS, type MakerDef } from "./data/makers";
 export { SKILL_TREES, skillPoints, spentPoints, validSkills, type SkillNode, type SkillTree } from "./data/skills";
+export {
+  COSMETICS,
+  COSMETIC_IDS,
+  COSMETIC_SLOTS,
+  DEFAULT_OUTFIT,
+  SLOT_NAMES,
+  cleanOutfit,
+  cosmeticDropChance,
+  cosmeticsFor,
+  isStarter,
+  unlockText,
+  type CosmeticDef,
+  type CosmeticSlot,
+  type Outfit,
+} from "./data/cosmetics";
 export { SOUVENIRS, SOUVENIR_CAP, SOUVENIR_IDS, souvenirMods, souvenirTotal, type SouvenirDef, type SouvenirId, type SouvenirRanks } from "./data/souvenirs";
 export {
   EMPTY_INPUT,

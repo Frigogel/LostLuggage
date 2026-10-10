@@ -8,7 +8,7 @@ const BASE: Palette = {
   W: "#ffffff",
 };
 
-interface PixelSprite {
+export interface PixelSprite {
   palette: Palette;
   rows: string[];
 }

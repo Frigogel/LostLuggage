@@ -7,8 +7,8 @@ A casual, mobile-first co-op looter brawler. The full design lives in
 Caverns (each a hand-made intro room, two director-built combat rooms, a breather with a shrine and a suitcase, and a
 boss), playable solo or with up to 4 friends, with four heroes to choose from:
 
-- **Four heroes**, each with their own level, action skill and three five-node skill branches. Pick one on the main
-  menu; switching is free.
+- **Four heroes**, each with their own level, action skill and three five-node skill branches. Switch with the hero
+  button in the lobby; switching is free.
   - **Vanguard** (tank): a dome that blocks shots. Branches: Bulkhead, Static, Return to Sender.
   - **Gunslinger** (damage): marks the 3 nearest enemies; your shots seek them and hit 40% harder. Branches:
     Showboat (trick shots, crits), Fast Hands (reloads), Bounty Hunter (marks spread on kill, stuns, slows).
@@ -31,11 +31,28 @@ boss), playable solo or with up to 4 friends, with four heroes to choose from:
   Waiter Penguins, Yeti Bouncers, Curling Golems, Slush Slimes, Ski Instructors, Penguin Igloos, Ice Machine mimics
   and Snowmen. Mostly armored and frost-immune, so bring Acid. The boss is the **Customer Complaints Dragon**: frost
   breath in a wedge that leaves slush, a tail swipe that sends you sliding, icicles, a belly slide and waiter
-  penguins. Pick the adventure on the main menu; rooms you create run the one you picked.
+  penguins. Pick the adventure in the lobby; in a room, the host picks it.
 - **Signature powers**: rare co-op drops (30% of co-op wins on Normal, more on harder tiers) that change a hero's
   action skill. Sidegrades, each with a catch: Black Hole Dome and Revolving Door (Vanguard), Six Shooter and Dead
   or Alive (Gunslinger), Turret With Legs and Patio Heater (Tinker), Owl Parliament and Rescue Owl (Warden). Equip
   them on the Skills screen.
+
+**Lobby and cosmetics:**
+
+- **The game opens in the lobby**, Brawl Stars style: your hero on a spotlit mark at the baggage carousel, with open
+  marks for friends. Tap an open mark (or **Invite friends**) to make a room; friends drop in from above and stand
+  next to you in their party color, name, level and outfit. **Play solo** starts a run on your own, and becomes
+  **Start run** for the host once you're in a room. Around the stage: your name, level and account (top left), invite,
+  quick match and join by code (top right), Skills, Armory, Souvenirs and Wardrobe (left), and hero, emote,
+  adventure and play (bottom). Buttons have pixel-art icons. Tap your own hero to show off your trail.
+- **Cosmetics** (design doc: Cosmetics), earned only by playing: **hats** (traffic cone, a fish, propeller wizard
+  hat, tiny second head, crown...), **dash trails** (confetti, bubbles, rubber ducks, afterburner, rainbow...), **gun
+  skins** (googly eyes, gold plating, "Property of the Cruise Line"...) and **emotes** (wave, dramatic bow, air guitar,
+  the floss but worse...). Hats, trails and skins show in runs too, for everyone in the party.
+  - The first win of each adventure on each tier gives that clear's hat.
+  - Wins sometimes drop one (12% solo, 20% co-op, more on harder tiers).
+  - Milestones: 10 and 25 wins, 50 runs, 2,000 kills, 3 legendaries, a level 30 hero.
+  - Pick them in the **Wardrobe**. Guests wear the starter items only.
 
 From phase 4:
 
@@ -105,7 +122,7 @@ make new accounts need that code, so only your friends can sign up.
 
 ## Accounts and progress
 
-Tap **Sign in** on the main menu to make an account (name, password and, if the server asks, the invite code).
+Tap **Sign in** in the lobby to make an account (name, password and, if the server asks, the invite code).
 Then:
 
 - **Skills**: tap the next node in a branch to learn it, or a learned node to give it (and everything after it)
@@ -121,9 +138,9 @@ a run early (quit or leave room) still takes home the guns you picked up.
 
 ## Playing together
 
-1. Everyone opens the game and types a name.
-2. One person taps **Create room for friends** and reads out the 4-letter code.
-3. Everyone else types the code and taps **Join**. The host taps **Start run**.
+1. Everyone opens the game and types a name (top left of the lobby).
+2. One person taps **Invite friends** (or an open mark on the stage) and reads out the 4-letter code.
+3. Everyone else types the code and taps **Join**. The host picks the adventure and taps **Start run**.
 
 Friends can join a run that already started; they appear next to the party with a better second gun. Downed
 teammates show a pulsing ring: stand in it to fill their revive bar. In co-op, the exit waits 4 seconds for
@@ -157,7 +174,8 @@ a guest's hero is level 25.
 packages/
   sim/      Pure TypeScript game rules: fixed 30 Hz tick, seeded RNG, no rendering code.
             Runs in the browser for solo and on the server for co-op.
-    src/data/   Guns, enemies and biomes, heroes, manufacturers, legendaries, skill trees, signatures, souvenirs
+    src/data/   Guns, enemies and biomes, heroes, manufacturers, legendaries, skill trees, signatures, souvenirs,
+                cosmetics
     src/director.ts  Encounter director: threat budgets, role templates, pacing curve, party scaling
     src/room.ts      Room layouts, lava vents, waves, exits
     src/loot.ts      Rarity, manufacturers, legendaries, elements, perks, shrine boosts
@@ -172,7 +190,8 @@ packages/
             sim at 30 Hz with snapshots at 15 Hz. Loads each account's hero and saves its rewards.
     src/db.ts   Accounts, sessions and profiles in SQLite
     src/api.ts  Sign up, sign in and profile sync
-  client/   Phaser 3 renderer, input, HUD and the menu (account, skills, armory, souvenirs).
+  client/   Phaser 3 renderer, input, HUD, the lobby stage and the menu (account, skills, armory, souvenirs,
+            wardrobe).
     src/net.ts      Co-op client: snapshot buffer, clock sync, interpolation, movement and shot prediction
     src/account.ts  Guest or saved profile, the offline action queue and syncing
     public/sw.js    Service worker that caches the game for offline solo runs (production builds only)

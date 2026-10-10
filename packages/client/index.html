@@ -135,40 +135,103 @@
       #menu .sigs .row3 button { text-align: left; text-transform: none; font-size: 11px; padding: 6px 8px; line-height: 1.25; min-height: 64px; }
       #menu .sigs .row3 button b { display: block; text-transform: uppercase; font-size: 12px; }
       #menu .sigs .row3 button.on { border-color: #ff9a2a; background: #4a3020; }
+      /* Icons inside the screens: big ones in titles, small ones in lists, pixel art for guns and souvenirs. */
+      #menu h2[data-icon] { display: flex; align-items: center; justify-content: center; gap: 10px; }
+      #menu h2 .icon { width: 30px; height: 30px; }
+      #menu .ic { display: inline-flex; vertical-align: -2px; margin-right: 5px; }
+      #menu .ic .icon { width: 11px; height: 11px; }
+      #menu .node.on .ic { color: #5fd36a; }
+      #menu .node.next .ic { color: #f2c14e; }
+      #menu .node.locked .ic, #menu .sigs button:disabled .ic { color: #8a7f8a; }
+      #menu .sigs button.on .ic { color: #ff9a2a; }
+      #menu .guns li.art { display: flex; gap: 10px; align-items: flex-start; }
+      #menu .guns li.art > div { flex: 1; min-width: 0; }
+      /* A lighter tile than the outlines, so the sprites' dark edges still show. */
+      #menu .thumb { flex: none; width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; background: #4a3a4a; }
+      #menu .thumb canvas { transform: scale(3); }
+      #menu .guns li .act button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+      #menu .guns li .act .icon { width: 16px; height: 16px; }
+      #menu .offers button .thumb { margin: 2px auto 8px; width: 64px; height: 64px; }
+      #menu .offers button .thumb canvas { transform: scale(5); }
+      /* Hero preview and the wardrobe. Sprites are tiny, so they're scaled up with crisp pixels. */
+      #menu canvas.px { image-rendering: pixelated; image-rendering: crisp-edges; }
+      #menu .me { display: flex; gap: 10px; align-items: center; }
+      #menu .me .grow { flex: 1; }
+      #menu .me canvas { width: 56px; height: 52px; }
+      #menu .wardrobe { display: flex; gap: 12px; align-items: flex-start; text-align: left; }
+      #menu .wardrobe .stand { flex: none; width: 140px; text-align: center; background: radial-gradient(ellipse at 50% 85%, #4a3020 0%, #2a1c30 60%); border: 2px solid #5a5060; padding: 8px 0; }
+      #menu .wardrobe .stand canvas { width: 112px; height: 104px; display: block; margin: 0 auto; }
+      #menu .wardrobe .stand p { margin: 6px 4px 0; font-size: 10px; color: #c9cfd6; }
+      #menu .wardrobe .shelf { flex: 1; min-width: 0; }
+      #menu .wardrobe .pick { margin: 0 0 6px; }
+      #menu .wardrobe .pick button { font-size: 11px; min-height: 40px; padding: 0 2px; }
+      #menu .items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+      #menu .items button { margin: 0; display: flex; gap: 8px; align-items: center; text-align: left; text-transform: none; font-size: 10px; line-height: 1.25; padding: 4px 6px; min-height: 56px; }
+      #menu .items button b { display: block; text-transform: uppercase; font-size: 11px; }
+      #menu .items button .ico { flex: none; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: #1b1020; color: #f2c14e; font-size: 8px; text-align: center; }
+      #menu .items button .ico canvas { max-width: 36px; max-height: 36px; transform: scale(3); }
+      #menu .items button.on { border-color: #f2c14e; background: #4a3020; }
+      #menu .items button.locked { opacity: 0.5; }
+      /* The lobby is the home screen: a stage drawn on the canvas, with the controls in HTML around its edges. */
+      #menu.stage { background: none; pointer-events: none; align-items: stretch; overflow: hidden; }
+      #menu.stage #lobby:not([hidden]) {
+        width: 100%; box-sizing: border-box; display: grid; gap: 8px;
+        grid-template-columns: auto 1fr auto; grid-template-rows: auto 1fr auto auto;
+        grid-template-areas: "me . party" "side . ." "status status status" "bar bar bar";
+        padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+        text-shadow: 2px 2px 0 #1b1020;
+      }
+      #menu.stage button, #menu.stage input { pointer-events: auto; }
+      #menu .icon { width: 22px; height: 22px; flex: none; }
+      #menu button.ib { display: flex; align-items: center; justify-content: center; gap: 8px; }
+      #menu .panel { background: rgba(27, 16, 32, 0.82); border: 2px solid #5a5060; padding: 6px 8px; text-shadow: none; }
+      #menu .mechip { grid-area: me; width: 250px; text-align: left; }
+      #menu .mechip input { min-height: 34px; margin: 0 0 4px; font-size: 16px; letter-spacing: 2px; padding: 0 6px; }
+      #menu .mechip .heroline { font-size: 11px; margin: 0; }
+      #menu .mechip .xp { margin: 2px 0 4px; }
+      #menu .mechip .bar { margin: 0; font-size: 10px; }
+      #menu .mechip .bar button { min-height: 28px; font-size: 10px; padding: 0 8px; white-space: nowrap; gap: 4px; }
+      #menu .mechip .bar button .icon { width: 16px; height: 16px; }
+      #menu .party { grid-area: party; width: 220px; display: flex; flex-direction: column; gap: 6px; }
+      #menu .party[hidden] { display: none; }
+      #menu .party button { margin: 0; min-height: 40px; font-size: 12px; background: rgba(42, 28, 48, 0.92); }
+      #menu .party .row { gap: 6px; }
+      #menu .party .row input { min-height: 40px; margin: 0; font-size: 16px; letter-spacing: 4px; }
+      #menu .party .row button { width: auto; flex: none; padding: 0 10px; }
+      #menu .party .code { font-size: 32px; letter-spacing: 8px; margin: 0; text-align: right; }
+      #menu .party .hint { margin: 0; text-align: right; }
+      #menu .side { grid-area: side; align-self: start; display: flex; flex-direction: column; gap: 6px; }
+      #menu .side button { margin: 0; width: 72px; min-height: 62px; flex-direction: column; gap: 3px; font-size: 9px; padding: 4px 2px; position: relative; background: rgba(42, 28, 48, 0.92); }
+      /* 15x15 icons at 30px: two screen pixels per art pixel. */
+      #menu .side .icon { width: 30px; height: 30px; }
+      #menu .side .badge { position: absolute; top: -6px; right: -6px; margin: 0; font-size: 9px; }
+      #menu #lobby > .status { grid-area: status; margin: 0; text-align: center; }
+      #menu .lbar { grid-area: bar; display: flex; gap: 6px; align-items: stretch; }
+      #menu .lbar button { margin: 0; flex: 1; min-height: 52px; font-size: 12px; padding: 0 6px; background: rgba(42, 28, 48, 0.92); line-height: 1.15; }
+      #menu .lbar button small { display: block; font-size: 9px; color: #c9cfd6; }
+      #menu .lbar button > span { text-align: left; }
+      #menu .lbar #play { flex: 1.6; font-size: 18px; background: #a33a24; border-color: #f2c14e; }
+      #menu .lbar #play .icon { width: 28px; height: 28px; }
+      #menu .lbar .wait { flex: 1.6; margin: 0; align-self: center; text-align: center; }
+      @media (max-width: 640px), (orientation: portrait) {
+        /* Phones held upright: the stage sits in the middle, so the controls go above and below it. */
+        #menu.stage #lobby:not([hidden]) { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto auto auto; grid-template-areas: "me" "party" "." "side" "status" "bar"; }
+        #menu .mechip, #menu .party { width: auto; }
+        #menu .party { flex-direction: row; flex-wrap: wrap; }
+        #menu .party > button { flex: 1 1 40%; }
+        #menu .party .row { flex: 1 1 100%; }
+        #menu .side { flex-direction: row; }
+        #menu .side button { flex: 1; width: auto; }
+        #menu .lbar { flex-wrap: wrap; }
+        #menu .lbar button { flex: 1 1 40%; }
+      }
+      @media (max-width: 560px) { #menu .wardrobe { flex-direction: column; align-items: stretch; } #menu .wardrobe .stand { width: auto; } }
       @media (max-width: 560px) { #menu .tree { grid-template-columns: 1fr; } #menu .offers { flex-direction: column; } #menu .heroes { grid-template-columns: repeat(2, 1fr); } #menu .sigs .row3 { flex-direction: column; } }
     </style>
   </head>
   <body>
     <div id="game"></div>
     <div id="menu" hidden>
-      <div class="card" id="home">
-        <h1>LOST LUGGAGE</h1>
-        <p class="tag">The cruise line is not liable.</p>
-        <div class="bar"><span id="account-line">GUEST: NOTHING IS SAVED</span><button id="account-btn">Sign in</button></div>
-        <div class="heroline"><span id="hero-name">VANGUARD LV 1</span><span id="hero-xp">0/125 XP</span></div>
-        <div class="xp"><div id="hero-bar" style="width: 0"></div></div>
-        <div class="heroes" id="hero-pick"></div>
-        <p class="info" id="hero-info"></p>
-        <label for="name" id="name-label">Your name</label>
-        <input id="name" maxlength="10" autocomplete="nickname" spellcheck="false" placeholder="TRAVELER" />
-        <div class="pick" id="biome-pick">
-          <button data-biome="foundry">Burning Foundry</button>
-          <button data-biome="caverns">Frozen Caverns</button>
-        </div>
-        <button id="solo" class="primary">Solo run</button>
-        <button id="quick">Quick match</button>
-        <button id="create">Create room for friends</button>
-        <div class="row">
-          <input id="code" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE" />
-          <button id="join">Join</button>
-        </div>
-        <div class="row3">
-          <button id="to-skills">Skills</button>
-          <button id="to-armory">Armory</button>
-          <button id="to-souvenirs">Souvenirs</button>
-        </div>
-        <p class="status" id="status"></p>
-      </div>
       <div class="card" id="signin" hidden>
         <h2>Your account</h2>
         <p class="hint">Keeps your hero, guns and souvenirs on every device.</p>
@@ -182,40 +245,77 @@
         </div>
         <button id="si-login" class="primary">Sign in</button>
         <button id="si-register">Create account</button>
-        <button class="back">Back</button>
+        <button class="back ib" data-icon="back">Back</button>
         <p class="status" id="si-status"></p>
       </div>
       <div class="card wide" id="skills" hidden>
-        <h2>Skills</h2>
+        <h2 data-icon="skills">Skills</h2>
         <p class="hint" id="skills-points"></p>
         <div class="sigs" id="skills-sig"></div>
         <div class="tree" id="skills-tree"></div>
-        <div class="row3"><button id="skills-reset">Reset (free)</button><button class="back">Back</button></div>
+        <div class="row3"><button id="skills-reset" class="ib" data-icon="reset">Reset (free)</button><button class="back ib" data-icon="back">Back</button></div>
       </div>
       <div class="card wide" id="armory" hidden>
-        <h2>Armory</h2>
+        <h2 data-icon="armory">Armory</h2>
         <p class="hint" id="armory-hint"></p>
         <ul class="guns" id="armory-list"></ul>
-        <div class="row3"><button id="armory-scrap">Scrap all commons</button><button class="back">Back</button></div>
+        <div class="row3"><button id="armory-scrap" class="ib" data-icon="scrap">Scrap all commons</button><button class="back ib" data-icon="back">Back</button></div>
         <p class="status" id="armory-status"></p>
       </div>
       <div class="card wide" id="souvenirs" hidden>
-        <h2>Souvenirs</h2>
+        <h2 data-icon="souvenirs">Souvenirs</h2>
         <p class="hint" id="souv-hint"></p>
         <div class="offers" id="souv-offers"></div>
         <ul class="guns" id="souv-list"></ul>
-        <button class="back">Back</button>
+        <button class="back ib" data-icon="back">Back</button>
+      </div>
+      <div class="card wide" id="wardrobe" hidden>
+        <h2 data-icon="wardrobe">Wardrobe</h2>
+        <p class="hint">Earned by playing, never sold. Friends see them in the lobby and in runs.</p>
+        <div class="wardrobe">
+          <div class="stand"><div id="ward-preview"></div><p id="ward-wearing"></p></div>
+          <div class="shelf">
+            <div class="pick" id="ward-tabs"></div>
+            <div class="items" id="ward-items"></div>
+          </div>
+        </div>
+        <button class="back ib" data-icon="back">Back</button>
       </div>
       <div class="card" id="lobby" hidden>
-        <p class="hint">Room code</p>
-        <div class="code" id="lobby-code">----</div>
-        <p class="hint" id="lobby-biome"></p>
-        <p class="hint">Friends type this code to join. Up to 4 players.</p>
-        <ul id="lobby-seats"></ul>
-        <button id="start" class="primary">Start run</button>
-        <p class="hint" id="lobby-wait">Waiting for the host to start...</p>
-        <button id="leave">Leave</button>
-        <p class="status" id="lobby-status"></p>
+        <div class="mechip panel">
+          <input id="name" maxlength="10" autocomplete="nickname" spellcheck="false" placeholder="TRAVELER" aria-label="Your name" />
+          <div class="heroline"><span id="hero-name">VANGUARD LV 1</span><span id="hero-xp">0/125 XP</span></div>
+          <div class="xp"><div id="hero-bar" style="width: 0"></div></div>
+          <div class="bar"><span id="account-line">GUEST: NOTHING IS SAVED</span><button id="account-btn" class="ib" data-icon="key">Sign in</button></div>
+        </div>
+        <div class="party" id="party-solo">
+          <button id="create" class="ib" data-icon="invite">Invite friends</button>
+          <button id="quick" class="ib" data-icon="quick">Quick match</button>
+          <div class="row">
+            <input id="code" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE" aria-label="Room code" />
+            <button id="join" class="ib" data-icon="join">Join</button>
+          </div>
+        </div>
+        <div class="party panel" id="party-room" hidden>
+          <p class="hint">Room code</p>
+          <div class="code" id="lobby-code">----</div>
+          <p class="hint" id="lobby-count"></p>
+          <button id="leave" class="ib" data-icon="leave">Leave room</button>
+        </div>
+        <div class="side">
+          <button id="to-skills" class="ib" data-icon="skills">Skills</button>
+          <button id="to-armory" class="ib" data-icon="armory">Armory</button>
+          <button id="to-souvenirs" class="ib" data-icon="souvenirs">Souvenirs</button>
+          <button id="to-wardrobe" class="ib" data-icon="wardrobe">Wardrobe</button>
+        </div>
+        <p class="status" id="status"></p>
+        <div class="lbar">
+          <button id="lobby-hero" class="ib" data-icon="hero">Hero</button>
+          <button id="lobby-emote" class="ib" data-icon="emote">Emote</button>
+          <button id="lobby-biome" class="ib" data-icon="map">Adventure</button>
+          <button id="play" class="ib" data-icon="play">Play</button>
+          <p class="hint wait" id="lobby-wait" hidden>Waiting for the host...</p>
+        </div>
       </div>
     </div>
     <div id="rotate"><div><span>&#x21bb;</span>Rotate your phone.<br />The luggage won't find itself.</div></div>

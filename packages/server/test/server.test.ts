@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import { matchMaker, Server, WebSocketTransport } from "colyseus";
-import { decodeSnapshot, EMPTY_INPUT, encodeInput, newGun, type Action, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
+import { decodeSnapshot, EMPTY_INPUT, encodeInput, newGun, type Action, type EmoteInfo, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
 import { mountApi } from "../src/api";
 import { Db, setDb } from "../src/db";
 import { cleanName, RunRoom } from "../src/RunRoom";
@@ -299,6 +299,65 @@ describe("accounts", () => {
     } finally {
       Math.random = random;
     }
+    await host.leave();
+  });
+});
+
+describe("lobby looks", () => {
+  it("shows everyone's outfit, updates it from the lobby, and passes emotes around", async () => {
+    // An account that won the Foundry owns the traffic cone and wears it.
+    const { data } = await api<AuthReply>("/api/register", { username: "EVE", password: "secret1" });
+    const win = { mode: "solo", heroId: "vanguard", tier: 0, victory: true, rooms: 6, kills: 50, guns: [], hand: [], day: "2026-10-10", biome: "foundry" };
+    await api("/api/sync", { actions: [{ type: "run", id: "eve-win", result: win }, { type: "outfit", id: "eve-hat", slot: "hat", cosmetic: "hat_cone" }] }, data.token);
+    const host = await new Client(url).create("run", { private: true, token: data.token });
+
+    // A guest asking for an earned hat only gets the starters.
+    const joined = nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats.length === 2);
+    const guest = await new Client(url).joinById(host.roomId, { name: "Guest", outfit: { hat: "hat_cone", trail: "trail_confetti", emote: "emote_shrug" } });
+    const lobby = await joined;
+    expect(lobby.seats[0]!.outfit.hat).toBe("hat_cone");
+    expect(lobby.seats[1]!.outfit).toEqual({ hat: "", trail: "trail_confetti", skin: "", emote: "emote_shrug" });
+
+    // Changing hero and hat in the lobby: the account saves first, then asks the room to reload it.
+    await api("/api/sync", { actions: [{ type: "hero", id: "eve-hero", heroId: "warden" }, { type: "outfit", id: "eve-hat2", slot: "hat", cosmetic: "hat_party" }] }, data.token);
+    const changed = nextMessage<LobbyInfo>(guest, "lobby", (l) => l.seats[0]!.heroId === "warden");
+    host.send("me", { heroId: "tinker", outfit: { hat: "hat_crown" } });
+    expect((await changed).seats[0]!.outfit.hat).toBe("hat_party");
+    const guestChange = nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats[1]!.heroId === "tinker");
+    guest.send("me", { name: "Guest", heroId: "tinker", outfit: { hat: "hat_party", emote: "emote_wave" } });
+    expect((await guestChange).seats[1]!.outfit.hat).toBe("hat_party");
+
+    // Emotes go to everyone, only the one you're wearing, and not too fast.
+    const emotes: EmoteInfo[] = [];
+    host.onMessage("emote", (e: EmoteInfo) => emotes.push(e));
+    guest.onMessage("emote", () => {});
+    guest.send("emote", "emote_bow");
+    guest.send("emote", "emote_wave");
+    guest.send("emote", "emote_wave");
+    await wait(300);
+    expect(emotes).toEqual([{ sessionId: guest.sessionId, emote: "emote_wave" }]);
+
+    await guest.leave();
+    await host.leave();
+  });
+
+  it("lets the host pick the adventure in the lobby, and nobody else", async () => {
+    const host = await new Client(url).create("run", { private: true, name: "H", biome: "foundry" });
+    const guest = await new Client(url).joinById(host.roomId, { name: "G" });
+    await nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats.length === 2);
+    guest.send("biome", "caverns");
+    await wait(150);
+    host.send("biome", "atlantis");
+    await wait(150);
+    const changed = nextMessage<LobbyInfo>(guest, "lobby");
+    host.send("biome", "caverns");
+    expect((await changed).biome).toBe("caverns");
+    host.send("start");
+    const run = await nextMessage<LobbyInfo>(host, "lobby", (l) => l.running);
+    expect(run.biome).toBe("caverns");
+    const room = matchMaker.getLocalRoomById(host.roomId) as unknown as { world: World };
+    expect(room.world.run.biome).toBe("caverns");
+    await guest.leave();
     await host.leave();
   });
 });

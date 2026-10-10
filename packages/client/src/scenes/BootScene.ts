@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { ARENA, EXIT, HERO_IDS } from "@lostluggage/sim";
 import { SLOT_PALETTES } from "../render/colors";
+import { cosmeticTextures, drawBelt, drawLobby } from "../render/cosmetics";
 import {
   BIOME_ART,
   drawCrate,
@@ -38,6 +39,9 @@ export class BootScene extends Phaser.Scene {
       const s = SPRITES[hero]!;
       SLOT_PALETTES.forEach((pal, i) => add(`${hero}_${i}`, drawSprite({ ...s, palette: { ...s.palette, ...pal } })));
     }
+    for (const [key, c] of Object.entries(cosmeticTextures())) add(key, c);
+    add("lobby-bg", drawLobby(480, 270));
+    add("belt", drawBelt());
     add("font", drawFont());
     add("glow", drawGlow(32));
     add("ring", drawRing(64, 3));

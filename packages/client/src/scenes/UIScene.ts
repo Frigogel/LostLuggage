@@ -3,6 +3,7 @@ import {
   BIOMES,
   BOOSTS,
   ELITES,
+  COSMETICS,
   SIGNATURES,
   DASH,
   ELEMENT_INFO,
@@ -431,12 +432,16 @@ export class UIScene extends Phaser.Scene {
     lines[1]!.setText(r.bonuses.join("  ")).setTint(0xc9cfd6);
     const loot = r.kept === 0 ? "NO NEW GUNS THIS TIME" : `${r.kept} GUN${r.kept === 1 ? "" : "S"} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}`;
     lines[2]!.setText(loot + (r.scrapped ? ` (${r.scrapped} SCRAPPED: STASH FULL)` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
-    lines[3]!.setText(r.souvenir ? "SOUVENIR FOUND! UNPACK IT IN THE MENU" : up ? "NEW SKILL POINTS: SPEND THEM IN THE MENU" : "").setTint(0xf2c14e);
-    if (r.souvenir && up) lines[4]!.setText("NEW SKILL POINTS TOO").setTint(0xf2c14e);
-    // A signature power is the rarest thing a run can give: it takes the last line.
+    // The last two lines go to the rarest news first.
     const sig = r.signature ? SIGNATURES[r.signature] : undefined;
-    if (sig) lines[4]!.setText(`SIGNATURE POWER: ${sig.name.toUpperCase()}! EQUIP IT IN SKILLS`).setTint(0xff9a2a);
-    if (up || r.souvenir || r.legendaries || sig) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
+    const looks = (r.cosmetics ?? []).map((id) => COSMETICS[id]?.name.toUpperCase()).filter(Boolean);
+    const news: [string, number][] = [];
+    if (sig) news.push([`SIGNATURE POWER: ${sig.name.toUpperCase()}! EQUIP IT IN SKILLS`, 0xff9a2a]);
+    if (looks.length) news.push([`NEW LOOK: ${looks.join(", ")}! TRY IT IN THE WARDROBE`, 0xe05a9a]);
+    if (r.souvenir) news.push(["SOUVENIR FOUND! UNPACK IT IN THE MENU", 0xf2c14e]);
+    if (up) news.push([news.length ? "NEW SKILL POINTS TOO" : "NEW SKILL POINTS: SPEND THEM IN THE MENU", 0xf2c14e]);
+    news.slice(0, 2).forEach(([text, tint], i) => lines[3 + i]!.setText(text).setTint(tint));
+    if (up || r.souvenir || r.legendaries || sig || looks.length) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
   }
 
   update(): void {

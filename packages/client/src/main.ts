@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { Menu } from "./menu";
 import { BootScene } from "./scenes/BootScene";
 import { GameScene } from "./scenes/GameScene";
+import { LobbyScene } from "./scenes/LobbyScene";
 import { UIScene } from "./scenes/UIScene";
 
 // Low internal resolution scaled up with crisp pixels (see Art direction in the design doc).
@@ -18,7 +19,7 @@ const game = new Phaser.Game({
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   input: { activePointers: 4 },
-  scene: [BootScene, GameScene, UIScene],
+  scene: [BootScene, GameScene, UIScene, LobbyScene],
 });
 
 const menu = new Menu(game);
