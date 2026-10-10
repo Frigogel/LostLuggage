@@ -83,7 +83,7 @@ function updateEnemy(w: World, e: Enemy): void {
   switch (e.state) {
     case "hidden": {
       const m = def.movement;
-      if (m.type === "ambush" && w.players.some((p) => !p.downed && dist(p.pos, e.pos) < m.trigger)) {
+      if (m.type === "ambush" && w.players.some((p) => !p.downed && !p.away && dist(p.pos, e.pos) < m.trigger)) {
         e.state = "reveal";
         e.stateT = m.revealMs / 1000;
         w.events.push({ type: "reveal", id: e.id });
@@ -266,7 +266,7 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
     case "slam": {
       w.events.push({ type: "explosion", x: e.pos.x, y: e.pos.y, radius: atk.radius, owner: "enemy", element: "none" });
       for (const p of w.players) {
-        if (p.downed || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
+        if (p.downed || p.away || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
         if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
         else hurtPlayer(w, p, atk.damage);
       }
@@ -347,7 +347,7 @@ function separate(w: World): void {
     }
     if (fixed(a)) continue;
     for (const p of w.players) {
-      if (p.downed || p.dashT > 0) continue;
+      if (p.downed || p.away || p.dashT > 0) continue;
       const off = sub(a.pos, p.pos);
       const min = a.radius + p.radius;
       const l = len(off);

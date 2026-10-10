@@ -1,16 +1,21 @@
 import { DT } from "./combat";
 import { planRun } from "./director";
 import { updateEnemies } from "./enemies";
-import { EMPTY_INPUT, makePlayer, updatePickups, updatePlayer } from "./players";
+import { checkWipe, EMPTY_INPUT, makePlayer, MAX_PLAYERS, startPos, updatePickups, updatePlayer, type PlayerOptions } from "./players";
 import { updateHazards, updateProjectiles } from "./projectiles";
 import { ARENA, enterRoom, START, updateRoom } from "./room";
 import type { PlayerInput, World } from "./types";
 
 export interface WorldOptions {
   seed: number;
+  /** Solo shorthand for a single player. Ignored when `players` is given. */
   heroId?: string;
+  /** Everyone starting the run, up to four. Defaults to one Vanguard. */
+  players?: PlayerOptions[];
   /** Difficulty tier: 0 = Normal. */
   tier?: number;
+  /** Co-op run: level sync and waiting for the party at the exit. A co-op room with one player is still co-op. */
+  coop?: boolean;
 }
 
 export function createWorld(opts: WorldOptions): World {
@@ -29,8 +34,9 @@ export function createWorld(opts: WorldOptions): World {
     run: {
       plans: [],
       // Replaced by enterRoom below.
-      room: { index: 0, kind: "intro", waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exit: { x: 0, y: 0, w: 0, h: 0 }, vents: [] },
+      room: { index: 0, kind: "intro", waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exit: { x: 0, y: 0, w: 0, h: 0 }, exitT: -1, vents: [] },
       tier: opts.tier ?? 0,
+      coop: opts.coop ?? false,
       kills: 0,
       gunsFound: 0,
       time: 0,
@@ -40,7 +46,8 @@ export function createWorld(opts: WorldOptions): World {
     gameOver: false,
   };
 
-  w.players.push(makePlayer(w, opts.heroId ?? "vanguard", START));
+  const party = (opts.players ?? [{ heroId: opts.heroId }]).slice(0, MAX_PLAYERS);
+  party.forEach((o, i) => w.players.push(makePlayer(w, o, startPos(START, i, party.length), i)));
   w.run.plans = planRun(w, w.run.tier, w.players.length);
   enterRoom(w, 0);
   return w;
@@ -64,10 +71,5 @@ export function step(w: World, inputs: readonly PlayerInput[]): void {
   updateHazards(w);
   w.enemies = w.enemies.filter((e) => e.hp > 0);
   updateRoom(w);
-
-  if (w.players.every((p) => p.downed && p.reviveT === Infinity)) {
-    w.gameOver = true;
-    w.events.push({ type: "gameOver" });
-  }
+  checkWipe(w);
 }
-

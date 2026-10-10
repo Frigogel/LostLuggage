@@ -1,6 +1,7 @@
 import { damageEnemy, dropHeal, DT, hurtPlayer, insideArenaSolid, newId, spawnEnemy } from "./combat";
 import { ENEMIES } from "./data/enemies";
-import { MAX_ENEMIES } from "./director";
+import { MAX_ENEMIES, planCombatWaves } from "./director";
+import { canAct, startPos } from "./players";
 import { newGun, BOOSTS } from "./loot";
 import { dist, pick, randRange, type Rect, type Vec } from "./math";
 import type { BoostId, Room, Vent, World } from "./types";
@@ -82,8 +83,17 @@ function updateVents(w: World, room: Room): void {
 
 // ---------------------------------------------------------------- rooms
 
+/** How long the exit waits for the rest of the party once someone steps on it. */
+export const EXIT_WAIT_S = 4;
+
 export function enterRoom(w: World, index: number): void {
   const plan = w.run.plans[index]!;
+  const party = w.players.filter((p) => !p.away).length || 1;
+  if (plan.kind === "combat" && plan.party !== party) {
+    // Someone dropped in or left: re-plan this room for the party that's actually here.
+    plan.waves = planCombatWaves(w, index, w.run.tier, party);
+    plan.party = party;
+  }
   const layout = LAYOUTS[plan.layout]!;
   w.arena.obstacles = layout.obstacles.map((o) => ({ ...o }));
   w.enemies = [];
@@ -100,16 +110,25 @@ export function enterRoom(w: World, index: number): void {
   const waves = plan.waves.map((wave) => wave.filter((id) => !id.startsWith("!")));
   const props = plan.waves.flatMap((wave) => wave.filter((id) => id.startsWith("!")).map((id) => id.slice(1)));
 
-  const room: Room = { index, kind: plan.kind, waves, waveIdx: 0, waveTimer: 1.5, cleared: false, exit: { ...EXIT }, vents };
+  const room: Room = { index, kind: plan.kind, waves, waveIdx: 0, waveTimer: 1.5, cleared: false, exit: { ...EXIT }, exitT: -1, vents };
   w.run.room = room;
 
-  for (const p of w.players) {
-    p.pos = { ...START };
+  w.players.forEach((p, i) => {
+    p.pos = startPos(START, i, w.players.length);
     p.vel = { x: 0, y: 0 };
     p.dashT = 0;
     p.burstLeft = 0;
     p.charging = false;
-  }
+    // Teammates left down in the last room get carried along.
+    if (p.downed && p.reviveT === Infinity && index > 0) {
+      p.downed = false;
+      p.reviveProgress = 0;
+      p.reviveT = 0;
+      p.hp = Math.max(1, Math.round(p.maxHp * 0.3));
+      p.iframes = 2;
+      w.events.push({ type: "playerRevived", id: p.id, by: -1 });
+    }
+  });
 
   for (const id of props) spawnEnemy(w, id, spawnPoint(w, 110), 0);
 
@@ -159,8 +178,20 @@ export function updateRoom(w: World): void {
 
   if (run.victory) return;
   const e = room.exit;
-  const atExit = w.players.some((p) => !p.downed && p.pos.x > e.x && p.pos.x < e.x + e.w && p.pos.y < e.y + e.h + p.radius + 4);
-  if (atExit) enterRoom(w, room.index + 1);
+  const up = w.players.filter(canAct);
+  const waiting = up.filter((p) => p.pos.x > e.x && p.pos.x < e.x + e.w && p.pos.y < e.y + e.h + p.radius + 4);
+  if (waiting.length === 0) {
+    room.exitT = -1;
+    return;
+  }
+  // Everyone who can walk is at the door: go now. Otherwise give the stragglers a few seconds.
+  if (waiting.length === up.length) {
+    enterRoom(w, room.index + 1);
+    return;
+  }
+  if (room.exitT < 0) room.exitT = EXIT_WAIT_S;
+  room.exitT -= DT;
+  if (room.exitT <= 0) enterRoom(w, room.index + 1);
 }
 
 function spawnWave(w: World, room: Room): void {

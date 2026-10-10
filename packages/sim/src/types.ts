@@ -209,6 +209,15 @@ export type BoostId = "bounce" | "burnSpread" | "vampire" | "quickPips" | "dashB
 export interface Player {
   id: number;
   heroId: string;
+  name: string;
+  /** Party slot 0-3: picks the player's color. */
+  slot: number;
+  /** The hero's own level. */
+  level: number;
+  /** The level the player's stats are set to: their own in solo, the dungeon tier's in co-op (level sync). */
+  syncLevel: number;
+  /** Disconnected or app in the background: enemies ignore them and they can't act. */
+  away: boolean;
   pos: Vec;
   vel: Vec;
   radius: number;
@@ -231,7 +240,10 @@ export interface Player {
   skillCharge: number;
   grenadeCd: number;
   downed: boolean;
+  /** Second Wind countdown while downed. Infinity = waiting for a teammate. */
   reviveT: number;
+  /** 0..1 while teammates stand next to a downed player. */
+  reviveProgress: number;
   selfRevives: number;
   /** Run boosts from shrines: id → stacks. Reset every run. */
   boosts: Partial<Record<BoostId, number>>;
@@ -369,6 +381,8 @@ export interface RoomPlan {
   layout: number;
   /** Enemy ids per wave. */
   waves: string[][];
+  /** Party size the waves were planned for. Combat rooms are re-planned on entry if it changed. */
+  party: number;
 }
 
 export interface Room {
@@ -380,6 +394,8 @@ export interface Room {
   waveTimer: number;
   cleared: boolean;
   exit: Rect;
+  /** Co-op: counts down while someone waits at the exit, so nobody gets yanked out mid-loot. -1 = idle. */
+  exitT: number;
   vents: Vent[];
 }
 
@@ -388,6 +404,8 @@ export interface Run {
   room: Room;
   /** Higher = bigger budgets and better loot. Normal = 0. */
   tier: number;
+  /** Co-op runs use level sync and wait for the party at the exit. */
+  coop: boolean;
   kills: number;
   gunsFound: number;
   time: number;
@@ -433,7 +451,12 @@ export type SimEvent =
   | { type: "ventErupt"; id: number; x: number; y: number }
   | { type: "playerHurt"; id: number; damage: number }
   | { type: "playerDowned"; id: number; canRevive: boolean }
-  | { type: "playerRevived"; id: number }
+  /** The last player standing went down and Second Wind kicks in. */
+  | { type: "secondWind"; id: number }
+  /** `by` is the teammate who did it, or -1 for Second Wind and room changes. */
+  | { type: "playerRevived"; id: number; by: number }
+  | { type: "playerJoined"; id: number }
+  | { type: "playerLeft"; id: number }
   | { type: "dash"; id: number }
   | { type: "skill"; id: number; x: number; y: number }
   | { type: "grenade"; id: number }

@@ -30,7 +30,7 @@ function family(biome: string, role: Role): EnemyDef[] {
 }
 
 export function roomBudget(roomIndex: number, tier: number, partySize: number): number {
-  // Co-op will scale enemy count with party size; solo is 1.
+  // Each extra player adds 60% more enemies (their health also scales a little, see partyHpMultiplier).
   return (10 + roomIndex * 4) * (1 + tier * 0.35) * (1 + (partySize - 1) * 0.6);
 }
 
@@ -80,28 +80,35 @@ export function planWave(w: World, budget: number, biome = "foundry", avoidTempl
 /** A solo adventure: hand-made intro, combat, breather, combat spike, mini-boss. About 6-8 minutes. */
 export function planRun(w: World, tier: number, partySize = 1): RoomPlan[] {
   const plans: RoomPlan[] = [];
-  // The first room of a biome is hand-made, so it teaches instead of surprising.
+  // The first room of a biome is hand-made, so it teaches instead of surprising. Co-op adds a couple of rats per friend.
+  const extraRats = Array<string>(Math.max(0, partySize - 1) * 2).fill("cone_rat");
   plans.push({
     kind: "intro",
     layout: 0,
-    waves: [["cone_rat", "cone_rat", "cone_rat", "cone_rat"], ["slag_golem", "cone_rat", "cone_rat", "cone_rat"], ["mortar_beetle", "acid_slime", "cone_rat", "cone_rat"]],
+    waves: [["cone_rat", "cone_rat", "cone_rat", "cone_rat"], ["slag_golem", "cone_rat", "cone_rat", "cone_rat"], ["mortar_beetle", "acid_slime", "cone_rat", "cone_rat"]].map((wave) => [...wave, ...extraRats]),
+    party: partySize,
   });
 
   const combatLayouts = rand(w) < 0.5 ? [1, 2] : [2, 1];
   for (const [n, roomIndex] of [[0, 1], [1, 3]] as const) {
-    if (roomIndex === 3) plans.push({ kind: "breather", layout: 3, waves: [] });
-    const waves: string[][] = [];
-    let last = -1;
-    const pacing = roomIndex === 1 ? PACING.slice(0, 3) : PACING;
-    for (const p of pacing) {
-      const plan = planWave(w, roomBudget(roomIndex, tier, partySize) * p, "foundry", last);
-      last = plan.template;
-      // Props are marked with a leading "!" so the room can place them hidden at entry.
-      waves.push([...plan.enemies, ...plan.props.map((id) => "!" + id)]);
-    }
-    plans.push({ kind: "combat", layout: combatLayouts[n]!, waves });
+    if (roomIndex === 3) plans.push({ kind: "breather", layout: 3, waves: [], party: partySize });
+    plans.push({ kind: "combat", layout: combatLayouts[n]!, waves: planCombatWaves(w, roomIndex, tier, partySize), party: partySize });
   }
 
-  plans.push({ kind: "boss", layout: 4, waves: [["furnace_foreman"]] });
+  plans.push({ kind: "boss", layout: 4, waves: [["furnace_foreman"]], party: partySize });
   return plans;
+}
+
+/** Waves for a director-built combat room. Rooms are re-planned on entry when players dropped in or left. */
+export function planCombatWaves(w: World, roomIndex: number, tier: number, partySize: number): string[][] {
+  const waves: string[][] = [];
+  let last = -1;
+  const pacing = roomIndex <= 1 ? PACING.slice(0, 3) : PACING;
+  for (const p of pacing) {
+    const plan = planWave(w, roomBudget(roomIndex, tier, partySize) * p, "foundry", last);
+    last = plan.template;
+    // Props are marked with a leading "!" so the room can place them hidden at entry.
+    waves.push([...plan.enemies, ...plan.props.map((id) => "!" + id)]);
+  }
+  return waves;
 }

@@ -13,11 +13,12 @@ import {
   interactable,
   type Gun,
   type Pickup,
+  type Player,
   type SimEvent,
   type World,
 } from "@lostluggage/sim";
 import { BUTTONS, Controls, SCREEN, STICK_R, WEAPON_SLOTS, stickValue, type ButtonId, type Stick } from "../controls";
-import { ELEMENT_COLORS, RARITY_COLORS } from "../render/colors";
+import { ELEMENT_COLORS, RARITY_COLORS, SLOT_COLORS } from "../render/colors";
 import type { GameScene } from "./GameScene";
 
 const BUTTON_LABELS: Record<ButtonId, { touch: string; keys: string }> = {
@@ -63,6 +64,15 @@ export class UIScene extends Phaser.Scene {
   private slotIcons: Phaser.GameObjects.Image[] = [];
   private panel?: Phaser.GameObjects.Container;
   private pausePanel?: Phaser.GameObjects.Container;
+  /** Tappable areas on the end and pause panels, in screen pixels. */
+  private panelButtons: { x: number; y: number; w: number; h: number; action: () => void }[] = [];
+  private partyText: Text[] = [];
+  private netText!: Text;
+  private partyToast!: Text;
+  /** Names of everyone seen this run, so "X left" still has a name after they're gone. */
+  private names = new Map<number, string>();
+  private secondWind = false;
+  private statusShown = false;
   private seen = loadSeen();
 
   constructor() {
@@ -75,6 +85,11 @@ export class UIScene extends Phaser.Scene {
     this.buttonText.clear();
     this.panel = undefined;
     this.pausePanel = undefined;
+    this.panelButtons = [];
+    this.partyText = [];
+    this.names.clear();
+    this.secondWind = false;
+    this.statusShown = false;
   }
 
   private get game_(): GameScene {
@@ -115,14 +130,20 @@ export class UIScene extends Phaser.Scene {
     this.tweens.add({ targets: this.help, alpha: 0, delay: 12000, duration: 1500 });
     this.exitLabel = this.text(0, 0, "EXIT", 8).setOrigin(0.5).setTint(0x5fd36a);
     this.toast = [this.text(6, 52, "").setTint(0xffe08a), this.text(6, 63, "").setTint(0xc9cfd6)];
+    // Party panel under your health: one line per teammate.
+    this.partyText = [0, 1, 2].map((i) => this.text(14, 38 + i * 10, ""));
+    this.partyToast = this.text(SCREEN.w / 2, 132, "").setOrigin(0.5).setAlpha(0);
+    this.netText = this.text(4, SCREEN.h - 3, "").setOrigin(0, 1).setTint(0x8a8090);
 
     game.events.on("sim", this.onSim, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => game.events.off("sim", this.onSim, this));
 
-    this.input.on("pointerdown", () => {
+    this.input.on("pointerdown", (ptr: Phaser.Input.Pointer) => {
       const w = this.game_.world;
-      if (this.game_.paused) this.unpause();
-      else if ((w.gameOver || w.run.victory) && this.panel?.getData("ready")) this.restart();
+      const btn = this.panelButtons.find((b) => ptr.x >= b.x && ptr.x <= b.x + b.w && ptr.y >= b.y && ptr.y <= b.y + b.h);
+      if (btn && (this.pausePanel || this.panel?.getData("ready"))) btn.action();
+      else if (this.game_.paused) this.unpause();
+      else if ((w.gameOver || w.run.victory) && this.panel?.getData("ready") && !this.game_.net) this.restart();
       // Fullscreen needs a user gesture; on iPhone it only works once installed to the home screen.
       if (this.controls.touchMode && !this.scale.isFullscreen && this.sys.game.device.os.android) {
         try {
@@ -136,24 +157,62 @@ export class UIScene extends Phaser.Scene {
     this.input.keyboard!.on("keydown-ENTER", () => {
       if (this.panel?.getData("ready")) this.restart();
     });
+    this.input.keyboard!.on("keydown-L", () => {
+      if (this.game_.net && (this.pausePanel || this.panel)) this.leave();
+    });
     this.input.keyboard!.on("keydown-ESC", () => (this.game_.paused ? this.unpause() : this.pause()));
   }
 
   private restart(): void {
+    const net = this.game_.net;
+    // Co-op: the host asks the server for a new run, and everyone's scenes restart when it starts.
+    if (net) {
+      if (net.isHost) net.again();
+      return;
+    }
     this.controls.reset();
     this.game_.scene.restart();
     this.scene.restart();
   }
 
+  /** Back to the menu. */
+  private leave(): void {
+    this.game.events.emit("leave");
+  }
+
   private pause(): void {
-    if (this.game_.world.gameOver) return;
+    if (this.game_.world.gameOver || this.panel) return;
+    // Co-op keeps running: "pause" is a menu, and your hero stands still while it's open.
     this.game_.paused = true;
+    this.controls.reset();
   }
 
   private unpause(): void {
     this.game_.resume();
     this.pausePanel?.destroy();
     this.pausePanel = undefined;
+    this.panelButtons = [];
+  }
+
+  /** A tappable text button inside a panel container centered on screen. */
+  private panelButton(c: Phaser.GameObjects.Container, x: number, y: number, label: string, tint: number, action: () => void): void {
+    const t = this.add.bitmapText(x, y, "pixel", label, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(tint);
+    const w = t.width + 16;
+    const h = 16;
+    const bg = this.add.rectangle(x, y, w, h, 0x1b1020, 1).setStrokeStyle(1, tint);
+    c.add([bg, t]);
+    this.panelButtons.push({ x: c.x + x - w / 2, y: c.y + y - h / 2, w, h, action });
+  }
+
+  /** Short party news under the banner: joins, leaves, downs. */
+  private partyNews(text: string, tint: number): void {
+    this.partyToast.setText(text).setTint(tint).setAlpha(1);
+    this.tweens.killTweensOf(this.partyToast);
+    this.tweens.add({ targets: this.partyToast, alpha: 0, delay: 2500, duration: 500 });
+  }
+
+  private nameOf(id: number): string {
+    return this.names.get(id) ?? "A FRIEND";
   }
 
   private showBanner(main: string, sub = "", tint = 0xffffff, ms = 1600): void {
@@ -178,13 +237,16 @@ export class UIScene extends Phaser.Scene {
     this.toast[0]!.setText(`NEW: ${def.name.toUpperCase()}`);
     this.toast[1]!.setText(def.flavor.toUpperCase());
     this.tweens.killTweensOf(this.toast);
-    for (const t of this.toast) t.setAlpha(1).setX(-200);
+    const top = 52 + Math.max(0, this.game_.world.players.length - 1) * 10;
+    this.toast.forEach((t, i) => t.setAlpha(1).setX(-200).setY(top + i * 11));
     this.tweens.add({ targets: this.toast, x: 6, duration: 300, ease: "Cubic.out" });
     this.tweens.add({ targets: this.toast, alpha: 0, delay: 4000, duration: 500 });
   }
 
   private onSim(events: SimEvent[]): void {
     const world = this.game_.world;
+    const myId = this.game_.myId;
+    for (const p of world.players) this.names.set(p.id, p.name);
     for (const ev of events) {
       switch (ev.type) {
         case "waveStart":
@@ -214,19 +276,41 @@ export class UIScene extends Phaser.Scene {
           this.showBanner(ev.phase === 1 ? "HE'S FILING A COMPLAINT" : "HE WANTS A FULL REFUND", "", 0xe0533d);
           break;
         case "playerHurt":
+          if (ev.id !== myId) break;
           this.hurtOverlay.setAlpha(0.25);
           this.tweens.add({ targets: this.hurtOverlay, alpha: 0, duration: 250 });
           break;
         case "playerDowned":
-          if (ev.canRevive) this.showBanner("DOWNED!", "SECOND WIND INCOMING...", 0xe0533d);
+          if (ev.id === myId) {
+            if (world.players.some((p) => p.id !== myId && !p.downed && !p.away)) this.showBanner("DOWNED!", "HANG ON. A FRIEND CAN PICK YOU UP.", 0xe0533d, 2400);
+          } else this.partyNews(`${this.nameOf(ev.id)} IS DOWN! STAND NEXT TO THEM`, 0xe0533d);
+          break;
+        case "secondWind":
+          if (ev.id === myId) {
+            this.secondWind = true;
+            this.showBanner("DOWNED!", "SECOND WIND INCOMING...", 0xe0533d);
+          }
           break;
         case "playerRevived":
-          this.showBanner("SECOND WIND!", "", 0x9ff3ff);
+          if (ev.id === myId) {
+            if (ev.by >= 0) this.showBanner("PICKED UP!", `THANKS, ${this.nameOf(ev.by)}`, 0x9ff3ff);
+            else if (this.secondWind) this.showBanner("SECOND WIND!", "", 0x9ff3ff);
+            this.secondWind = false;
+          } else if (ev.by === myId) this.partyNews(`YOU PICKED UP ${this.nameOf(ev.id)}!`, 0x9ff3ff);
+          else if (ev.by >= 0) this.partyNews(`${this.nameOf(ev.by)} PICKED UP ${this.nameOf(ev.id)}`, 0x9ff3ff);
+          break;
+        case "playerJoined":
+          if (ev.id !== myId) this.partyNews(`${this.nameOf(ev.id)} DROPPED IN`, 0xb48cff);
+          break;
+        case "playerLeft":
+          this.partyNews(`${this.nameOf(ev.id)} LEFT`, 0xc9cfd6);
           break;
         case "pickup":
+          if (ev.id !== myId) break;
           this.showBanner(gunName(ev.gun).toUpperCase(), `${ev.gun.rarity} ${gunStats(ev.gun).archetype}`.toUpperCase(), RARITY_COLORS[ev.gun.rarity]);
           break;
         case "shrine":
+          if (ev.id !== myId) break;
           this.showBanner(BOOSTS[ev.boost].name.toUpperCase(), BOOSTS[ev.boost].text.toUpperCase(), 0xf2c14e, 2200);
           break;
         case "gameOver":
@@ -252,8 +336,14 @@ export class UIScene extends Phaser.Scene {
       t(-18, won ? "THE FOREMAN HAS BEEN ESCALATED." : `REACHED ROOM ${run.room.index + 1}/${run.plans.length}`, 8),
       t(-2, `${mins}:${secs}   ${run.kills} KILLS   ${run.gunsFound} GUNS FOUND`, 8, 0xc9cfd6),
       t(14, won ? "PLEASE RATE YOUR CRUISE." : "THE CRUISE LINE IS NOT LIABLE.", 8, 0xc9cfd6),
-      t(42, this.controls.touchMode ? "TAP FOR ANOTHER RUN" : "CLICK OR ENTER FOR ANOTHER RUN", 8, 0xf2c14e),
     ]);
+    const net = this.game_.net;
+    if (!net) c.add(t(42, this.controls.touchMode ? "TAP FOR ANOTHER RUN" : "CLICK OR ENTER FOR ANOTHER RUN", 8, 0xf2c14e));
+    else {
+      if (net.isHost) this.panelButton(c, -50, 42, "ANOTHER RUN", 0xf2c14e, () => this.restart());
+      else c.add(t(30, "WAITING FOR THE HOST...", 8, 0xc9cfd6));
+      this.panelButton(c, net.isHost ? 50 : 0, 42, "LEAVE", 0xc9cfd6, () => this.leave());
+    }
     c.setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 350, ease: "Back.out", delay: won ? 0 : 500 });
     // Ignore the taps that were already happening when the run ended.
@@ -265,23 +355,32 @@ export class UIScene extends Phaser.Scene {
     const game = this.game_;
     const world = game?.world;
     if (!world) return;
-    const p = world.players[0]!;
+    const p = game.me;
     const g = this.gfx;
     g.clear();
 
     if (game.paused && !this.pausePanel && !world.gameOver) {
       const c = this.add.container(SCREEN.w / 2, SCREEN.h / 2);
+      const net = game.net;
       c.add([
         this.add.rectangle(0, 0, SCREEN.w, SCREEN.h, 0x1b1020, 0.7),
-        this.add.bitmapText(0, -8, "pixel", "PAUSED", 16).setOrigin(0.5).setLetterSpacing(-1),
-        this.add.bitmapText(0, 14, "pixel", this.controls.touchMode ? "TAP TO RESUME" : "CLICK OR P TO RESUME", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e),
+        this.add.bitmapText(0, -20, "pixel", net ? "MENU" : "PAUSED", 16).setOrigin(0.5).setLetterSpacing(-1),
+        this.add.bitmapText(0, 0, "pixel", this.controls.touchMode ? "TAP TO RESUME" : "CLICK OR P TO RESUME", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e),
       ]);
+      if (net) {
+        // The party keeps going while this is open.
+        c.add(this.add.bitmapText(0, 14, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        this.panelButton(c, 0, 36, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
+      }
       this.pausePanel = c;
     }
 
-    this.drawHealth(world);
+    for (const pl of world.players) this.names.set(pl.id, pl.name);
+    this.drawHealth(p);
+    this.drawParty(world);
+    this.drawTeammateArrows(world);
     this.drawRoomProgress(world);
-    this.drawWeaponSlots(world);
+    this.drawWeaponSlots(p);
     this.drawExitArrow(world);
 
     // Action buttons with cooldown fills.
@@ -303,13 +402,73 @@ export class UIScene extends Phaser.Scene {
     this.drawCard(pk, p.guns[p.active]!);
     this.help.setVisible(!touch && !pk && !this.panel);
 
-    if (p.downed && p.reviveT !== Infinity) {
-      this.subBanner.setText(`SECOND WIND IN ${Math.ceil(p.reviveT)}`).setAlpha(1);
+    // Live status lines borrow the sub-banner while they apply, and hand it back when they stop.
+    let status: [string, number] | undefined;
+    if (p.downed && p.reviveT !== Infinity) status = [`SECOND WIND IN ${Math.ceil(p.reviveT)}`, 0xffe08a];
+    else if (p.downed && !world.gameOver) {
+      // Waiting for a friend: show how close they are to picking you up.
+      const bw = 80;
+      const bx = SCREEN.w / 2 - bw / 2;
+      g.fillStyle(0x1b1020, 0.85).fillRect(bx - 1, 125, bw + 2, 6);
+      g.fillStyle(0x9ff3ff).fillRect(bx, 126, Math.round(bw * p.reviveProgress), 4);
+      status = [p.reviveProgress > 0 ? "GETTING PICKED UP..." : "DOWNED. WAIT FOR A FRIEND", 0xffe08a];
+    } else if (world.run.room.exitT >= 0 && !world.run.victory) {
+      status = [`LEAVING THE ROOM IN ${Math.ceil(world.run.room.exitT)}...`, 0x5fd36a];
+    }
+    if (status) {
+      // Set every frame, so it wins over the banner's fade-out tween without cancelling it.
+      this.subBanner.setText(status[0]).setTint(status[1]).setAlpha(1);
+    } else if (this.statusShown) this.subBanner.setAlpha(0).setTint(0xffe08a);
+    this.statusShown = !!status;
+
+    const net = game.net;
+    this.netText.setVisible(!!net).setText(net ? `ROOM ${net.lobby?.code ?? ""}  ${Math.round(net.rtt)}MS` : "");
+  }
+
+  /** Teammates under your health bar: color, name, health, and whether they need help. */
+  private drawParty(world: World): void {
+    const g = this.gfx;
+    const others = world.players.filter((pl) => pl.id !== this.game_.myId);
+    this.partyText.forEach((t, i) => {
+      const o = others[i];
+      t.setVisible(!!o);
+      if (!o) return;
+      const y = 38 + i * 10;
+      const color = SLOT_COLORS[o.slot] ?? 0xffffff;
+      g.fillStyle(color).fillRect(6, y + 1, 5, 5);
+      const status = o.away ? "AWAY" : o.downed ? "DOWN!" : "";
+      t.setText(`${o.name} ${status}`).setTint(o.downed ? 0xe0533d : o.away ? 0x8a8090 : 0xffffff);
+      const bx = 16 + t.width + 3;
+      g.fillStyle(0x1b1020).fillRect(bx - 1, y + 1, 32, 4);
+      g.fillStyle(o.downed ? 0x5a5060 : color).fillRect(bx, y + 2, Math.round((30 * o.hp) / o.maxHp), 2);
+    });
+  }
+
+  /** Off-screen teammates get an arrow at the screen edge, so the party never loses each other. */
+  private drawTeammateArrows(world: World): void {
+    const cam = this.game_.cameras.main;
+    const view = cam.worldView;
+    const g = this.gfx;
+    for (const o of world.players) {
+      if (o.id === this.game_.myId || o.away) continue;
+      const sx = o.pos.x - view.x;
+      const sy = o.pos.y - view.y;
+      if (sx > 0 && sx < SCREEN.w && sy > 0 && sy < SCREEN.h) continue;
+      const cx = SCREEN.w / 2;
+      const cy = SCREEN.h / 2;
+      const a = Math.atan2(sy - cy, sx - cx);
+      const x = Phaser.Math.Clamp(sx, 12, SCREEN.w - 12);
+      const y = Phaser.Math.Clamp(sy, 12, SCREEN.h - 12);
+      const color = o.downed ? 0xe0533d : (SLOT_COLORS[o.slot] ?? 0xffffff);
+      const tip = (d: number, da: number) => ({ x: x + Math.cos(a + da) * d, y: y + Math.sin(a + da) * d });
+      const p1 = tip(6, 0);
+      const p2 = tip(5, 2.4);
+      const p3 = tip(5, -2.4);
+      g.fillStyle(color, o.downed && Math.floor(this.time.now / 250) % 2 === 0 ? 0.4 : 1).fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
     }
   }
 
-  private drawHealth(world: World): void {
-    const p = world.players[0]!;
+  private drawHealth(p: Player): void {
     const g = this.gfx;
     const hpW = 100;
     g.fillStyle(0x1b1020).fillRect(5, 14, hpW + 2, 8);
@@ -319,7 +478,10 @@ export class UIScene extends Phaser.Scene {
     g.fillStyle(0xffffff, 0.25).fillRect(6, 15, Math.round(hpW * frac), 1);
     for (let i = 1; i < 6; i++) g.fillStyle(0x1b1020, 0.5).fillRect(6 + (hpW / 6) * i, 15, 1, 6);
     this.hpText.setText(`${Math.ceil(p.hp)}`);
-    this.heroLabel.setText(p.selfRevives > 0 ? "VANGUARD" : "VANGUARD  NO SECOND WIND");
+    const name = p.name || HEROES[p.heroId]!.name.toUpperCase();
+    // Level sync: co-op shows the level your stats were set to.
+    const lv = this.game_.net ? `LV ${p.syncLevel}` : `LV ${p.level}`;
+    this.heroLabel.setText(`${name}  ${lv}${p.selfRevives > 0 ? "" : "  NO SECOND WIND"}`);
     const boosts = Object.entries(p.boosts).map(([id, n]) => `${BOOSTS[id as keyof typeof BOOSTS].name.replace("SHRINE OF ", "").replace("Shrine of ", "").toUpperCase()}${n! > 1 ? " X" + n : ""}`);
     this.boostText.setText(boosts.join("  "));
   }
@@ -364,8 +526,7 @@ export class UIScene extends Phaser.Scene {
     this.killText.setText(`${run.kills} KILLS`);
   }
 
-  private drawWeaponSlots(world: World): void {
-    const p = world.players[0]!;
+  private drawWeaponSlots(p: Player): void {
     const g = this.gfx;
     WEAPON_SLOTS.forEach((s, i) => {
       const gun = p.guns[i]!;

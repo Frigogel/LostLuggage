@@ -14,7 +14,7 @@ export function newId(w: World): number {
 export const freshStatus = (): Status => ({ burnT: 0, burnDps: 0, burnSource: 0, burnTick: 0, frost: 0, frozenT: 0, acidT: 0 });
 
 /** Keeps a circle inside the arena and out of obstacles. Mutates `p`. Returns true on any contact. */
-export function confine(w: World, p: Vec, r: number): boolean {
+export function confine(w: Pick<World, "arena">, p: Vec, r: number): boolean {
   let hit = false;
   for (const o of w.arena.obstacles) hit = pushCircleOutOfRect(p, r, o) || hit;
   const x = clamp(p.x, r, w.arena.w - r);
@@ -60,7 +60,7 @@ export function nearestPlayer(w: World, from: Vec): Player | undefined {
   let best: Player | undefined;
   let bestD = Infinity;
   for (const p of w.players) {
-    if (p.downed) continue;
+    if (p.downed || p.away) continue;
     const d = dist(from, p.pos);
     if (d < bestD) {
       bestD = d;
@@ -218,6 +218,7 @@ export function dropHeal(w: World, at: Vec, amount: number): void {
 
 export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number): Enemy {
   const def = ENEMIES[defId]!;
+  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss));
   const e: Enemy = {
     id: newId(w),
     defId,
@@ -225,8 +226,8 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
     vel: { x: 0, y: 0 },
     knock: { x: 0, y: 0 },
     radius: def.radius,
-    hp: def.hp,
-    maxHp: def.hp,
+    hp,
+    maxHp: hp,
     shield: 0,
     state: def.movement.type === "ambush" ? "hidden" : "move",
     stateT: 0,
@@ -250,7 +251,7 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
 }
 
 export function hurtPlayer(w: World, p: Player, amount: number): boolean {
-  if (p.downed || p.iframes > 0) return false;
+  if (p.downed || p.away || p.iframes > 0) return false;
   p.hp -= amount;
   p.iframes = 0.45;
   p.hurtT = 0.2;
@@ -260,16 +261,19 @@ export function hurtPlayer(w: World, p: Player, amount: number): boolean {
     p.downed = true;
     p.charging = false;
     p.burstLeft = 0;
-    const canRevive = p.selfRevives > 0;
-    if (canRevive) {
-      p.selfRevives--;
-      p.reviveT = 3;
-    } else {
-      p.reviveT = Infinity;
-    }
+    // Wait for a teammate. If nobody is left standing, the end of the tick hands out Second Wind (see checkWipe).
+    p.reviveT = Infinity;
+    p.reviveProgress = 0;
+    const canRevive = p.selfRevives > 0 || w.players.some((o) => o !== p && !o.downed && !o.away);
     w.events.push({ type: "playerDowned", id: p.id, canRevive });
   }
   return true;
+}
+
+/** Enemy health scales with the party: a bit for regular enemies (there are also more of them), a lot for bosses. */
+export function partyHpMultiplier(w: World, boss: boolean): number {
+  const extra = Math.max(0, w.players.filter((p) => !p.away).length - 1);
+  return 1 + extra * (boss ? 0.7 : 0.2);
 }
 
 /** Area damage from a player explosion: hurts enemies, never teammates or yourself (for now). */

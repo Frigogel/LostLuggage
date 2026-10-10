@@ -1,10 +1,11 @@
 import Phaser from "phaser";
 import { ARENA, EXIT } from "@lostluggage/sim";
+import { SLOT_PALETTES } from "../render/colors";
 import { drawCrate, drawDoor, drawFloor, drawVent, drawFont, drawGlow, drawLava, drawRing, drawShadow, drawSprite, drawVignette, FONT_CELL, FONT_CHARS, SPRITES } from "../render/pixels";
 
 export const FLOOR_PAD = 8;
 
-/** Generates every texture in code, then starts the game and its HUD. */
+/** Generates every texture in code, then hands over to the menu. */
 export class BootScene extends Phaser.Scene {
   constructor() {
     super("boot");
@@ -14,6 +15,8 @@ export class BootScene extends Phaser.Scene {
     const add = (key: string, c: HTMLCanvasElement) => this.textures.addCanvas(key, c);
 
     for (const [key, s] of Object.entries(SPRITES)) add(key, drawSprite(s));
+    // One recolored hero per party slot, so friends can tell each other apart.
+    SLOT_PALETTES.forEach((pal, i) => add(`vanguard_${i}`, drawSprite({ ...SPRITES.vanguard!, palette: { ...SPRITES.vanguard!.palette, ...pal } })));
     add("font", drawFont());
     add("glow", drawGlow(32));
     add("ring", drawRing(64, 3));
@@ -61,7 +64,7 @@ export class BootScene extends Phaser.Scene {
       }),
     );
 
-    this.scene.start("game");
-    this.scene.launch("ui");
+    // The menu (plain HTML over the canvas) decides what to start.
+    this.game.events.emit("booted");
   }
 }

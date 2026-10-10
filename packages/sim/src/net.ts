@@ -1,0 +1,487 @@
+// Wire format for co-op, shared by the server and the clients.
+//
+// The server runs the real sim and sends snapshots of it. A snapshot is plain arrays of small integers
+// (positions in quarter pixels, timers in centiseconds), which msgpack packs into a few bytes each, so
+// four phones on mobile data stay well under the bandwidth of a music stream. Clients decode a snapshot
+// back into an ordinary `World`, so the renderer doesn't care whether it is drawing solo or co-op.
+
+import { ENEMIES } from "./data/enemies";
+import { GUNS } from "./data/guns";
+import { HEROES } from "./data/heroes";
+import { BOOSTS, PERKS, RARITIES } from "./loot";
+import { clamp, fromAngle, angleOf, type Vec } from "./math";
+import { EMPTY_INPUT } from "./players";
+import { EXIT, LAYOUTS } from "./room";
+import { ARENA } from "./room";
+import type {
+  BoostId,
+  Dome,
+  Element,
+  Enemy,
+  EnemyState,
+  Gun,
+  Hazard,
+  PerkId,
+  Pickup,
+  PickupKind,
+  Player,
+  PlayerInput,
+  Projectile,
+  RoomKind,
+  SimEvent,
+  Vent,
+  World,
+} from "./types";
+
+/** The server sends a snapshot every this many ticks (30 Hz sim → 15 Hz snapshots). */
+export const SNAPSHOT_EVERY = 2;
+
+const ENEMY_IDS = Object.keys(ENEMIES);
+const GUN_IDS = Object.keys(GUNS);
+const HERO_IDS = Object.keys(HEROES);
+const PERK_IDS = Object.keys(PERKS) as PerkId[];
+const BOOST_IDS = Object.keys(BOOSTS) as BoostId[];
+const ELEMENT_IDS: Element[] = ["none", "fire", "shock", "frost", "acid"];
+const STATES: EnemyState[] = ["move", "windup", "attack", "recover", "hidden", "reveal"];
+const ROOM_KINDS: RoomKind[] = ["intro", "combat", "breather", "boss"];
+const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest"];
+const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt"];
+
+const POS = 4; // quarter pixels
+const T = 100; // centiseconds
+
+const q = (v: number, s: number): number => Math.round(v * s);
+const qa = (a: number): number => Math.round(a * 1000);
+const dqa = (n: number): Vec => fromAngle(n / 1000);
+const idx = <T>(list: readonly T[], v: T): number => Math.max(0, list.indexOf(v));
+const b = (v: boolean): number => (v ? 1 : 0);
+
+export interface Snapshot {
+  /** World tick. */
+  t: number;
+  /** Last input sequence the server applied for each player: [playerId, seq, playerId, seq, ...]. */
+  a: number[];
+  /** Run and room numbers, see encodeRun. */
+  r: number[];
+  /** Room plans: [kind, layout, kind, layout, ...]. */
+  pl: number[];
+  v: number[][];
+  p: unknown[][];
+  e: number[][];
+  j: number[][];
+  d: number[][];
+  h: number[][];
+  k: unknown[][];
+  /** Every sim event since the previous snapshot, oldest first. */
+  ev: unknown[][];
+}
+
+// ---------------------------------------------------------------- guns
+
+type GunWire = [number, number, number, number, number[], number];
+
+const encodeGun = (g: Gun): GunWire => [g.uid, idx(GUN_IDS, g.defId), idx(ELEMENT_IDS, g.element), idx(RARITIES, g.rarity), g.perks.map((p) => idx(PERK_IDS, p)), q(g.pips, T)];
+
+const decodeGun = (a: GunWire): Gun => ({
+  uid: a[0],
+  defId: GUN_IDS[a[1]] ?? "pistol",
+  element: ELEMENT_IDS[a[2]] ?? "none",
+  rarity: RARITIES[a[3]] ?? "common",
+  perks: a[4].map((i) => PERK_IDS[i]!).filter(Boolean),
+  pips: a[5] / T,
+});
+
+// ---------------------------------------------------------------- players
+
+function encodePlayer(p: Player): unknown[] {
+  const boosts = Object.entries(p.boosts).flatMap(([id, n]) => [idx(BOOST_IDS, id as BoostId), n ?? 0]);
+  return [
+    p.id, idx(HERO_IDS, p.heroId), p.name, p.slot, p.level, p.syncLevel, b(p.away),
+    q(p.pos.x, POS), q(p.pos.y, POS), Math.round(p.vel.x), Math.round(p.vel.y),
+    q(p.hp, 10), p.maxHp, qa(angleOf(p.facing)), p.guns.map(encodeGun), p.active,
+    q(p.shotCd, T), p.burstLeft, b(p.charging), q(p.chargeT, T),
+    q(p.dashT, T), q(p.dashCd, T), qa(angleOf(p.dashDir)), q(p.iframes, T), q(p.hurtT, T),
+    q(p.skillCharge, 1000), q(p.grenadeCd, T), b(p.downed), p.reviveT === Infinity ? -1 : q(p.reviveT, T),
+    q(p.reviveProgress, 1000), p.selfRevives, boosts, q(p.streakT, T),
+  ];
+}
+
+function decodePlayer(a: unknown[]): Player {
+  const n = (i: number) => a[i] as number;
+  const heroId = HERO_IDS[n(1)] ?? "vanguard";
+  const boostsFlat = a[31] as number[];
+  const boosts: Player["boosts"] = {};
+  for (let i = 0; i < boostsFlat.length; i += 2) boosts[BOOST_IDS[boostsFlat[i]!]!] = boostsFlat[i + 1]!;
+  return {
+    id: n(0),
+    heroId,
+    name: a[2] as string,
+    slot: n(3),
+    level: n(4),
+    syncLevel: n(5),
+    away: n(6) === 1,
+    pos: { x: n(7) / POS, y: n(8) / POS },
+    vel: { x: n(9), y: n(10) },
+    radius: HEROES[heroId]!.radius,
+    hp: n(11) / 10,
+    maxHp: n(12),
+    facing: dqa(n(13)),
+    guns: (a[14] as GunWire[]).map(decodeGun),
+    active: n(15),
+    shotCd: n(16) / T,
+    burstLeft: n(17),
+    burstT: 0,
+    shotAim: { x: 1, y: 0 },
+    charging: n(18) === 1,
+    chargeT: n(19) / T,
+    dashT: n(20) / T,
+    dashCd: n(21) / T,
+    dashDir: dqa(n(22)),
+    iframes: n(23) / T,
+    hurtT: n(24) / T,
+    skillCharge: n(25) / 1000,
+    grenadeCd: n(26) / T,
+    downed: n(27) === 1,
+    reviveT: n(28) < 0 ? Infinity : n(28) / T,
+    reviveProgress: n(29) / 1000,
+    selfRevives: n(30),
+    boosts,
+    streakT: n(32) / T,
+  };
+}
+
+// ---------------------------------------------------------------- enemies
+
+function encodeEnemy(e: Enemy): number[] {
+  const s = e.status;
+  return [
+    e.id, idx(ENEMY_IDS, e.defId), q(e.pos.x, POS), q(e.pos.y, POS), Math.round(e.vel.x), Math.round(e.vel.y),
+    q(Math.max(0, e.hp), 10), e.maxHp, q(e.shield, 10), idx(STATES, e.state), q(e.stateT, T), e.attackIdx,
+    qa(angleOf(e.attackDir)), q(e.hitFlash, T), q(e.spawnT, T), q(s.burnT, T), q(s.frost, 10), q(s.frozenT, T), q(s.acidT, T), e.phase,
+    ...e.attackPoints.flatMap((p) => [q(p.x, POS), q(p.y, POS)]),
+  ];
+}
+
+function decodeEnemy(a: number[]): Enemy {
+  const defId = ENEMY_IDS[a[1]!] ?? "cone_rat";
+  const points: Vec[] = [];
+  for (let i = 20; i + 1 < a.length; i += 2) points.push({ x: a[i]! / POS, y: a[i + 1]! / POS });
+  return {
+    id: a[0]!,
+    defId,
+    pos: { x: a[2]! / POS, y: a[3]! / POS },
+    vel: { x: a[4]!, y: a[5]! },
+    knock: { x: 0, y: 0 },
+    radius: ENEMIES[defId]!.radius,
+    hp: a[6]! / 10,
+    maxHp: a[7]!,
+    shield: a[8]! / 10,
+    state: STATES[a[9]!] ?? "move",
+    stateT: a[10]! / T,
+    attackIdx: a[11]!,
+    cooldowns: [],
+    attackDir: dqa(a[12]!),
+    attackPoints: points,
+    hitPlayers: [],
+    hitFlash: a[13]! / T,
+    spawnT: a[14]! / T,
+    steer: 0,
+    strafe: 1,
+    status: { burnT: a[15]! / T, burnDps: 0, burnSource: 0, burnTick: 0, frost: a[16]! / 10, frozenT: a[17]! / T, acidT: a[18]! / T },
+    trailT: 0,
+    parentId: 0,
+    phase: a[19]!,
+  };
+}
+
+// ---------------------------------------------------------------- projectiles, domes, hazards, vents, pickups
+
+function encodeProjectile(p: Projectile): number[] {
+  const out = [
+    p.id, b(p.owner === "enemy"), p.ownerId, idx(PROJ_KINDS, p.kind), idx(ELEMENT_IDS, p.element),
+    q(p.pos.x, POS), q(p.pos.y, POS), Math.round(p.vel.x), Math.round(p.vel.y), p.radius, p.bounces,
+  ];
+  const l = p.lob;
+  if (l) out.push(q(l.from.x, POS), q(l.from.y, POS), q(l.to.x, POS), q(l.to.y, POS), q(l.t, T), q(l.dur, T), l.radius, b(!!l.puddle));
+  return out;
+}
+
+function decodeProjectile(a: number[]): Projectile {
+  const pr: Projectile = {
+    id: a[0]!,
+    owner: a[1] ? "enemy" : "player",
+    ownerId: a[2]!,
+    kind: PROJ_KINDS[a[3]!] ?? "pistol",
+    element: ELEMENT_IDS[a[4]!] ?? "none",
+    pos: { x: a[5]! / POS, y: a[6]! / POS },
+    vel: { x: a[7]!, y: a[8]! },
+    radius: a[9]!,
+    damage: 0,
+    pierce: 0,
+    bounces: a[10]!,
+    knockback: 0,
+    life: 1,
+    hitIds: [],
+    gunUid: -1,
+  };
+  if (a.length > 11) {
+    pr.lob = {
+      from: { x: a[11]! / POS, y: a[12]! / POS },
+      to: { x: a[13]! / POS, y: a[14]! / POS },
+      t: a[15]! / T,
+      dur: a[16]! / T,
+      radius: a[17]!,
+      // Only its presence matters to the renderer.
+      puddle: a[18] ? { radius: 0, durationMs: 0, damage: 0 } : undefined,
+    };
+  }
+  return pr;
+}
+
+const encodeDome = (d: Dome): number[] => [d.id, d.ownerId, q(d.pos.x, POS), q(d.pos.y, POS), d.radius, q(d.t, T), q(d.maxT, T)];
+const decodeDome = (a: number[]): Dome => ({ id: a[0]!, ownerId: a[1]!, pos: { x: a[2]! / POS, y: a[3]! / POS }, radius: a[4]!, t: a[5]! / T, maxT: a[6]! / T });
+
+const encodeHazard = (h: Hazard): number[] => [h.id, b(h.kind === "fire"), b(h.owner === "enemy"), q(h.pos.x, POS), q(h.pos.y, POS), h.radius, q(h.t, T), q(h.maxT, T)];
+const decodeHazard = (a: number[]): Hazard => ({
+  id: a[0]!, kind: a[1] ? "fire" : "acid", owner: a[2] ? "enemy" : "player", pos: { x: a[3]! / POS, y: a[4]! / POS }, radius: a[5]!, t: a[6]! / T, maxT: a[7]! / T, damage: 0,
+});
+
+const encodeVent = (v: Vent): number[] => [v.id, v.pos.x, v.pos.y, v.radius, q(v.periodS, T), q(v.warnS, T), q(v.eruptS, T), q(v.t, T)];
+const decodeVent = (a: number[]): Vent => ({
+  id: a[0]!, pos: { x: a[1]!, y: a[2]! }, radius: a[3]!, periodS: a[4]! / T, warnS: a[5]! / T, eruptS: a[6]! / T, t: a[7]! / T, damage: 0,
+});
+
+function encodePickup(p: Pickup): unknown[] {
+  const extra = p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
+  return [p.id, idx(PICKUP_KINDS, p.kind), q(p.pos.x, POS), q(p.pos.y, POS), b(p.used), extra];
+}
+
+function decodePickup(a: unknown[]): Pickup {
+  const kind = PICKUP_KINDS[a[1] as number] ?? "heal";
+  const pk: Pickup = { id: a[0] as number, kind, pos: { x: (a[2] as number) / POS, y: (a[3] as number) / POS }, used: a[4] === 1 };
+  if (kind === "gun") pk.gun = decodeGun(a[5] as GunWire);
+  else if (kind === "shrine") pk.boost = BOOST_IDS[a[5] as number];
+  else if (kind === "heal") pk.heal = a[5] as number;
+  return pk;
+}
+
+// ---------------------------------------------------------------- events
+
+type EventKeys = { [K in SimEvent["type"]]: readonly Exclude<keyof Extract<SimEvent, { type: K }>, "type">[] };
+
+/** Field order for each event type on the wire. A test round-trips every type so this can't silently drift. */
+const EVENT_KEYS: EventKeys = {
+  shot: ["playerId", "x", "y", "angle", "archetype", "element"],
+  charge: ["playerId"],
+  hit: ["x", "y", "targetId", "damage", "kill", "element", "weak", "shield"],
+  enemyDied: ["x", "y", "id", "defId"],
+  explosion: ["x", "y", "radius", "owner", "element"],
+  chain: ["x1", "y1", "x2", "y2"],
+  frozen: ["id"],
+  shieldUp: ["id"],
+  shieldBroken: ["id", "x", "y"],
+  blocked: ["x", "y"],
+  spark: ["x", "y"],
+  enemyWindup: ["id", "attack"],
+  enemyAttack: ["id", "attack"],
+  reveal: ["id"],
+  split: ["id", "x", "y"],
+  bossPhase: ["id", "phase"],
+  bonk: ["id", "x", "y"],
+  ventWarn: ["id"],
+  ventErupt: ["id", "x", "y"],
+  playerHurt: ["id", "damage"],
+  playerDowned: ["id", "canRevive"],
+  secondWind: ["id"],
+  playerRevived: ["id", "by"],
+  playerJoined: ["id"],
+  playerLeft: ["id"],
+  dash: ["id"],
+  skill: ["id", "x", "y"],
+  grenade: ["id"],
+  swap: ["id"],
+  pickup: ["id", "gun"],
+  loot: ["x", "y", "rarity"],
+  heal: ["id", "amount"],
+  shrine: ["id", "boost"],
+  chestOpened: ["x", "y"],
+  enemySpawn: ["id"],
+  waveStart: ["wave", "waves"],
+  roomCleared: ["index"],
+  roomEnter: ["index", "kind", "rooms"],
+  victory: [],
+  gameOver: [],
+};
+const EVENT_TYPES = Object.keys(EVENT_KEYS) as SimEvent["type"][];
+/** Keys rounded to whole pixels on the wire; angles keep three decimals. Everything else is sent as is. */
+const ROUNDED = new Set(["x", "y", "x1", "y1", "x2", "y2", "radius", "amount", "damage"]);
+
+export function encodeEvent(ev: SimEvent): unknown[] {
+  const rec = ev as unknown as Record<string, unknown>;
+  const keys = EVENT_KEYS[ev.type] as readonly string[];
+  return [
+    EVENT_TYPES.indexOf(ev.type),
+    ...keys.map((k) => {
+      const v = rec[k];
+      if (k === "angle") return qa(v as number);
+      if (k === "gun") return encodeGun(v as Gun);
+      return ROUNDED.has(k) ? Math.round(v as number) : v;
+    }),
+  ];
+}
+
+export function decodeEvent(a: unknown[]): SimEvent | undefined {
+  const type = EVENT_TYPES[a[0] as number];
+  if (!type) return undefined;
+  const ev: Record<string, unknown> = { type };
+  (EVENT_KEYS[type] as readonly string[]).forEach((k, i) => {
+    const v = a[i + 1];
+    ev[k] = k === "angle" ? (v as number) / 1000 : k === "gun" ? decodeGun(v as GunWire) : v;
+  });
+  return ev as unknown as SimEvent;
+}
+
+// ---------------------------------------------------------------- whole snapshots
+
+/** `events` are all sim events since the last snapshot; `acks` maps player id → last applied input seq. */
+export function encodeSnapshot(w: World, events: readonly SimEvent[], acks: ReadonlyMap<number, number>): Snapshot {
+  const run = w.run;
+  const room = run.room;
+  return {
+    t: w.tick,
+    a: [...acks].flat(),
+    r: [
+      room.index, idx(ROOM_KINDS, room.kind), room.waveIdx, room.waves.length, b(room.cleared), room.exitT < 0 ? -1 : q(room.exitT, 10),
+      b(run.victory), b(w.gameOver), run.kills, run.gunsFound, q(run.time, 10), run.tier, b(run.coop),
+    ],
+    pl: run.plans.flatMap((p) => [idx(ROOM_KINDS, p.kind), p.layout]),
+    v: room.vents.map(encodeVent),
+    p: w.players.map(encodePlayer),
+    e: w.enemies.map(encodeEnemy),
+    j: w.projectiles.map(encodeProjectile),
+    d: w.domes.map(encodeDome),
+    h: w.hazards.map(encodeHazard),
+    k: w.pickups.map(encodePickup),
+    ev: events.map(encodeEvent),
+  };
+}
+
+/** Rebuilds a renderable World from a snapshot. Server-only details (RNG, cooldowns, damage numbers) are left blank. */
+export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[]; acks: Map<number, number> } {
+  const r = s.r;
+  const plans = [];
+  for (let i = 0; i < s.pl.length; i += 2) plans.push({ kind: ROOM_KINDS[s.pl[i]!] ?? "combat", layout: s.pl[i + 1]!, waves: [] as string[][], party: 0 });
+  const index = r[0]!;
+  const layout = LAYOUTS[plans[index]?.layout ?? 0] ?? LAYOUTS[0]!;
+  const world: World = {
+    tick: s.t,
+    time: s.t / 30,
+    seed: 0,
+    nextId: 0,
+    arena: { w: ARENA.w, h: ARENA.h, obstacles: layout.obstacles.map((o) => ({ ...o })) },
+    players: s.p.map(decodePlayer),
+    enemies: s.e.map(decodeEnemy),
+    projectiles: s.j.map(decodeProjectile),
+    domes: s.d.map(decodeDome),
+    hazards: s.h.map(decodeHazard),
+    pickups: s.k.map(decodePickup),
+    run: {
+      plans,
+      room: {
+        index,
+        kind: ROOM_KINDS[r[1]!] ?? "combat",
+        waveIdx: r[2]!,
+        waves: Array.from({ length: r[3]! }, () => []),
+        waveTimer: 0,
+        cleared: r[4] === 1,
+        exitT: r[5]! < 0 ? -1 : r[5]! / 10,
+        exit: { ...EXIT },
+        vents: s.v.map(decodeVent),
+      },
+      tier: r[11]!,
+      coop: r[12] === 1,
+      kills: r[8]!,
+      gunsFound: r[9]!,
+      time: r[10]! / 10,
+      victory: r[6] === 1,
+    },
+    events: [],
+    gameOver: r[7] === 1,
+  };
+  const acks = new Map<number, number>();
+  for (let i = 0; i + 1 < s.a.length; i += 2) acks.set(s.a[i]!, s.a[i + 1]!);
+  const events = s.ev.map(decodeEvent).filter((e): e is SimEvent => !!e);
+  return { world, events, acks };
+}
+
+// ---------------------------------------------------------------- input
+
+const FLAGS = ["fire", "autoAim", "dash", "skill", "grenade", "swap", "interact"] as const;
+
+/** One tick of input from a client: [seq, moveX, moveY, aimX, aimY, flags, grenadeX, grenadeY]. */
+export function encodeInput(seq: number, inp: PlayerInput): number[] {
+  let flags = 0;
+  FLAGS.forEach((f, i) => {
+    if (inp[f]) flags |= 1 << i;
+  });
+  return [seq, q(inp.move.x, 100), q(inp.move.y, 100), Math.round(inp.aim.x), Math.round(inp.aim.y), flags, Math.round(inp.grenadeAim.x), Math.round(inp.grenadeAim.y)];
+}
+
+/** Decodes untrusted input from the network: anything malformed becomes "do nothing". */
+export function decodeInput(a: unknown): { seq: number; input: PlayerInput } | undefined {
+  if (!Array.isArray(a) || a.length < 8) return undefined;
+  const n = (i: number, lim: number) => {
+    const v = Number(a[i]);
+    return Number.isFinite(v) ? clamp(v, -lim, lim) : 0;
+  };
+  const seq = Number(a[0]);
+  if (!Number.isSafeInteger(seq)) return undefined;
+  const flags = n(5, 1 << FLAGS.length);
+  const input: PlayerInput = {
+    ...EMPTY_INPUT,
+    move: { x: n(1, 100) / 100, y: n(2, 100) / 100 },
+    aim: { x: n(3, 2000), y: n(4, 2000) },
+    grenadeAim: { x: n(6, 2000), y: n(7, 2000) },
+  };
+  FLAGS.forEach((f, i) => {
+    input[f] = (flags & (1 << i)) !== 0;
+  });
+  return { seq, input };
+}
+
+// ---------------------------------------------------------------- room protocol
+
+/** Sent when creating a room. */
+export interface RoomOptions {
+  /** Code-only room for friends, hidden from quick match. */
+  private?: boolean;
+  /** Difficulty tier, 0 = Normal. */
+  tier?: number;
+}
+
+/** Sent when joining. */
+export interface JoinOptions {
+  name?: string;
+  level?: number;
+}
+
+export interface SeatInfo {
+  sessionId: string;
+  name: string;
+  level: number;
+  /** The sim player this seat drives, or -1 before the run starts. */
+  playerId: number;
+  connected: boolean;
+}
+
+/** Broadcast as "lobby" whenever the party or the run changes. */
+export interface LobbyInfo {
+  code: string;
+  /** Session id of the host, who starts runs. */
+  host: string;
+  tier: number;
+  /** Goes up every time a run starts. */
+  runId: number;
+  running: boolean;
+  seats: SeatInfo[];
+}

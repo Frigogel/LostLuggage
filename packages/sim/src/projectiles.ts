@@ -67,7 +67,7 @@ function updateStraight(w: World, pr: Projectile): boolean {
     return false;
   }
   for (const p of w.players) {
-    if (p.downed || distToSegment(p.pos, from, pr.pos) > pr.radius + p.radius) continue;
+    if (p.downed || p.away || distToSegment(p.pos, from, pr.pos) > pr.radius + p.radius) continue;
     hurtPlayer(w, p, pr.damage);
     return false;
   }

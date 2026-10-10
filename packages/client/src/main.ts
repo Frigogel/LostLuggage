@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { Menu } from "./menu";
 import { BootScene } from "./scenes/BootScene";
 import { GameScene } from "./scenes/GameScene";
 import { UIScene } from "./scenes/UIScene";
@@ -20,5 +21,13 @@ const game = new Phaser.Game({
   scene: [BootScene, GameScene, UIScene],
 });
 
+const menu = new Menu(game);
+game.events.once("booted", () => {
+  // Dev shortcuts (?seed=, ?room=) skip the menu straight into a solo run.
+  const params = new URLSearchParams(location.search);
+  if (import.meta.env.DEV && (params.has("seed") || params.has("room"))) menu.startSolo();
+  else menu.show();
+});
+
 // Handy for poking at the sim from the browser console while developing.
-if (import.meta.env.DEV) (window as unknown as { game: Phaser.Game }).game = game;
+if (import.meta.env.DEV) Object.assign(window, { game, menu });

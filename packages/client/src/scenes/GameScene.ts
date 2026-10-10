@@ -2,29 +2,41 @@ import Phaser from "phaser";
 import {
   createWorld,
   enterRoom,
+  distToSegment,
   DT,
   EMPTY_INPUT,
   ENEMIES,
   GRENADE,
   angleOf,
+  fromAngle,
   gunStats,
   interactable,
   len,
+  REVIVE,
   step as simStep,
+  sub,
   ventState,
   type Enemy,
   type Pickup,
   type Player,
   type PlayerInput,
+  type PlayerOptions,
   type Projectile,
   type SimEvent,
   type Vec,
   type World,
 } from "@lostluggage/sim";
-import { DEFENSE_COLORS, ELEMENT_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR } from "../render/colors";
+import type { LocalShot, NetSession } from "../net";
+import { DEFENSE_COLORS, ELEMENT_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR, SLOT_COLORS } from "../render/colors";
 import { sfx } from "../sfx";
 import { FLOOR_PAD } from "./BootScene";
 import type { UIScene } from "./UIScene";
+
+/** What the menu hands the game: a co-op session, or nothing for solo. */
+export interface GameData {
+  net?: NetSession;
+  profile?: PlayerOptions;
+}
 
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
 const textureFor = (e: Enemy) => (e.defId === "vending_mimic" && e.state === "hidden" ? "vending_hidden" : e.defId);
@@ -59,13 +71,45 @@ interface PickupView {
   key: string;
 }
 
+interface PlayerView {
+  body: Phaser.GameObjects.Image;
+  shadow: Phaser.GameObjects.Image;
+  gun: Phaser.GameObjects.Image;
+  light: Phaser.GameObjects.Image;
+  chargeGlow: Phaser.GameObjects.Image;
+  tag: Phaser.GameObjects.BitmapText;
+  gunKick: number;
+  ghostTimer: number;
+}
+
+/** A predicted bullet of yours, drawn before the server confirms it. It only looks: the server deals the damage. */
+interface LocalBullet {
+  pos: Vec;
+  vel: Vec;
+  life: number;
+  radius: number;
+  bounces: number;
+  pierce: number;
+  hit: number[];
+  view: ProjView;
+}
+
 export class GameScene extends Phaser.Scene {
   world!: World;
   paused = false;
+  /** Co-op session; undefined in solo. */
+  net?: NetSession;
+  /** The player this device controls. */
+  myId = -1;
 
+  private profile: PlayerOptions = {};
   private acc = 0;
+  private alpha = 0;
   private hitStop = 0;
+  private builtRoom = -1;
   private prev = new Map<number, Vec>();
+  private playerViews = new Map<number, PlayerView>();
+  private bullets: LocalBullet[] = [];
   private enemyViews = new Map<number, EnemyView>();
   private projViews = new Map<number, ProjView>();
   private pickupViews = new Map<number, PickupView>();
@@ -75,14 +119,6 @@ export class GameScene extends Phaser.Scene {
   private door?: Phaser.GameObjects.Image;
   private doorGlow?: Phaser.GameObjects.Image;
   private zaps: { x1: number; y1: number; x2: number; y2: number; t: number }[] = [];
-
-  private pBody!: Phaser.GameObjects.Image;
-  private pShadow!: Phaser.GameObjects.Image;
-  private pGun!: Phaser.GameObjects.Image;
-  private pLight!: Phaser.GameObjects.Image;
-  private chargeGlow!: Phaser.GameObjects.Image;
-  private gunKick = 0;
-  private ghostTimer = 0;
 
   private ground!: Phaser.GameObjects.Graphics;
   private over!: Phaser.GameObjects.Graphics;
@@ -99,12 +135,19 @@ export class GameScene extends Phaser.Scene {
     super("game");
   }
 
-  init(): void {
+  init(data: GameData = {}): void {
     // Scene instances are reused on restart, so reset all per-run state here.
+    this.net = data.net;
+    this.profile = data.profile ?? {};
+    this.myId = -1;
     this.acc = 0;
+    this.alpha = 0;
     this.hitStop = 0;
+    this.builtRoom = -1;
     this.paused = false;
     this.prev.clear();
+    this.playerViews.clear();
+    this.bullets = [];
     this.enemyViews.clear();
     this.projViews.clear();
     this.pickupViews.clear();
@@ -122,13 +165,25 @@ export class GameScene extends Phaser.Scene {
     return s?.controls ? s : undefined;
   }
 
+  /** The hero this device controls. */
+  get me(): Player {
+    return this.world.players.find((p) => p.id === this.myId) ?? this.world.players[0]!;
+  }
+
   create(): void {
-    // Dev shortcuts: ?seed=123 replays a run, ?room=4 jumps straight to a room.
-    const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
-    const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
-    this.world = createWorld({ seed });
-    const room = Number(params.get("room"));
-    if (room > 1 && room <= this.world.run.plans.length) enterRoom(this.world, room - 1);
+    if (this.net) {
+      // The menu only starts co-op once the first snapshot is in.
+      this.world = this.net.frame(0, 0)!.world;
+      this.myId = this.net.myId;
+    } else {
+      // Dev shortcuts: ?seed=123 replays a run, ?room=4 jumps straight to a room.
+      const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
+      const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
+      this.world = createWorld({ seed, players: [this.profile] });
+      const room = Number(params.get("room"));
+      if (room > 1 && room <= this.world.run.plans.length) enterRoom(this.world, room - 1);
+      this.myId = this.world.players[0]!.id;
+    }
     const { w, h } = this.world.arena;
 
     // Lava sea under the deck, with glow along the rim: atmosphere for the price of one tile.
@@ -212,35 +267,56 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Player.
-    this.pShadow = this.add.image(0, 0, "shadow-m").setDepth(D.ground + 1);
-    this.pBody = this.add.image(0, 0, "vanguard").setOrigin(0.5, 1);
-    this.pGun = this.add.image(0, 0, "gun_pistol").setOrigin(0.15, 0.5);
-    this.pLight = this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x5fb3ff).setAlpha(0.18).setScale(3).setDepth(D.light);
-    this.chargeGlow = this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x9ff3ff).setDepth(D.light).setVisible(false);
-
     this.buildRoom();
-    const p = this.world.players[0]!;
+    const p = this.me;
     const cam = this.cameras.main;
     cam.setBounds(-120, -120, w + 240, h + 240);
     cam.centerOn(p.pos.x, p.pos.y);
     cam.setRoundPixels(true);
 
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.onHidden, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden, this));
+    this.game.events.on(Phaser.Core.Events.VISIBLE, this.onVisible, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden, this);
+      this.game.events.off(Phaser.Core.Events.VISIBLE, this.onVisible, this);
+    });
   }
 
   private onHidden(): void {
-    // Phones background the tab all the time: pause instead of dying off-screen.
-    this.paused = true;
     sfx.suspend();
     this.ui?.controls.reset();
+    // Phones background the tab all the time. Solo pauses; co-op can't, so the server takes you out of harm's way.
+    if (this.net) this.net.setAway(true);
+    else this.paused = true;
+  }
+
+  private onVisible(): void {
+    if (!this.net) return;
+    this.net.setAway(false);
+    sfx.unlock();
   }
 
   resume(): void {
     this.paused = false;
     this.acc = 0;
     sfx.unlock();
+  }
+
+  private makePlayerView(p: Player): PlayerView {
+    return {
+      shadow: this.add.image(0, 0, "shadow-m").setDepth(D.ground + 1),
+      body: this.add.image(0, 0, `vanguard_${p.slot}`).setOrigin(0.5, 1),
+      gun: this.add.image(0, 0, "gun_pistol").setOrigin(0.15, 0.5),
+      light: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(SLOT_COLORS[p.slot] ?? 0x5fb3ff).setAlpha(0.18).setScale(3).setDepth(D.light),
+      chargeGlow: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x9ff3ff).setDepth(D.light).setVisible(false),
+      tag: this.add.bitmapText(0, 0, "pixel", p.name, 8).setOrigin(0.5, 1).setLetterSpacing(-1).setTint(SLOT_COLORS[p.slot] ?? 0xffffff).setDepth(D.text),
+      gunKick: 0,
+      ghostTimer: 0,
+    };
+  }
+
+  private destroyPlayerView(v: PlayerView): void {
+    for (const o of [v.shadow, v.body, v.gun, v.light, v.chargeGlow, v.tag]) o.destroy();
   }
 
   private lavaGlow(x: number, y: number): void {
@@ -264,6 +340,9 @@ export class GameScene extends Phaser.Scene {
     this.projViews.clear();
 
     const room = this.world.run.room;
+    this.builtRoom = room.index;
+    this.bullets.forEach((b) => this.releaseProj(b.view));
+    this.bullets = [];
     for (const o of this.world.arena.obstacles) {
       this.roomObjs.push(this.add.image(o.x, o.y - 8, `crate-${o.w}x${o.h}`).setOrigin(0).setDepth(o.y + o.h));
     }
@@ -291,15 +370,23 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, deltaMs: number): void {
     const dt = Math.min(deltaMs, 100) / 1000;
-    const ui = this.ui;
+    if (this.net) this.updateOnline(dt);
+    else this.updateSolo(dt);
 
+    this.lava.tilePositionX += dt * 4;
+    this.lava.tilePositionY += dt * 2;
+    this.render(this.alpha, dt);
+  }
+
+  private updateSolo(dt: number): void {
+    const ui = this.ui;
     if (!this.paused) {
       if (this.hitStop > 0) this.hitStop -= dt;
       else this.acc += dt;
       while (this.acc >= DT) {
         this.acc -= DT;
         this.capturePrev();
-        const input = ui ? ui.controls.build(this.world, this.world.players[0]) : EMPTY_INPUT;
+        const input = ui ? ui.controls.build(this.world, this.me) : EMPTY_INPUT;
         this.stepWorld(input);
         if (this.hitStop > 0) {
           this.acc = 0;
@@ -307,16 +394,151 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+    this.alpha = this.acc / DT;
+  }
 
-    this.lava.tilePositionX += dt * 4;
-    this.lava.tilePositionY += dt * 2;
-    this.render(this.acc / DT, dt);
+  /** Co-op: inputs go out at the sim's 30 Hz, the picture comes from the server's snapshots. */
+  private updateOnline(dt: number): void {
+    const net = this.net!;
+    const ui = this.ui;
+    this.acc += dt;
+    let n = 0;
+    while (this.acc >= DT) {
+      this.acc -= DT;
+      // After a long hitch, don't flood the server with a burst of stale inputs.
+      if (++n > 4) {
+        this.acc = 0;
+        break;
+      }
+      const ctrl = net.controlPlayer();
+      const input = ui && ctrl && !this.paused ? ui.controls.build(this.world, ctrl) : EMPTY_INPUT;
+      const local = net.input(input, (from, range) => this.aimAt(from, range));
+      for (const shot of local.shots) this.localShot(shot);
+      if (local.dashed) {
+        const p = net.controlPlayer();
+        if (p) this.smoke.explode(5, p.pos.x, p.pos.y + 4);
+        sfx.play("dash");
+      }
+    }
+    const f = net.frame(this.acc / DT, dt);
+    if (!f) return;
+    this.world = f.world;
+    this.myId = net.myId;
+    this.prev = f.prev;
+    this.prev.delete(this.myId);
+    this.alpha = f.alpha;
+    // Normally a roomEnter event rebuilds the room; this also covers coming back from a dropped connection.
+    if (this.world.run.room.index !== this.builtRoom) this.buildRoom();
+    for (const ev of f.events) this.onEvent(ev);
+    this.events.emit("sim", f.events);
   }
 
   private stepWorld(input: PlayerInput): void {
     simStep(this.world, [input]);
     for (const ev of this.world.events) this.onEvent(ev);
     this.events.emit("sim", this.world.events);
+  }
+
+  /** Auto-aim for predicted shots, against the enemies as drawn. */
+  private aimAt(from: Vec, range: number): Vec | undefined {
+    let best: Vec | undefined;
+    let bestD = range;
+    for (const e of this.world.enemies) {
+      if (e.spawnT > 0 || e.hp <= 0 || e.state === "hidden") continue;
+      const d = Math.hypot(e.pos.x - from.x, e.pos.y - from.y) - e.radius;
+      if (d < bestD) {
+        bestD = d;
+        best = sub(e.pos, from);
+      }
+    }
+    return best;
+  }
+
+  /** Your shot, the moment you fire: flash, sound, kick and bullets that only look real. */
+  private localShot(shot: LocalShot): void {
+    const s = gunStats(shot.gun);
+    const me = this.me;
+    this.shotFx(me.id, shot.x, shot.y, s.archetype, shot.gun.element, true);
+    if (s.lob) return; // Lobbed shots are slow arcs; the server's version shows up in time.
+    const bounces = (shot.gun.perks.includes("bounce") ? 1 : 0) + (me.boosts.bounce ?? 0);
+    const spread = (s.spreadDeg * Math.PI) / 180;
+    for (let i = 0; i < s.pellets; i++) {
+      let a = shot.angle;
+      if (s.pellets > 1) a += (i / (s.pellets - 1) - 0.5) * spread + (Math.random() - 0.5) * spread * 0.15;
+      else if (spread > 0) a += (Math.random() - 0.5) * spread;
+      const speed = s.pellets > 1 ? s.speed * (0.9 + Math.random() * 0.2) : s.speed;
+      const fake = { kind: s.archetype, element: shot.gun.element, radius: s.projRadius, owner: "player" } as Projectile;
+      this.bullets.push({
+        pos: { x: shot.x, y: shot.y },
+        vel: fromAngle(a, speed),
+        life: (s.range / s.speed) * (bounces > 0 ? 1.4 : 1),
+        radius: s.projRadius,
+        bounces,
+        pierce: s.pierce,
+        hit: [],
+        view: this.makeProjView(fake),
+      });
+    }
+  }
+
+  private solidAt(p: Vec): boolean {
+    const w = this.world;
+    if (p.x < 0 || p.y < 0 || p.x > w.arena.w || p.y > w.arena.h) return true;
+    return w.arena.obstacles.some((o) => p.x > o.x && p.x < o.x + o.w && p.y > o.y && p.y < o.y + o.h);
+  }
+
+  /** Moves predicted bullets: they bounce off crates and stop at the enemies you see. */
+  private renderLocalBullets(dt: number): void {
+    for (const b of this.bullets) {
+      const from = b.pos;
+      b.pos = { x: from.x + b.vel.x * dt, y: from.y + b.vel.y * dt };
+      b.life -= dt;
+      if (this.solidAt(b.pos)) {
+        this.sparks.explode(2, b.pos.x, b.pos.y);
+        if (b.bounces-- <= 0) b.life = 0;
+        else {
+          if (this.solidAt({ x: b.pos.x, y: from.y })) b.vel.x = -b.vel.x;
+          if (this.solidAt({ x: from.x, y: b.pos.y })) b.vel.y = -b.vel.y;
+          b.pos = from;
+          b.hit = [];
+        }
+      }
+      for (const e of this.world.enemies) {
+        if (b.life <= 0) break;
+        if (e.spawnT > 0 || e.state === "hidden" || b.hit.includes(e.id)) continue;
+        const at = this.lerpPos(e.id, e.pos, this.alpha);
+        if (distToSegment(at, from, b.pos) > b.radius + e.radius) continue;
+        b.hit.push(e.id);
+        if (b.pierce-- <= 0) b.life = 0;
+      }
+      if (b.life > 0) {
+        b.view.img.setPosition(b.pos.x, b.pos.y).setRotation(Math.atan2(b.vel.y, b.vel.x)).setDepth(b.pos.y + 1);
+        b.view.glow.setPosition(b.pos.x, b.pos.y);
+      }
+    }
+    for (const b of this.bullets) if (b.life <= 0) this.releaseProj(b.view);
+    this.bullets = this.bullets.filter((b) => b.life > 0);
+  }
+
+  /** Muzzle flash, sound and recoil for anyone's shot. Only your own shakes the camera. */
+  private shotFx(playerId: number, x: number, y: number, archetype: string, element: keyof typeof ELEMENT_COLORS, mine: boolean): void {
+    sfx.play(archetype);
+    const big = archetype === "shotgun" || archetype === "sniper";
+    this.flash(x, y, element === "none" ? 0xffd27a : ELEMENT_COLORS[element], big ? 22 : 12, 70);
+    const v = this.playerViews.get(playerId);
+    if (v) v.gunKick = big ? 4 : 2;
+    if (!mine) return;
+    if (archetype === "sniper") this.shake(90, 0.005);
+    else if (archetype === "shotgun" || archetype === "launcher") this.shake(60, 0.003);
+  }
+
+  /** Hit-stop freezes a solo sim for punch. Co-op can't stop the server, so it's skipped there. */
+  private stop(s: number): void {
+    if (!this.net) this.hitStop = Math.max(this.hitStop, s);
+  }
+
+  private playerById(id: number): Player | undefined {
+    return this.world.players.find((p) => p.id === id);
   }
 
   private capturePrev(): void {
@@ -379,15 +601,14 @@ export class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------- events → juice
 
   private onEvent(ev: SimEvent): void {
-    const player = this.world.players[0]!;
+    const me = this.me;
+    // Where an event about a player happened: their hero if we can see it, else ours.
+    const at = (id: number) => (this.playerById(id) ?? me).pos;
     switch (ev.type) {
       case "shot": {
-        sfx.play(ev.archetype);
-        const big = ev.archetype === "shotgun" || ev.archetype === "sniper";
-        this.flash(ev.x, ev.y, ev.element === "none" ? 0xffd27a : ELEMENT_COLORS[ev.element], big ? 22 : 12, 70);
-        this.gunKick = ev.archetype === "sniper" || ev.archetype === "shotgun" ? 4 : 2;
-        if (ev.archetype === "sniper") this.shake(90, 0.005);
-        else if (ev.archetype === "shotgun" || ev.archetype === "launcher") this.shake(60, 0.003);
+        const mine = ev.playerId === this.myId;
+        // In co-op your own shots were already shown the moment you fired.
+        if (!(mine && this.net)) this.shotFx(ev.playerId, ev.x, ev.y, ev.archetype, ev.element, mine);
         break;
       }
       case "charge":
@@ -401,7 +622,7 @@ export class GameScene extends Phaser.Scene {
         this.floatText(ev.x + (Math.random() - 0.5) * 8, ev.y - 10, String(ev.damage), tint, size);
         if (!burnTick) this.sparks.explode(3, ev.x, ev.y);
         sfx.play(ev.shield ? "shieldHit" : ev.weak ? "weakHit" : burnTick ? "burn" : "hit");
-        if (ev.kill) this.hitStop = Math.max(this.hitStop, 0.035);
+        if (ev.kill) this.stop(0.035);
         break;
       }
       case "enemyDied": {
@@ -411,7 +632,7 @@ export class GameScene extends Phaser.Scene {
         this.smoke.explode(boss ? 20 : 4, ev.x, ev.y);
         sfx.play(boss ? "explode" : "kill");
         this.shake(boss ? 600 : 60, boss ? 0.015 : 0.002);
-        if (boss) this.hitStop = 0.25;
+        if (boss) this.stop(0.25);
         const v = this.enemyViews.get(ev.id);
         if (v) {
           v.body.destroy();
@@ -431,7 +652,7 @@ export class GameScene extends Phaser.Scene {
         this.smoke.explode(8, ev.x, ev.y);
         this.shake(180, mine ? 0.006 : 0.004);
         sfx.play(mine ? "explode" : ev.radius >= 36 ? "slam" : "mortarBoom");
-        if (mine) this.hitStop = Math.max(this.hitStop, 0.04);
+        if (mine) this.stop(0.04);
         break;
       }
       case "chain":
@@ -512,7 +733,7 @@ export class GameScene extends Phaser.Scene {
       case "ventErupt": {
         this.flames.explode(30, ev.x, ev.y);
         this.flash(ev.x, ev.y, 0xff7a1a, 80, 500);
-        const near = Math.hypot(player.pos.x - ev.x, player.pos.y - ev.y) < 160;
+        const near = Math.hypot(me.pos.x - ev.x, me.pos.y - ev.y) < 160;
         if (near) {
           this.shake(150, 0.004);
           sfx.play("ventErupt");
@@ -520,25 +741,49 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "playerHurt":
-        this.shake(150, 0.008);
-        this.hitStop = Math.max(this.hitStop, 0.06);
-        sfx.play("hurt");
-        navigator.vibrate?.(40);
+        if (ev.id === this.myId) {
+          this.shake(150, 0.008);
+          this.stop(0.06);
+          sfx.play("hurt");
+          navigator.vibrate?.(40);
+        } else {
+          const p = at(ev.id);
+          this.flash(p.x, p.y, 0xe0533d, 24, 150);
+        }
         break;
-      case "playerDowned":
-        this.shake(300, 0.012);
+      case "playerDowned": {
         sfx.play("downed");
-        navigator.vibrate?.([60, 40, 120]);
+        if (ev.id === this.myId) {
+          this.shake(300, 0.012);
+          navigator.vibrate?.([60, 40, 120]);
+        } else {
+          const p = at(ev.id);
+          this.floatText(p.x, p.y - 22, "DOWN!", 0xe0533d, 8, 1200);
+        }
         break;
-      case "playerRevived":
-        this.ringFx(player.pos.x, player.pos.y, 60, 0x9ff3ff, 400);
-        this.flash(player.pos.x, player.pos.y, 0x9ff3ff, 120, 400);
+      }
+      case "playerRevived": {
+        const p = at(ev.id);
+        this.ringFx(p.x, p.y, 60, 0x9ff3ff, 400);
+        this.flash(p.x, p.y, 0x9ff3ff, 120, 400);
         sfx.play("revive");
         break;
-      case "dash":
-        this.smoke.explode(5, player.pos.x, player.pos.y + 4);
+      }
+      case "playerJoined": {
+        const p = at(ev.id);
+        this.flash(p.x, p.y, 0xb48cff, 60, 400);
+        this.ringFx(p.x, p.y, 30, 0xb48cff, 400);
+        sfx.play("spawn");
+        break;
+      }
+      case "dash": {
+        // Co-op shows your own dash when you press it (see updateOnline).
+        if (ev.id === this.myId && this.net) break;
+        const p = at(ev.id);
+        this.smoke.explode(5, p.x, p.y + 4);
         sfx.play("dash");
         break;
+      }
       case "skill":
         this.flash(ev.x, ev.y, 0x5fd3e8, 140, 350);
         this.ringFx(ev.x, ev.y, 44, 0x9ff3ff, 300);
@@ -564,16 +809,20 @@ export class GameScene extends Phaser.Scene {
         sfx.play(ev.rarity === "legendary" ? "lootLegendary" : ev.rarity === "common" || ev.rarity === "uncommon" ? "loot" : "lootRare");
         break;
       }
-      case "heal":
-        this.floatText(player.pos.x, player.pos.y - 18, `+${Math.round(ev.amount)}`, 0x5fd36a, 8, 700);
-        this.flash(player.pos.x, player.pos.y, 0x5fd36a, 40, 300);
+      case "heal": {
+        const p = at(ev.id);
+        this.floatText(p.x, p.y - 18, `+${Math.round(ev.amount)}`, 0x5fd36a, 8, 700);
+        this.flash(p.x, p.y, 0x5fd36a, 40, 300);
         sfx.play("heal");
         break;
-      case "shrine":
-        this.ringFx(player.pos.x, player.pos.y, 40, 0xf2c14e, 500);
-        this.flash(player.pos.x, player.pos.y, 0xf2c14e, 100, 500);
+      }
+      case "shrine": {
+        const p = at(ev.id);
+        this.ringFx(p.x, p.y, 40, 0xf2c14e, 500);
+        this.flash(p.x, p.y, 0xf2c14e, 100, 500);
         sfx.play("shrine");
         break;
+      }
       case "chestOpened":
         this.fire.explode(16, ev.x, ev.y);
         this.flash(ev.x, ev.y, 0xffe08a, 60, 400);
@@ -600,9 +849,9 @@ export class GameScene extends Phaser.Scene {
         break;
       case "roomEnter":
         this.cameras.main.fadeIn(350, 27, 16, 32);
-        this.buildRoom();
-        this.cameras.main.centerOn(player.pos.x, player.pos.y);
-        this.prev.clear();
+        if (this.builtRoom !== this.world.run.room.index) this.buildRoom();
+        this.cameras.main.centerOn(me.pos.x, me.pos.y);
+        if (!this.net) this.prev.clear();
         break;
       case "victory":
         sfx.play("victory");
@@ -618,7 +867,7 @@ export class GameScene extends Phaser.Scene {
     this.ground.clear();
     this.over.clear();
 
-    const player = w.players[0]!;
+    const player = this.me;
     const pp = this.lerpPos(player.id, player.pos, alpha);
 
     this.renderVents(t);
@@ -627,7 +876,8 @@ export class GameScene extends Phaser.Scene {
     this.renderDomes(t);
     this.renderEnemies(alpha, t);
     this.renderProjectiles(alpha);
-    this.renderPlayer(player, pp, dt, t);
+    this.renderLocalBullets(dt);
+    this.renderPlayers(alpha, dt, t);
     this.renderAimGuide(player, pp);
     this.renderZaps(dt);
 
@@ -674,32 +924,66 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private renderPlayer(p: Player, pos: Vec, dt: number, t: number): void {
+  private renderPlayers(alpha: number, dt: number, t: number): void {
+    const seen = new Set<number>();
+    const coop = this.world.players.length > 1 || !!this.net;
+    for (const p of this.world.players) {
+      seen.add(p.id);
+      let v = this.playerViews.get(p.id);
+      if (!v) {
+        v = this.makePlayerView(p);
+        this.playerViews.set(p.id, v);
+      }
+      this.renderPlayer(p, this.lerpPos(p.id, p.pos, alpha), dt, t, v, coop);
+    }
+    for (const [id, v] of this.playerViews) {
+      if (seen.has(id)) continue;
+      this.destroyPlayerView(v);
+      this.playerViews.delete(id);
+    }
+  }
+
+  private renderPlayer(p: Player, pos: Vec, dt: number, t: number, v: PlayerView, coop: boolean): void {
+    const mine = p.id === this.myId;
     const moving = len(p.vel) > 5;
     const bob = moving && p.dashT <= 0 ? -Math.abs(Math.sin(t * 0.02)) * 1.5 : 0;
     const left = p.facing.x < 0;
+    const key = `vanguard_${p.slot}`;
 
-    this.pShadow.setPosition(pos.x, pos.y + p.radius - 1);
-    this.pBody.setPosition(pos.x, pos.y + p.radius + bob).setFlipX(left).setDepth(pos.y);
-    this.pLight.setPosition(pos.x, pos.y);
+    v.shadow.setPosition(pos.x, pos.y + p.radius - 1);
+    v.body.setTexture(key).setPosition(pos.x, pos.y + p.radius + bob).setFlipX(left).setDepth(pos.y);
+    v.light.setPosition(pos.x, pos.y).setVisible(!p.away);
+    // Teammates get a name tag; yours would just be clutter.
+    v.tag
+      .setVisible(coop && !mine)
+      .setText(p.away ? `${p.name} (AWAY)` : p.name)
+      .setPosition(Math.round(pos.x), Math.round(pos.y - 17));
 
     if (p.downed) {
-      this.pBody.setAngle(left ? -90 : 90).setTint(0x9a8a9a).setAlpha(1);
-      this.pGun.setVisible(false);
-      this.chargeGlow.setVisible(false);
+      v.body.setAngle(left ? -90 : 90).setTint(0x9a8a9a).setAlpha(1);
+      v.gun.setVisible(false);
+      v.chargeGlow.setVisible(false);
+      if (coop && p.reviveT === Infinity) this.drawReviveRing(p, pos, t, mine);
       return;
     }
-    this.pBody.setAngle(0);
-    if (p.hurtT > 0) this.pBody.setTintFill(0xffffff);
-    else this.pBody.clearTint();
+    v.body.setAngle(0);
+    if (p.away) {
+      // Backgrounded or reconnecting: a ghost the enemies ignore.
+      v.body.clearTint().setAlpha(0.35);
+      v.gun.setVisible(false);
+      v.chargeGlow.setVisible(false);
+      return;
+    }
+    if (p.hurtT > 0) v.body.setTintFill(0xffffff);
+    else v.body.clearTint();
     // Blink while invulnerable after a hit (not during a dash: the trail shows that).
-    this.pBody.setAlpha(p.iframes > 0 && p.dashT <= 0 && Math.floor(t / 60) % 2 === 0 ? 0.4 : 1);
+    v.body.setAlpha(p.iframes > 0 && p.dashT <= 0 && Math.floor(t / 60) % 2 === 0 ? 0.4 : 1);
 
     if (p.dashT > 0) {
-      this.ghostTimer -= dt;
-      if (this.ghostTimer <= 0) {
-        this.ghostTimer = 0.025;
-        const g = this.take("vanguard").setOrigin(0.5, 1).setPosition(pos.x, pos.y + p.radius).setFlipX(left).setTintFill(0x5fd3e8).setAlpha(0.6).setDepth(pos.y - 1);
+      v.ghostTimer -= dt;
+      if (v.ghostTimer <= 0) {
+        v.ghostTimer = 0.025;
+        const g = this.take(key).setOrigin(0.5, 1).setPosition(pos.x, pos.y + p.radius).setFlipX(left).setTintFill(0x5fd3e8).setAlpha(0.6).setDepth(pos.y - 1);
         this.tweens.add({ targets: g, alpha: 0, duration: 180, onComplete: () => this.give(g) });
       }
     }
@@ -708,45 +992,63 @@ export class GameScene extends Phaser.Scene {
     const gun = p.guns[p.active]!;
     const s = gunStats(gun);
     const ang = angleOf(p.facing);
-    this.gunKick = Math.max(0, this.gunKick - dt * 30);
-    const hand = { x: pos.x + p.facing.x * (4 - this.gunKick), y: pos.y - 1 + bob + p.facing.y * (3 - this.gunKick) };
-    this.pGun
+    v.gunKick = Math.max(0, v.gunKick - dt * 30);
+    const hand = { x: pos.x + p.facing.x * (4 - v.gunKick), y: pos.y - 1 + bob + p.facing.y * (3 - v.gunKick) };
+    v.gun
       .setVisible(true)
       .setTexture("gun_" + s.archetype)
       .setPosition(hand.x, hand.y)
       .setRotation(ang)
       .setFlipY(left)
       .setDepth(pos.y + (p.facing.y < -0.3 ? -0.5 : 0.5));
-    if (gun.element !== "none" && Math.floor(t / 400) % 3 === 0) this.pGun.setTint(ELEMENT_COLORS[gun.element]);
-    else this.pGun.clearTint();
+    if (gun.element !== "none" && Math.floor(t / 400) % 3 === 0) v.gun.setTint(ELEMENT_COLORS[gun.element]);
+    else v.gun.clearTint();
 
     if (p.charging) {
       const k = 1 - p.chargeT / (s.chargeMs / 1000);
-      this.chargeGlow
+      v.chargeGlow
         .setVisible(true)
         .setTint(gun.element === "none" ? 0x9ff3ff : ELEMENT_COLORS[gun.element])
         .setPosition(hand.x + p.facing.x * 12, hand.y + p.facing.y * 12)
         .setScale(0.3 + k * 0.5)
         .setAlpha(0.5 + k * 0.5);
-    } else this.chargeGlow.setVisible(false);
+    } else v.chargeGlow.setVisible(false);
 
-    // Brawl Stars-style ammo pips under your feet and health over your head.
+    // Brawl Stars-style ammo pips under your own feet, and health over everyone's head.
     const o = this.over;
-    const pipW = s.pips > 3 ? 5 : 7;
-    const total = s.pips * (pipW + 1) - 1;
-    const bx = Math.round(pos.x - total / 2);
-    const by = Math.round(pos.y + p.radius + 3);
-    for (let i = 0; i < s.pips; i++) {
-      const fill = Math.max(0, Math.min(1, gun.pips - i));
-      o.fillStyle(0x1b1020).fillRect(bx + i * (pipW + 1) - 1, by - 1, pipW + 2, 4);
-      o.fillStyle(0x4a3a2a).fillRect(bx + i * (pipW + 1), by, pipW, 2);
-      if (fill > 0) o.fillStyle(fill >= 1 ? 0xffb238 : 0xb07a30).fillRect(bx + i * (pipW + 1), by, Math.round(pipW * fill), 2);
+    if (mine) {
+      const pipW = s.pips > 3 ? 5 : 7;
+      const total = s.pips * (pipW + 1) - 1;
+      const bx = Math.round(pos.x - total / 2);
+      const by = Math.round(pos.y + p.radius + 3);
+      for (let i = 0; i < s.pips; i++) {
+        const fill = Math.max(0, Math.min(1, gun.pips - i));
+        o.fillStyle(0x1b1020).fillRect(bx + i * (pipW + 1) - 1, by - 1, pipW + 2, 4);
+        o.fillStyle(0x4a3a2a).fillRect(bx + i * (pipW + 1), by, pipW, 2);
+        if (fill > 0) o.fillStyle(fill >= 1 ? 0xffb238 : 0xb07a30).fillRect(bx + i * (pipW + 1), by, Math.round(pipW * fill), 2);
+      }
     }
     const hpW = 18;
     const hx = Math.round(pos.x - hpW / 2);
     const hy = Math.round(pos.y - 14);
     o.fillStyle(0x1b1020).fillRect(hx - 1, hy - 1, hpW + 2, 4);
-    o.fillStyle(p.hp / p.maxHp > 0.3 ? 0x5fd36a : 0xe0533d).fillRect(hx, hy, Math.round((hpW * p.hp) / p.maxHp), 2);
+    o.fillStyle(p.hp / p.maxHp > 0.3 ? (mine || !coop ? 0x5fd36a : SLOT_COLORS[p.slot]!) : 0xe0533d).fillRect(hx, hy, Math.round((hpW * p.hp) / p.maxHp), 2);
+  }
+
+  /** A downed teammate: the circle to stand in, filling up as they get picked up. */
+  private drawReviveRing(p: Player, pos: Vec, t: number, mine: boolean): void {
+    const r = REVIVE.reach;
+    // Teammates' rings pulse harder: that's where you need to be.
+    const pulse = mine ? 0.4 : 0.5 + 0.4 * Math.sin(t * 0.01);
+    this.ground.fillStyle(0x9ff3ff, 0.06).fillCircle(pos.x, pos.y, r);
+    this.ground.lineStyle(1, 0x9ff3ff, pulse).strokeCircle(pos.x, pos.y, r);
+    if (p.reviveProgress > 0) {
+      this.over
+        .lineStyle(2, 0x9ff3ff, 1)
+        .beginPath()
+        .arc(pos.x, pos.y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p.reviveProgress)
+        .strokePath();
+    }
   }
 
   private renderEnemies(alpha: number, t: number): void {
@@ -780,7 +1082,7 @@ export class GameScene extends Phaser.Scene {
       v.body.setVisible(true).setTexture(textureFor(e));
       v.shadow.setVisible(true).setPosition(pos.x, pos.y + e.radius - 1);
 
-      const target = w.players[0]!;
+      const target = this.me;
       if (e.state !== "hidden" && def.movement.type !== "stationary") {
         const dx = e.state === "move" ? (Math.abs(e.vel.x) > 2 ? e.vel.x : target.pos.x - e.pos.x) : e.attackDir.x;
         if (Math.abs(dx) > 0.5) v.faceLeft = dx < 0;
@@ -922,6 +1224,8 @@ export class GameScene extends Phaser.Scene {
     const w = this.world;
     const seen = new Set<number>();
     for (const pr of w.projectiles) {
+      // Co-op draws your own straight shots from prediction (renderLocalBullets), not from the server.
+      if (this.net && pr.owner === "player" && pr.ownerId === this.myId && !pr.lob) continue;
       seen.add(pr.id);
       let v = this.projViews.get(pr.id);
       if (!v) {
@@ -1021,7 +1325,7 @@ export class GameScene extends Phaser.Scene {
 
   private renderPickups(t: number): void {
     const seen = new Set<number>();
-    const player = this.world.players[0]!;
+    const player = this.me;
     const inReach = player.downed ? undefined : interactable(this.world, player);
     for (const pk of this.world.pickups) {
       seen.add(pk.id);

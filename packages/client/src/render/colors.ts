@@ -35,4 +35,14 @@ export const ENEMY_COLORS: Record<string, number[]> = {
   furnace_foreman: [0x6d7682, 0xf2c14e, 0xff7a1a],
 };
 
-export const toCss = (c: number) => "#" + c.toString(16).padStart(6, "0");
+/** Party colors by slot: name tags, HUD and arrows. */
+export const SLOT_COLORS = [0x5fb3ff, 0xff6a5a, 0x5fd36a, 0xd29bff];
+/** Armor recolors for each slot's hero sprite (body, body shade, plume). */
+export const SLOT_PALETTES = [
+  { b: "#3b6fd1", B: "#274a94", r: "#e0533d" },
+  { b: "#d1423a", B: "#8f2a26", r: "#f2c14e" },
+  { b: "#3e9f5a", B: "#2a6b3d", r: "#f2c14e" },
+  { b: "#8c5ad1", B: "#5d3a94", r: "#5fd3e8" },
+];
+
+export const toCss =(c: number) => "#" + c.toString(16).padStart(6, "0");
