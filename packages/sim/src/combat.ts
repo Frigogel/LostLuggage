@@ -1,6 +1,8 @@
+import { ENEMIES } from "./data/enemies";
 import { HEROES } from "./data/heroes";
-import { clamp, dist, norm, pushCircleOutOfRect, scale, sub, add, type Vec } from "./math";
-import type { Enemy, Player, World } from "./types";
+import { gunStats, rollGun } from "./loot";
+import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
+import type { Element, Enemy, EnemyDef, Player, Status, World } from "./types";
 
 export const TICK_HZ = 30;
 export const DT = 1 / TICK_HZ;
@@ -8,6 +10,8 @@ export const DT = 1 / TICK_HZ;
 export function newId(w: World): number {
   return w.nextId++;
 }
+
+export const freshStatus = (): Status => ({ burnT: 0, burnDps: 0, burnSource: 0, burnTick: 0, frost: 0, frozenT: 0, acidT: 0 });
 
 /** Keeps a circle inside the arena and out of obstacles. Mutates `p`. Returns true on any contact. */
 export function confine(w: World, p: Vec, r: number): boolean {
@@ -33,15 +37,16 @@ export function clampToArena(w: World, p: Vec, margin: number): Vec {
   return { x: clamp(p.x, margin, w.arena.w - margin), y: clamp(p.y, margin, w.arena.h - margin) };
 }
 
-export function activeEnemies(w: World): Enemy[] {
-  return w.enemies.filter((e) => e.spawnT <= 0);
+/** Enemies that can be targeted: arrived, alive and not disguised. */
+export function targetable(e: Enemy): boolean {
+  return e.spawnT <= 0 && e.hp > 0 && e.state !== "hidden";
 }
 
-export function nearestEnemy(w: World, from: Vec, maxRange = Infinity): Enemy | undefined {
+export function nearestEnemy(w: World, from: Vec, maxRange = Infinity, except = -1): Enemy | undefined {
   let best: Enemy | undefined;
   let bestD = maxRange;
   for (const e of w.enemies) {
-    if (e.spawnT > 0) continue;
+    if (!targetable(e) || e.id === except) continue;
     const d = dist(from, e.pos) - e.radius;
     if (d < bestD) {
       bestD = d;
@@ -65,26 +70,183 @@ export function nearestPlayer(w: World, from: Vec): Player | undefined {
   return best;
 }
 
-export function damageEnemy(w: World, e: Enemy, amount: number, knockDir: Vec, knockback: number, sourcePlayerId: number): void {
-  if (e.hp <= 0) return;
-  const dealt = Math.min(amount, e.hp);
-  e.hp -= amount;
-  e.hitFlash = 0.1;
-  const k = scale(norm(knockDir), knockback);
-  e.knock = add(e.knock, k);
-
-  const p = w.players.find((pl) => pl.id === sourcePlayerId);
-  if (p && !p.downed) {
-    const hero = HEROES[p.heroId]!;
-    p.skillCharge = Math.min(1, p.skillCharge + dealt / hero.skillChargeDamage);
+/** Element vs defense: the reason to carry two guns with different elements. */
+export function elementMultiplier(def: EnemyDef, element: Element): { mult: number; weak: boolean } {
+  switch (element) {
+    case "fire":
+      if (def.fireImmune) return { mult: 0.25, weak: false };
+      return def.defense === "flesh" ? { mult: 1.5, weak: true } : def.defense === "armor" ? { mult: 0.75, weak: false } : { mult: 0.9, weak: false };
+    case "shock":
+      return def.defense === "shield" ? { mult: 1.6, weak: true } : { mult: 0.9, weak: false };
+    case "acid":
+      return def.defense === "armor" ? { mult: 1.5, weak: true } : { mult: 0.9, weak: false };
+    default:
+      return { mult: 1, weak: false };
   }
+}
+
+export interface DamageOpts {
+  dir: Vec;
+  knockback: number;
+  sourcePlayerId: number;
+  element: Element;
+  gunUid?: number;
+  /** Damage-over-time ticks and chain hits don't re-apply statuses or chain again. */
+  secondary?: boolean;
+}
+
+export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): void {
+  if (e.hp <= 0 || e.state === "hidden") return;
+  const def = ENEMIES[e.defId]!;
+  const { mult, weak } = elementMultiplier(def, o.element);
+  let dmg = amount * mult;
+  if (e.status.acidT > 0 && def.defense === "armor") dmg *= 1.25;
+
+  // Support shields soak damage first; Shock tears through them.
+  let hitShield = false;
+  if (e.shield > 0) {
+    hitShield = true;
+    const shieldDmg = o.element === "shock" ? dmg * 2 : dmg;
+    if (shieldDmg >= e.shield) {
+      dmg = (shieldDmg - e.shield) / (o.element === "shock" ? 2 : 1);
+      e.shield = 0;
+      w.events.push({ type: "shieldBroken", id: e.id, x: e.pos.x, y: e.pos.y });
+    } else {
+      e.shield -= shieldDmg;
+      dmg = 0;
+    }
+  }
+
+  const dealt = Math.min(dmg, e.hp);
+  e.hp -= dmg;
+  e.hitFlash = 0.1;
+  if (!def.boss) e.knock = add(e.knock, scale(norm(o.dir), o.knockback));
+
+  const p = w.players.find((pl) => pl.id === o.sourcePlayerId);
+  if (p && !p.downed) p.skillCharge = Math.min(1, p.skillCharge + dealt / HEROES[p.heroId]!.skillChargeDamage);
+
+  if (!o.secondary) applyStatus(w, e, def, amount, o);
 
   const kill = e.hp <= 0;
-  w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.round(amount), kill });
-  if (kill) {
-    w.events.push({ type: "enemyDied", x: e.pos.x, y: e.pos.y, id: e.id, defId: e.defId });
-    w.director.kills++;
+  w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.max(1, Math.round(dmg || amount * 0.01)), kill, element: o.element, weak, shield: hitShield && dmg === 0 });
+  if (kill) onKill(w, e, def, o, p);
+}
+
+function applyStatus(w: World, e: Enemy, def: EnemyDef, amount: number, o: DamageOpts): void {
+  const s = e.status;
+  switch (o.element) {
+    case "fire":
+      if (def.fireImmune) return;
+      s.burnT = 3;
+      s.burnDps = Math.max(s.burnDps, 3 + amount * 0.35);
+      s.burnSource = o.sourcePlayerId;
+      break;
+    case "frost":
+      s.frost += Math.max(0.5, amount / 12);
+      if (def.boss) s.frost = Math.min(s.frost, 3); // Frost is weak against bosses: slow, never freeze.
+      else if (s.frost >= 5 && s.frozenT <= 0) {
+        s.frost = 0;
+        s.frozenT = 1.6;
+        w.events.push({ type: "frozen", id: e.id });
+      }
+      break;
+    case "acid":
+      s.acidT = 4;
+      break;
+    case "shock": {
+      const next = nearestEnemy(w, e.pos, 55, e.id);
+      if (next) {
+        w.events.push({ type: "chain", x1: e.pos.x, y1: e.pos.y, x2: next.pos.x, y2: next.pos.y });
+        damageEnemy(w, next, amount * 0.5, { ...o, secondary: true, knockback: 0 });
+      }
+      break;
+    }
   }
+}
+
+function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | undefined): void {
+  w.events.push({ type: "enemyDied", x: e.pos.x, y: e.pos.y, id: e.id, defId: e.defId });
+  w.run.kills++;
+
+  if (def.onDeath?.split) {
+    const { enemyId, count } = def.onDeath.split;
+    w.events.push({ type: "split", id: e.id, x: e.pos.x, y: e.pos.y });
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + rand(w);
+      const child = spawnEnemy(w, enemyId, { x: e.pos.x + Math.cos(a) * 6, y: e.pos.y + Math.sin(a) * 6 }, 0);
+      child.knock = { x: Math.cos(a) * 140, y: Math.sin(a) * 140 };
+      child.parentId = e.id;
+    }
+  }
+
+  // Loot: guns by the enemy's drop chance, health snacks sometimes.
+  const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0);
+  const drops = def.boss ? 2 : rand(w) < def.dropChance ? 1 : 0;
+  for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : "common");
+  if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
+
+  if (!p) return;
+  const gun = o.gunUid !== undefined ? p.guns.find((g) => g.uid === o.gunUid) : undefined;
+  if (gun?.perks.includes("killReload")) gun.pips = Math.min(gunStats(gun).pips, gun.pips + 1);
+  if (gun?.perks.includes("hotStreak")) p.streakT = 3;
+  if (gun?.perks.includes("volatile")) playerExplosion(w, e.pos, 22, 10, 80, p.id, gun.element, true);
+  if (p.boosts.vampire) p.hp = Math.min(p.maxHp, p.hp + 2 * p.boosts.vampire);
+  if (p.boosts.burnSpread && e.status.burnT > 0) {
+    for (const other of w.enemies) {
+      if (other === e || !targetable(other) || dist(other.pos, e.pos) > 40 + 10 * p.boosts.burnSpread) continue;
+      const od = ENEMIES[other.defId]!;
+      if (od.fireImmune) continue;
+      other.status.burnT = 3;
+      other.status.burnDps = Math.max(other.status.burnDps, e.status.burnDps);
+      other.status.burnSource = p.id;
+    }
+    w.events.push({ type: "explosion", x: e.pos.x, y: e.pos.y, radius: 40, owner: "player", element: "fire" });
+  }
+}
+
+export function dropGun(w: World, at: Vec, luck: number, minRarity: Parameters<typeof rollGun>[2] = "common"): void {
+  const gun = rollGun(w, luck, minRarity);
+  const pos = clampToArena(w, at, 16);
+  w.pickups.push({ id: newId(w), kind: "gun", pos, gun, used: false });
+  w.run.gunsFound++;
+  w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: gun.rarity });
+}
+
+export function dropHeal(w: World, at: Vec, amount: number): void {
+  w.pickups.push({ id: newId(w), kind: "heal", pos: clampToArena(w, at, 10), heal: amount, used: false });
+}
+
+export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number): Enemy {
+  const def = ENEMIES[defId]!;
+  const e: Enemy = {
+    id: newId(w),
+    defId,
+    pos: { ...pos },
+    vel: { x: 0, y: 0 },
+    knock: { x: 0, y: 0 },
+    radius: def.radius,
+    hp: def.hp,
+    maxHp: def.hp,
+    shield: 0,
+    state: def.movement.type === "ambush" ? "hidden" : "move",
+    stateT: 0,
+    attackIdx: 0,
+    // Stagger first attacks so a fresh wave doesn't fire in unison.
+    cooldowns: def.attacks.map((a) => (a.cooldownMs / 1000) * (0.3 + rand(w) * 0.7)),
+    attackDir: { x: 1, y: 0 },
+    attackPoints: [],
+    hitPlayers: [],
+    hitFlash: 0,
+    spawnT: spawnDelay,
+    steer: (rand(w) - 0.5) * 1.4,
+    strafe: rand(w) < 0.5 ? -1 : 1,
+    status: freshStatus(),
+    trailT: 0,
+    parentId: 0,
+    phase: 0,
+  };
+  w.enemies.push(e);
+  return e;
 }
 
 export function hurtPlayer(w: World, p: Player, amount: number): boolean {
@@ -111,16 +273,16 @@ export function hurtPlayer(w: World, p: Player, amount: number): boolean {
 }
 
 /** Area damage from a player explosion: hurts enemies, never teammates or yourself (for now). */
-export function playerExplosion(w: World, at: Vec, radius: number, damage: number, knockback: number, ownerId: number): void {
-  w.events.push({ type: "explosion", x: at.x, y: at.y, radius, owner: "player" });
-  for (const e of w.enemies) {
-    if (e.spawnT > 0 || e.hp <= 0) continue;
+export function playerExplosion(w: World, at: Vec, radius: number, damage: number, knockback: number, ownerId: number, element: Element, secondary = false, gunUid?: number): void {
+  w.events.push({ type: "explosion", x: at.x, y: at.y, radius, owner: "player", element });
+  for (const e of [...w.enemies]) {
+    if (!targetable(e)) continue;
     const d = dist(at, e.pos);
     if (d > radius + e.radius) continue;
     // Full damage in the middle, 60% at the edge.
     const falloff = 1 - 0.4 * clamp(d / radius, 0, 1);
     const dir = d > 0.01 ? sub(e.pos, at) : { x: 1, y: 0 };
-    damageEnemy(w, e, damage * falloff, dir, knockback, ownerId);
+    damageEnemy(w, e, damage * falloff, { dir, knockback, sourcePlayerId: ownerId, element, secondary, gunUid });
   }
 }
 

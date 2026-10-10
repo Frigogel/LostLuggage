@@ -13,7 +13,8 @@ export type Role =
   | "support"
   | "summoner"
   | "ambusher"
-  | "splitter";
+  | "splitter"
+  | "boss";
 
 // ---------------------------------------------------------------- guns
 
@@ -45,10 +46,15 @@ export interface GunDef {
   knockback: number;
 }
 
+export type PerkId = "pierce" | "bounce" | "extraPip" | "quickReload" | "bigShots" | "killReload" | "hotStreak" | "volatile";
+
 export interface Gun {
+  /** Unique per drop, so the UI can tell two identical rolls apart. */
+  uid: number;
   defId: string;
   element: Element;
   rarity: Rarity;
+  perks: PerkId[];
   pips: number;
 }
 
@@ -69,49 +75,96 @@ export interface HeroDef {
 
 export type Movement =
   | { type: "chase" }
-  | { type: "keepDistance"; min: number; max: number };
+  | { type: "keepDistance"; min: number; max: number }
+  | { type: "stationary" }
+  /** Hides as a prop until a player walks within `trigger`, then reveals and chases. */
+  | { type: "ambush"; trigger: number; revealMs: number };
+
+interface AttackBase {
+  windupMs: number;
+  /** Distance to the target at which the enemy starts the windup. */
+  range: number;
+  cooldownMs: number;
+  recoverMs: number;
+}
 
 export type AttackDef =
-  | {
+  | (AttackBase & {
       type: "melee";
       telegraph: "redFlash";
-      windupMs: number;
-      /** Distance at which the enemy starts the windup. */
-      range: number;
       /** Extra reach beyond touching when the bite lands. */
       reach: number;
       damage: number;
-      cooldownMs: number;
-      recoverMs: number;
-    }
-  | {
+    })
+  | (AttackBase & {
       type: "dash";
       telegraph: "line";
-      windupMs: number;
-      range: number;
       dashSpeed: number;
       dashMs: number;
       damage: number;
-      cooldownMs: number;
-      recoverMs: number;
       /** Recovery when the dash ends against a wall. */
       stunMs: number;
-    }
-  | {
+    })
+  | (AttackBase & {
       type: "lobbedProjectile";
       telegraph: "groundCircle";
-      windupMs: number;
-      range: number;
       radius: number;
       damage: number;
       flightMs: number;
-      cooldownMs: number;
-      recoverMs: number;
-    };
+      /** Extra shells land around the target. */
+      count?: number;
+      scatter?: number;
+      /** Leaves a damaging puddle where it lands. */
+      puddle?: { radius: number; durationMs: number; damage: number };
+    })
+  | (AttackBase & {
+      /** Ground pound around the enemy itself. */
+      type: "slam";
+      telegraph: "groundCircle";
+      radius: number;
+      damage: number;
+    })
+  | (AttackBase & {
+      type: "projectile";
+      telegraph: "redFlash";
+      speed: number;
+      damage: number;
+      radius: number;
+      count: number;
+      spreadDeg: number;
+    })
+  | (AttackBase & {
+      /** Grants a blue shield bar to nearby allies. */
+      type: "shieldAllies";
+      telegraph: "channel";
+      radius: number;
+      amount: number;
+    })
+  | (AttackBase & {
+      type: "summon";
+      telegraph: "channel";
+      enemyId: string;
+      count: number;
+      /** Stops summoning while this many of its children are alive. */
+      maxAlive: number;
+    });
+
+export type AttackType = AttackDef["type"];
+
+export interface BossPhase {
+  /** Phase starts when hp falls to this fraction. */
+  hpFrac: number;
+  /** Indices into `attacks` usable in this phase. */
+  attacks: number[];
+  /** Windups and cooldowns shrink by this factor. */
+  haste: number;
+}
 
 export interface EnemyDef {
   id: string;
   name: string;
+  /** One-line gag shown when it first appears. */
+  flavor: string;
   role: Role;
   defense: Defense;
   hp: number;
@@ -120,7 +173,15 @@ export interface EnemyDef {
   movement: Movement;
   attacks: AttackDef[];
   biomes: string[];
+  /** Cost against the director's room budget. 0 = never picked by the director. */
   threatCost: number;
+  fireImmune?: boolean;
+  /** Leaves a damaging trail while moving. */
+  trail?: { intervalMs: number; radius: number; durationMs: number; damage: number };
+  onDeath?: { split?: { enemyId: string; count: number } };
+  boss?: { phases: BossPhase[] };
+  /** Chance to drop a gun, before luck. */
+  dropChance: number;
 }
 
 // ---------------------------------------------------------------- runtime state
@@ -139,7 +200,11 @@ export interface PlayerInput {
   /** World-space offset for the grenade. Zero = throw at the nearest enemy. */
   grenadeAim: Vec;
   swap: boolean;
+  /** Pick up / use the item in reach: swap a gun, pray at a shrine, open a suitcase. */
+  interact: boolean;
 }
+
+export type BoostId = "bounce" | "burnSpread" | "vampire" | "quickPips" | "dashBurst";
 
 export interface Player {
   id: number;
@@ -168,9 +233,26 @@ export interface Player {
   downed: boolean;
   reviveT: number;
   selfRevives: number;
+  /** Run boosts from shrines: id → stacks. Reset every run. */
+  boosts: Partial<Record<BoostId, number>>;
+  /** hotStreak perk: kills in a row speed up reload for a moment. */
+  streakT: number;
 }
 
-export type EnemyState = "move" | "windup" | "attack" | "recover";
+export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";
+
+export interface Status {
+  burnT: number;
+  burnDps: number;
+  burnSource: number;
+  /** Burn deals its damage in chunks so damage numbers stay readable. */
+  burnTick: number;
+  /** Frost stacks (0..5): each slows 10%, five freeze. */
+  frost: number;
+  frozenT: number;
+  /** Acid breaks armor: armored enemies take extra damage from everything. */
+  acidT: number;
+}
 
 export interface Enemy {
   id: number;
@@ -181,20 +263,27 @@ export interface Enemy {
   radius: number;
   hp: number;
   maxHp: number;
+  /** Blue shield bar granted by supports. Absorbs damage first; Shock strips it fast. */
+  shield: number;
   state: EnemyState;
   stateT: number;
   attackIdx: number;
   cooldowns: number[];
   /** Locked direction for melee/dash windups. */
   attackDir: Vec;
-  /** Locked landing point for lobbed windups. */
-  attackPoint: Vec;
+  /** Locked landing points for lobbed windups. */
+  attackPoints: Vec[];
   hitPlayers: number[];
   hitFlash: number;
   spawnT: number;
   /** Per-enemy steering so packs fan out instead of stacking. */
   steer: number;
   strafe: number;
+  status: Status;
+  trailT: number;
+  /** Who summoned this enemy, for summon caps. */
+  parentId: number;
+  phase: number;
 }
 
 export interface Lob {
@@ -203,6 +292,7 @@ export interface Lob {
   t: number;
   dur: number;
   radius: number;
+  puddle?: { radius: number; durationMs: number; damage: number };
 }
 
 export interface Projectile {
@@ -210,14 +300,18 @@ export interface Projectile {
   owner: "player" | "enemy";
   ownerId: number;
   kind: string;
+  element: Element;
   pos: Vec;
   vel: Vec;
   radius: number;
   damage: number;
   pierce: number;
+  bounces: number;
   knockback: number;
   life: number;
   hitIds: number[];
+  /** The gun that fired it, for on-kill perks. */
+  gunUid: number;
   lob?: Lob;
 }
 
@@ -230,19 +324,74 @@ export interface Dome {
   maxT: number;
 }
 
-export interface Pickup {
+/** Ground effects that hurt whoever stands in them. */
+export interface Hazard {
   id: number;
+  kind: "acid" | "fire";
+  owner: "player" | "enemy";
   pos: Vec;
-  gun: Gun;
-  standT: number;
-  armed: boolean;
+  radius: number;
+  t: number;
+  maxT: number;
+  damage: number;
 }
 
-export interface Director {
-  wave: number;
-  state: "breather" | "fighting";
-  timer: number;
+/** Burning Foundry terrain rule: vents erupt on a timer, hurting players and enemies alike. */
+export interface Vent {
+  id: number;
+  pos: Vec;
+  radius: number;
+  periodS: number;
+  warnS: number;
+  eruptS: number;
+  /** Seconds into the current cycle. */
+  t: number;
+  damage: number;
+}
+
+export type PickupKind = "gun" | "heal" | "shrine" | "chest";
+
+export interface Pickup {
+  id: number;
+  kind: PickupKind;
+  pos: Vec;
+  gun?: Gun;
+  boost?: BoostId;
+  heal?: number;
+  /** Spent shrines and opened chests stay as scenery. */
+  used: boolean;
+}
+
+export type RoomKind = "intro" | "combat" | "breather" | "boss";
+
+export interface RoomPlan {
+  kind: RoomKind;
+  layout: number;
+  /** Enemy ids per wave. */
+  waves: string[][];
+}
+
+export interface Room {
+  index: number;
+  kind: RoomKind;
+  waves: string[][];
+  waveIdx: number;
+  /** Delay before the next wave arrives. */
+  waveTimer: number;
+  cleared: boolean;
+  exit: Rect;
+  vents: Vent[];
+}
+
+export interface Run {
+  plans: RoomPlan[];
+  room: Room;
+  /** Higher = bigger budgets and better loot. Normal = 0. */
+  tier: number;
   kills: number;
+  gunsFound: number;
+  time: number;
+  victory: boolean;
 }
 
 export interface World {
@@ -255,23 +404,33 @@ export interface World {
   enemies: Enemy[];
   projectiles: Projectile[];
   domes: Dome[];
+  hazards: Hazard[];
   pickups: Pickup[];
-  director: Director;
+  run: Run;
   events: SimEvent[];
   gameOver: boolean;
 }
 
 export type SimEvent =
-  | { type: "shot"; playerId: number; x: number; y: number; angle: number; archetype: Archetype }
+  | { type: "shot"; playerId: number; x: number; y: number; angle: number; archetype: Archetype; element: Element }
   | { type: "charge"; playerId: number }
-  | { type: "hit"; x: number; y: number; targetId: number; damage: number; kill: boolean }
+  | { type: "hit"; x: number; y: number; targetId: number; damage: number; kill: boolean; element: Element; weak: boolean; shield: boolean }
   | { type: "enemyDied"; x: number; y: number; id: number; defId: string }
-  | { type: "explosion"; x: number; y: number; radius: number; owner: "player" | "enemy" }
+  | { type: "explosion"; x: number; y: number; radius: number; owner: "player" | "enemy"; element: Element }
+  | { type: "chain"; x1: number; y1: number; x2: number; y2: number }
+  | { type: "frozen"; id: number }
+  | { type: "shieldUp"; id: number }
+  | { type: "shieldBroken"; id: number; x: number; y: number }
   | { type: "blocked"; x: number; y: number }
   | { type: "spark"; x: number; y: number }
-  | { type: "enemyWindup"; id: number; attack: AttackDef["type"] }
-  | { type: "enemyAttack"; id: number; attack: AttackDef["type"] }
+  | { type: "enemyWindup"; id: number; attack: AttackType }
+  | { type: "enemyAttack"; id: number; attack: AttackType }
+  | { type: "reveal"; id: number }
+  | { type: "split"; id: number; x: number; y: number }
+  | { type: "bossPhase"; id: number; phase: number }
   | { type: "bonk"; id: number; x: number; y: number }
+  | { type: "ventWarn"; id: number }
+  | { type: "ventErupt"; id: number; x: number; y: number }
   | { type: "playerHurt"; id: number; damage: number }
   | { type: "playerDowned"; id: number; canRevive: boolean }
   | { type: "playerRevived"; id: number }
@@ -279,8 +438,14 @@ export type SimEvent =
   | { type: "skill"; id: number; x: number; y: number }
   | { type: "grenade"; id: number }
   | { type: "swap"; id: number }
-  | { type: "pickup"; id: number; defId: string }
+  | { type: "pickup"; id: number; gun: Gun }
+  | { type: "loot"; x: number; y: number; rarity: Rarity }
+  | { type: "heal"; id: number; amount: number }
+  | { type: "shrine"; id: number; boost: BoostId }
+  | { type: "chestOpened"; x: number; y: number }
   | { type: "enemySpawn"; id: number }
-  | { type: "waveStart"; wave: number }
-  | { type: "waveCleared"; wave: number }
+  | { type: "waveStart"; wave: number; waves: number }
+  | { type: "roomCleared"; index: number }
+  | { type: "roomEnter"; index: number; kind: RoomKind; rooms: number }
+  | { type: "victory" }
   | { type: "gameOver" };

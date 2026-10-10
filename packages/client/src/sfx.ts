@@ -158,6 +158,75 @@ class Sfx {
       case "revive":
         if (this.ok(name, 200)) { this.tone(200, 1200, 0.5, "triangle", 0.35); this.noise(0.4, 0.3, 500, 4000); }
         break;
+      case "weakHit":
+        if (this.ok(name, 40)) { this.tone(900, 300, 0.07, "square", 0.18); this.tone(1800, 1800, 0.05, "sine", 0.12, 0.02); }
+        break;
+      case "shieldHit":
+        if (this.ok(name, 45)) this.tone(1500, 1100, 0.06, "triangle", 0.15);
+        break;
+      case "shieldUp":
+        if (this.ok(name, 150)) this.tone(500, 1500, 0.25, "sine", 0.18);
+        break;
+      case "shieldBreak":
+        if (this.ok(name, 60)) { this.noise(0.18, 0.4, 7000, 1500); this.tone(1600, 400, 0.18, "triangle", 0.2); }
+        break;
+      case "freeze":
+        if (this.ok(name, 80)) { this.tone(2400, 1800, 0.2, "sine", 0.2); this.noise(0.2, 0.15, 8000, 3000); }
+        break;
+      case "zap":
+        if (this.ok(name, 50)) this.noise(0.08, 0.25, 9000, 2000);
+        break;
+      case "burn":
+        if (this.ok(name, 120)) this.noise(0.1, 0.12, 1200, 600);
+        break;
+      case "ventWarn":
+        if (this.ok(name, 150)) this.noise(0.9, 0.12, 200, 900);
+        break;
+      case "ventErupt":
+        if (this.ok(name, 100)) { this.noise(0.7, 0.45, 1400, 120); this.tone(70, 40, 0.5, "sawtooth", 0.25); }
+        break;
+      case "reveal":
+        if (this.ok(name, 100)) { this.tone(200, 900, 0.15, "square", 0.3); this.tone(150, 80, 0.25, "sawtooth", 0.3, 0.12); }
+        break;
+      case "split":
+        if (this.ok(name, 80)) { this.tone(300, 900, 0.1, "sine", 0.2); this.noise(0.1, 0.2, 1500); }
+        break;
+      case "summon":
+        if (this.ok(name, 150)) this.tone(200, 600, 0.4, "triangle", 0.15);
+        break;
+      case "slam":
+        if (this.ok(name, 100)) { this.noise(0.45, 0.7, 900, 50); this.tone(80, 30, 0.4, "sine", 0.6); }
+        break;
+      case "bolt":
+        if (this.ok(name, 80)) this.tone(900, 500, 0.15, "sawtooth", 0.12);
+        break;
+      case "bossPhase":
+        if (this.ok(name, 400)) { this.tone(110, 55, 0.8, "sawtooth", 0.4); this.noise(0.8, 0.3, 600, 100); }
+        break;
+      case "loot":
+        if (this.ok(name, 80)) this.tone(700, 1400, 0.12, "triangle", 0.15);
+        break;
+      case "lootRare":
+        if (this.ok(name, 80)) [784, 988, 1175].forEach((f, i) => this.tone(f, f, 0.12, "triangle", 0.2, i * 0.05));
+        break;
+      case "lootLegendary":
+        if (this.ok(name, 200)) [523, 659, 784, 1046, 1318].forEach((f, i) => this.tone(f, f * 1.01, 0.25, "square", 0.18, i * 0.07));
+        break;
+      case "heal":
+        if (this.ok(name, 100)) [660, 880].forEach((f, i) => this.tone(f, f, 0.1, "sine", 0.2, i * 0.07));
+        break;
+      case "shrine":
+        if (this.ok(name, 200)) [392, 494, 587, 784].forEach((f, i) => this.tone(f, f, 0.3, "triangle", 0.2, i * 0.09));
+        break;
+      case "chest":
+        if (this.ok(name, 200)) { this.noise(0.1, 0.3, 2000); [523, 784].forEach((f, i) => this.tone(f, f, 0.15, "square", 0.15, 0.1 + i * 0.08)); }
+        break;
+      case "door":
+        if (this.ok(name, 200)) { this.noise(0.5, 0.2, 400, 1500); this.tone(300, 600, 0.3, "square", 0.12, 0.3); }
+        break;
+      case "victory":
+        if (this.ok(name, 500)) [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => this.tone(f, f, 0.2, "square", 0.2, i * 0.12));
+        break;
     }
   }
 }

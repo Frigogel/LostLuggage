@@ -1,46 +1,22 @@
-import { clampToArena, confine, DT, hurtPlayer, newId, nearestPlayer } from "./combat";
+import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, spawnEnemy, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
-import { add, dist, dot, len, norm, rand, rotate, scale, sub, type Vec } from "./math";
+import { add, dist, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
 import type { AttackDef, Enemy, EnemyDef, Player, World } from "./types";
-
-export function makeEnemy(w: World, defId: string, pos: Vec, spawnDelay: number): Enemy {
-  const def = ENEMIES[defId]!;
-  return {
-    id: newId(w),
-    defId,
-    pos: { ...pos },
-    vel: { x: 0, y: 0 },
-    knock: { x: 0, y: 0 },
-    radius: def.radius,
-    hp: def.hp,
-    maxHp: def.hp,
-    state: "move",
-    stateT: 0,
-    attackIdx: 0,
-    // Stagger first attacks so a fresh wave doesn't fire in unison.
-    cooldowns: def.attacks.map((a) => (a.cooldownMs / 1000) * (0.3 + rand(w) * 0.7)),
-    attackDir: { x: 1, y: 0 },
-    attackPoint: { ...pos },
-    hitPlayers: [],
-    hitFlash: 0,
-    spawnT: spawnDelay,
-    steer: (rand(w) - 0.5) * 1.4,
-    strafe: rand(w) < 0.5 ? -1 : 1,
-  };
-}
+import { ventState } from "./room";
 
 export function updateEnemies(w: World): void {
-  for (const e of w.enemies) updateEnemy(w, e);
+  for (const e of [...w.enemies]) updateEnemy(w, e);
   separate(w);
   for (const e of w.enemies) {
+    const def = ENEMIES[e.defId]!;
+    if (e.state === "hidden" || def.movement.type === "stationary") continue;
     for (const d of w.domes) {
       // Domes keep enemies out entirely.
       const off = sub(e.pos, d.pos);
       const l = len(off);
       const min = d.radius + e.radius;
       if (l < min) {
-        const dir = l > 0.01 ? scale(off, 1 / l) : { x: 1, y: 0 };
-        e.pos = add(d.pos, scale(dir, min));
+        e.pos = add(d.pos, scale(l > 0.01 ? scale(off, 1 / l) : { x: 1, y: 0 }, min));
         if (e.state === "attack") endDash(w, e, true);
       }
     }
@@ -49,38 +25,93 @@ export function updateEnemies(w: World): void {
   w.enemies = w.enemies.filter((e) => e.hp > 0);
 }
 
+function haste(e: Enemy, def: EnemyDef): number {
+  return def.boss ? def.boss.phases[e.phase]!.haste : 1;
+}
+
 function updateEnemy(w: World, e: Enemy): void {
   const def = ENEMIES[e.defId]!;
+  if (e.hp <= 0) return;
   if (e.spawnT > 0) {
     e.spawnT -= DT;
     if (e.spawnT <= 0) w.events.push({ type: "enemySpawn", id: e.id });
     return;
   }
   e.hitFlash = Math.max(0, e.hitFlash - DT);
-  for (let i = 0; i < e.cooldowns.length; i++) e.cooldowns[i] = Math.max(0, e.cooldowns[i]! - DT);
+
+  // Statuses.
+  const s = e.status;
+  s.acidT = Math.max(0, s.acidT - DT);
+  s.frost = Math.max(0, s.frost - 0.8 * DT);
+  if (s.burnT > 0) {
+    s.burnT -= DT;
+    s.burnTick -= DT;
+    if (s.burnTick <= 0) {
+      s.burnTick = 0.5;
+      damageEnemy(w, e, s.burnDps * 0.5, { dir: { x: 0, y: 0 }, knockback: 0, sourcePlayerId: s.burnSource, element: "fire", secondary: true });
+      if (e.hp <= 0) return;
+    }
+    if (s.burnT <= 0) s.burnDps = 0;
+  }
 
   e.pos = add(e.pos, scale(e.knock, DT));
   e.knock = scale(e.knock, 0.8);
+  if (s.frozenT > 0) {
+    s.frozenT -= DT;
+    e.vel = { x: 0, y: 0 };
+    return;
+  }
 
+  const h = haste(e, def);
+  for (let i = 0; i < e.cooldowns.length; i++) e.cooldowns[i] = Math.max(0, e.cooldowns[i]! - DT * h);
+
+  if (def.boss) {
+    let phase = 0;
+    def.boss.phases.forEach((ph, i) => {
+      if (e.hp / e.maxHp <= ph.hpFrac) phase = i;
+    });
+    if (phase > e.phase) {
+      e.phase = phase;
+      w.events.push({ type: "bossPhase", id: e.id, phase });
+    }
+  }
+
+  const slow = 1 - 0.1 * Math.min(s.frost, 5);
   const target = nearestPlayer(w, e.pos);
   e.vel = { x: 0, y: 0 };
 
   switch (e.state) {
+    case "hidden": {
+      const m = def.movement;
+      if (m.type === "ambush" && w.players.some((p) => !p.downed && dist(p.pos, e.pos) < m.trigger)) {
+        e.state = "reveal";
+        e.stateT = m.revealMs / 1000;
+        w.events.push({ type: "reveal", id: e.id });
+      }
+      break;
+    }
+    case "reveal": {
+      e.stateT -= DT;
+      if (e.stateT <= 0) e.state = "move";
+      break;
+    }
     case "move": {
       if (!target) break;
-      move(w, e, def, target);
+      move(w, e, def, target, slow);
+      dropTrail(w, e, def);
       tryStartAttack(w, e, def, target);
       break;
     }
     case "windup": {
-      e.stateT -= DT;
-      if (e.stateT <= 0) executeAttack(w, e, def.attacks[e.attackIdx]!);
+      // Frost stretches windups too.
+      e.stateT -= DT * slow;
+      if (e.stateT <= 0) executeAttack(w, e, def, def.attacks[e.attackIdx]!, target);
       break;
     }
     case "attack": {
       const atk = def.attacks[e.attackIdx]!;
       if (atk.type !== "dash") break;
-      e.vel = scale(e.attackDir, atk.dashSpeed);
+      e.vel = scale(e.attackDir, atk.dashSpeed * slow);
       e.pos = add(e.pos, scale(e.vel, DT));
       for (const p of w.players) {
         if (p.downed || e.hitPlayers.includes(p.id)) continue;
@@ -106,58 +137,99 @@ function updateEnemy(w: World, e: Enemy): void {
   }
 }
 
-function move(w: World, e: Enemy, def: EnemyDef, target: Player): void {
+function move(w: World, e: Enemy, def: EnemyDef, target: Player, slow: number): void {
+  const m = def.movement;
+  if (m.type === "stationary") return;
   const to = sub(target.pos, e.pos);
   const d = len(to);
   const dir = norm(to);
   let want: Vec = { x: 0, y: 0 };
 
-  if (def.movement.type === "chase") {
+  if (m.type === "chase" || m.type === "ambush") {
     const stopAt = Math.max(0, attackRange(def) * 0.6);
     if (d > stopAt + target.radius + e.radius) {
       // Fan out while far away so packs surround instead of queueing.
       want = d > 50 ? rotate(dir, e.steer) : dir;
     }
   } else {
-    const { min, max } = def.movement;
-    if (d < min) want = scale(dir, -1);
-    else if (d > max) want = dir;
+    if (d < m.min) want = scale(dir, -1);
+    else if (d > m.max) want = dir;
     else {
       want = scale({ x: -dir.y, y: dir.x }, e.strafe * 0.6);
       if (rand(w) < 0.01) e.strafe *= -1;
     }
   }
 
-  e.vel = scale(want, def.speed);
+  // Enemies that can burn keep clear of vents that are about to blow. Fire-immune ones use them as bait.
+  if (!def.fireImmune) {
+    for (const v of w.run.room.vents) {
+      if (ventState(v) === "idle") continue;
+      const off = sub(e.pos, v.pos);
+      const l = len(off);
+      if (l < v.radius + e.radius + 14) want = add(want, scale(norm(off), 1.5));
+    }
+  }
+
+  e.vel = scale(norm(want), def.speed * slow * Math.min(1, len(want) || 0));
   e.pos = add(e.pos, scale(e.vel, DT));
 }
 
+function dropTrail(w: World, e: Enemy, def: EnemyDef): void {
+  const t = def.trail;
+  if (!t || len(e.vel) < 1) return;
+  e.trailT -= DT;
+  if (e.trailT > 0) return;
+  e.trailT = t.intervalMs / 1000;
+  w.hazards.push({ id: newId(w), kind: "acid", owner: "enemy", pos: { ...e.pos }, radius: t.radius, t: t.durationMs / 1000, maxT: t.durationMs / 1000, damage: t.damage });
+}
+
 function attackRange(def: EnemyDef): number {
-  return def.attacks.reduce((m, a) => Math.min(m, a.range), Infinity);
+  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" ? m : Math.min(m, a.range)), Infinity);
+}
+
+function childrenAlive(w: World, e: Enemy): number {
+  return w.enemies.filter((c) => c.parentId === e.id && c.hp > 0).length;
+}
+
+function canUse(w: World, e: Enemy, atk: AttackDef, d: number): boolean {
+  switch (atk.type) {
+    case "shieldAllies":
+      return w.enemies.some((o) => o !== e && targetable(o) && o.shield < atk.amount * 0.5 && dist(o.pos, e.pos) < atk.radius);
+    case "summon":
+      return childrenAlive(w, e) < atk.maxAlive;
+    default:
+      return d <= atk.range;
+  }
 }
 
 function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Player): void {
   const d = dist(e.pos, target.pos) - target.radius - e.radius;
-  for (let i = 0; i < def.attacks.length; i++) {
+  const usable = def.boss ? def.boss.phases[e.phase]!.attacks : def.attacks.map((_, i) => i);
+  for (const i of usable) {
     const atk = def.attacks[i]!;
-    if (e.cooldowns[i]! > 0 || d > atk.range) continue;
+    if (e.cooldowns[i]! > 0 || !canUse(w, e, atk, d)) continue;
     e.state = "windup";
-    e.stateT = atk.windupMs / 1000;
+    e.stateT = atk.windupMs / 1000 / haste(e, def);
     e.attackIdx = i;
     e.attackDir = norm(sub(target.pos, e.pos));
     if (atk.type === "lobbedProjectile") {
       // Lead the target a little so standing still isn't enough, but walking sideways is.
       const lead = add(target.pos, scale(target.vel, 0.25));
-      e.attackPoint = clampToArena(w, lead, 8);
+      e.attackPoints = [clampToArena(w, lead, 8)];
+      for (let k = 1; k < (atk.count ?? 1); k++) {
+        const a = rand(w) * Math.PI * 2;
+        e.attackPoints.push(clampToArena(w, add(target.pos, fromAngle(a, randRange(w, 20, atk.scatter ?? 40))), 8));
+      }
     }
     w.events.push({ type: "enemyWindup", id: e.id, attack: atk.type });
     return;
   }
 }
 
-function executeAttack(w: World, e: Enemy, atk: AttackDef): void {
-  const i = e.attackIdx;
-  e.cooldowns[i] = atk.cooldownMs / 1000;
+function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target: Player | undefined): void {
+  e.cooldowns[e.attackIdx] = atk.cooldownMs / 1000;
+  e.state = "recover";
+  e.stateT = atk.recoverMs / 1000;
   w.events.push({ type: "enemyAttack", id: e.id, attack: atk.type });
 
   switch (atk.type) {
@@ -171,8 +243,6 @@ function executeAttack(w: World, e: Enemy, atk: AttackDef): void {
       }
       // A small lunge sells the bite.
       e.knock = add(e.knock, scale(e.attackDir, 90));
-      e.state = "recover";
-      e.stateT = atk.recoverMs / 1000;
       break;
     }
     case "dash": {
@@ -182,24 +252,55 @@ function executeAttack(w: World, e: Enemy, atk: AttackDef): void {
       break;
     }
     case "lobbedProjectile": {
-      const d = dist(e.pos, e.attackPoint);
-      w.projectiles.push({
-        id: newId(w),
-        owner: "enemy",
-        ownerId: e.id,
-        kind: "mortar",
-        pos: { ...e.pos },
-        vel: { x: 0, y: 0 },
-        radius: 4,
-        damage: atk.damage,
-        pierce: 0,
-        knockback: 0,
-        life: 99,
-        hitIds: [],
-        lob: { from: { ...e.pos }, to: { ...e.attackPoint }, t: 0, dur: Math.max(0.3, (atk.flightMs / 1000) * (0.6 + (0.4 * d) / atk.range)), radius: atk.radius },
-      });
-      e.state = "recover";
-      e.stateT = atk.recoverMs / 1000;
+      for (const to of e.attackPoints) {
+        const d = dist(e.pos, to);
+        w.projectiles.push({
+          id: newId(w), owner: "enemy", ownerId: e.id, kind: atk.puddle ? "acid" : "mortar", element: atk.puddle ? "acid" : "none",
+          pos: { ...e.pos }, vel: { x: 0, y: 0 }, radius: 4, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0, life: 99,
+          hitIds: [], gunUid: -1,
+          lob: { from: { ...e.pos }, to: { ...to }, t: 0, dur: Math.max(0.3, (atk.flightMs / 1000) * (0.6 + (0.4 * d) / atk.range)), radius: atk.radius, puddle: atk.puddle },
+        });
+      }
+      break;
+    }
+    case "slam": {
+      w.events.push({ type: "explosion", x: e.pos.x, y: e.pos.y, radius: atk.radius, owner: "enemy", element: "none" });
+      for (const p of w.players) {
+        if (p.downed || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
+        if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
+        else hurtPlayer(w, p, atk.damage);
+      }
+      break;
+    }
+    case "projectile": {
+      const aimAt = target ? norm(sub(target.pos, e.pos)) : e.attackDir;
+      const base = angleOf(aimAt);
+      const spread = (atk.spreadDeg * Math.PI) / 180;
+      for (let k = 0; k < atk.count; k++) {
+        const a = atk.count > 1 ? base + (k / (atk.count - 1) - 0.5) * spread : base;
+        w.projectiles.push({
+          id: newId(w), owner: "enemy", ownerId: e.id, kind: "bolt", element: "none", pos: add(e.pos, fromAngle(a, e.radius)),
+          vel: fromAngle(a, atk.speed), radius: atk.radius, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0,
+          life: 3, hitIds: [], gunUid: -1,
+        });
+      }
+      break;
+    }
+    case "shieldAllies": {
+      for (const o of w.enemies) {
+        if (o === e || !targetable(o) || dist(o.pos, e.pos) > atk.radius) continue;
+        o.shield = Math.max(o.shield, atk.amount);
+        w.events.push({ type: "shieldUp", id: o.id });
+      }
+      break;
+    }
+    case "summon": {
+      const n = Math.min(atk.count, atk.maxAlive - childrenAlive(w, e));
+      for (let k = 0; k < n; k++) {
+        const a = rand(w) * Math.PI * 2;
+        const child = spawnEnemy(w, atk.enemyId, clampToArena(w, add(e.pos, fromAngle(a, e.radius + 10)), 10), 0.6);
+        child.parentId = e.id;
+      }
       break;
     }
   }
@@ -218,6 +319,7 @@ function endDash(w: World, e: Enemy, hitWall: boolean): void {
 /** Pushes overlapping enemies apart, and out of players (players are never shoved by bodies). */
 function separate(w: World): void {
   const es = w.enemies;
+  const fixed = (e: Enemy) => e.state === "hidden" || ENEMIES[e.defId]!.movement.type === "stationary";
   for (let i = 0; i < es.length; i++) {
     const a = es[i]!;
     if (a.spawnT > 0) continue;
@@ -230,14 +332,20 @@ function separate(w: World): void {
       const d2 = dx * dx + dy * dy;
       if (d2 >= min * min) continue;
       const d = Math.sqrt(d2) || 0.01;
-      const push = (min - d) / 2;
+      const fa = fixed(a);
+      const fb = fixed(b);
+      if (fa && fb) continue;
+      const push = min - d;
       const nx = dx / d;
       const ny = dy / d;
-      a.pos.x -= nx * push;
-      a.pos.y -= ny * push;
-      b.pos.x += nx * push;
-      b.pos.y += ny * push;
+      // Heavier things (and props) don't get shoved around.
+      const wa = fa ? 0 : fb ? 1 : b.radius / (a.radius + b.radius);
+      a.pos.x -= nx * push * wa;
+      a.pos.y -= ny * push * wa;
+      b.pos.x += nx * push * (1 - wa);
+      b.pos.y += ny * push * (1 - wa);
     }
+    if (fixed(a)) continue;
     for (const p of w.players) {
       if (p.downed || p.dashT > 0) continue;
       const off = sub(a.pos, p.pos);

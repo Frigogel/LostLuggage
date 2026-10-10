@@ -1,9 +1,11 @@
 export * from "./types";
 export * from "./math";
-export { DT, TICK_HZ } from "./combat";
+export { DT, TICK_HZ, elementMultiplier } from "./combat";
 export { GUNS, GRENADE } from "./data/guns";
 export { ENEMIES } from "./data/enemies";
 export { HEROES, DASH } from "./data/heroes";
-export { EMPTY_INPUT } from "./players";
-export { planWave, MAX_ENEMIES } from "./director";
-export { createWorld, step, nearbyPickup, ARENA, type WorldOptions } from "./world";
+export { EMPTY_INPUT, PICKUP_REACH, interactable } from "./players";
+export { planWave, planRun, roomBudget, MAX_ENEMIES } from "./director";
+export { BOOSTS, ELEMENT_INFO, PERKS, RARITIES, gunDps, gunName, gunStats, rollGun } from "./loot";
+export { ARENA, EXIT, LAYOUTS, START, enterRoom, ventState, type VentState } from "./room";
+export { createWorld, step, type WorldOptions } from "./world";

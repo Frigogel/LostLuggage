@@ -1,104 +1,107 @@
-import { DT, insideArenaSolid } from "./combat";
 import { ENEMIES } from "./data/enemies";
-import { makeEnemy } from "./enemies";
-import { dist, pick, rand, randRange, type Vec } from "./math";
-import type { World } from "./types";
+import { pick, rand } from "./math";
+import type { EnemyDef, Role, RoomPlan, World } from "./types";
 
 export const MAX_ENEMIES = 40;
-const BREATHER_S = 4;
 
 /**
- * Prototype director: endless arena waves with a growing threat budget.
- * Phase 2 replaces this with the full room-by-room director from the design doc.
+ * Role combinations that each pose a distinct problem (design doc: "Combinations are the puzzles").
+ * The first roles of a template are guaranteed; the rest of the budget cycles through it.
  */
-export function updateDirector(w: World): void {
-  const dir = w.director;
-  if (dir.state === "breather") {
-    dir.timer -= DT;
-    if (dir.timer <= 0) startWave(w);
-    return;
-  }
-  if (w.enemies.length === 0) {
-    dir.state = "breather";
-    dir.timer = BREATHER_S;
-    w.events.push({ type: "waveCleared", wave: dir.wave });
-  }
+const TEMPLATES: Role[][] = [
+  ["bruiser", "artillery", "swarmer"], // can't just rush the shooter
+  ["charger", "zoner", "swarmer"], // dodge lanes while the floor shrinks
+  ["support", "bruiser", "swarmer"], // kill the wizard first
+  ["summoner", "artillery", "swarmer"], // the crate keeps making it worse
+  ["splitter", "support", "artillery"],
+  ["charger", "ambusher", "swarmer"],
+  ["support", "charger", "zoner"],
+  ["splitter", "zoner", "swarmer"],
+];
+
+/** Per-wave caps that stop dull or unfair mixes (three artillery alone, two healers, …). */
+const ROLE_CAP: Partial<Record<Role, number>> = { artillery: 2, support: 1, summoner: 1, ambusher: 2, bruiser: 2, charger: 3 };
+
+/** Pacing curve for a combat room's waves: tense fight, breather, tense again, spike. */
+const PACING = [1.0, 0.7, 1.2, 1.5];
+
+function family(biome: string, role: Role): EnemyDef[] {
+  return Object.values(ENEMIES).filter((d) => d.role === role && d.threatCost > 0 && d.biomes.includes(biome));
 }
 
-/** Which enemies a wave may use. Early waves introduce one problem at a time. */
-function rosterFor(wave: number): string[] {
-  if (wave <= 1) return ["cone_rat"];
-  if (wave === 2) return ["cone_rat", "jet_boar"];
-  if (wave === 3) return ["cone_rat", "mortar_beetle"];
-  return ["cone_rat", "jet_boar", "mortar_beetle"];
+export function roomBudget(roomIndex: number, tier: number, partySize: number): number {
+  // Co-op will scale enemy count with party size; solo is 1.
+  return (10 + roomIndex * 4) * (1 + tier * 0.35) * (1 + (partySize - 1) * 0.6);
 }
 
-export function planWave(w: World, wave: number): string[] {
-  const roster = rosterFor(wave);
-  let budget = 4 + Math.floor(wave * 2.5);
+export interface WavePlan {
+  enemies: string[];
+  /** Ambushers wait in the room as props instead of arriving with the wave. */
+  props: string[];
+}
+
+export function planWave(w: World, budget: number, biome = "foundry", avoidTemplate = -1): WavePlan & { template: number } {
+  let t = Math.floor(rand(w) * TEMPLATES.length);
+  if (t === avoidTemplate) t = (t + 1) % TEMPLATES.length;
+  const template = TEMPLATES[t]!;
   const out: string[] = [];
-  const heavies = roster.filter((id) => id !== "cone_rat");
-  const maxArtillery = 1 + Math.floor(wave / 3);
+  const props: string[] = [];
+  const count: Partial<Record<Role, number>> = {};
+  let left = budget;
 
-  // Rule against dull mixes: every wave after the first leads with a non-swarmer.
-  if (heavies.length > 0) {
-    const first = heavies[wave % heavies.length]!;
-    out.push(first);
-    budget -= ENEMIES[first]!.threatCost;
-  }
-
-  while (budget > 0 && out.length < MAX_ENEMIES) {
-    const id = pick(w, roster);
-    const def = ENEMIES[id]!;
-    if (def.role === "artillery" && out.filter((x) => ENEMIES[x]!.role === "artillery").length >= maxArtillery) continue;
-    if (def.role === "swarmer") {
+  const add = (role: Role): boolean => {
+    if ((count[role] ?? 0) >= (ROLE_CAP[role] ?? 99)) return false;
+    const options = family(biome, role).filter((d) => d.threatCost <= left + 0.5);
+    if (options.length === 0) return false;
+    const def = pick(w, options);
+    if (role === "swarmer") {
       // Swarmers come in packs.
-      const pack = Math.min(budget, 3 + Math.floor(rand(w) * 3));
-      for (let i = 0; i < pack; i++) out.push(id);
-      budget -= pack;
+      const pack = Math.max(1, Math.min(Math.floor(left / def.threatCost), 3 + Math.floor(rand(w) * 3)));
+      for (let i = 0; i < pack; i++) out.push(def.id);
+      left -= pack * def.threatCost;
     } else {
-      if (def.threatCost > budget + 1) break;
-      out.push(id);
-      budget -= def.threatCost;
+      (role === "ambusher" ? props : out).push(def.id);
+      left -= def.threatCost;
     }
+    count[role] = (count[role] ?? 0) + 1;
+    return true;
+  };
+
+  for (const role of template) add(role);
+  let i = 0;
+  let stuck = 0;
+  while (left >= 1 && out.length + props.length < MAX_ENEMIES && stuck < template.length * 2) {
+    stuck = add(template[i % template.length]!) ? 0 : stuck + 1;
+    i++;
   }
-  return out;
+  return { enemies: out, props, template: t };
 }
 
-function startWave(w: World): void {
-  const dir = w.director;
-  dir.wave++;
-  dir.state = "fighting";
-  w.events.push({ type: "waveStart", wave: dir.wave });
-
-  const plan = planWave(w, dir.wave).slice(0, MAX_ENEMIES - w.enemies.length);
-  let packCenter: Vec | undefined;
-  plan.forEach((id, i) => {
-    const isSwarmer = ENEMIES[id]!.role === "swarmer";
-    let pos: Vec;
-    if (isSwarmer && packCenter && rand(w) < 0.75) pos = spawnNear(w, packCenter);
-    else {
-      pos = spawnPoint(w);
-      if (isSwarmer) packCenter = pos;
-    }
-    w.enemies.push(makeEnemy(w, id, pos, 0.8 + i * 0.12));
+/** A solo adventure: hand-made intro, combat, breather, combat spike, mini-boss. About 6-8 minutes. */
+export function planRun(w: World, tier: number, partySize = 1): RoomPlan[] {
+  const plans: RoomPlan[] = [];
+  // The first room of a biome is hand-made, so it teaches instead of surprising.
+  plans.push({
+    kind: "intro",
+    layout: 0,
+    waves: [["cone_rat", "cone_rat", "cone_rat", "cone_rat"], ["slag_golem", "cone_rat", "cone_rat", "cone_rat"], ["mortar_beetle", "acid_slime", "cone_rat", "cone_rat"]],
   });
-}
 
-function spawnPoint(w: World): Vec {
-  for (let tries = 0; tries < 40; tries++) {
-    const p = { x: randRange(w, 24, w.arena.w - 24), y: randRange(w, 24, w.arena.h - 24) };
-    if (insideArenaSolid(w, p)) continue;
-    if (w.players.some((pl) => dist(pl.pos, p) < 140)) continue;
-    return p;
+  const combatLayouts = rand(w) < 0.5 ? [1, 2] : [2, 1];
+  for (const [n, roomIndex] of [[0, 1], [1, 3]] as const) {
+    if (roomIndex === 3) plans.push({ kind: "breather", layout: 3, waves: [] });
+    const waves: string[][] = [];
+    let last = -1;
+    const pacing = roomIndex === 1 ? PACING.slice(0, 3) : PACING;
+    for (const p of pacing) {
+      const plan = planWave(w, roomBudget(roomIndex, tier, partySize) * p, "foundry", last);
+      last = plan.template;
+      // Props are marked with a leading "!" so the room can place them hidden at entry.
+      waves.push([...plan.enemies, ...plan.props.map((id) => "!" + id)]);
+    }
+    plans.push({ kind: "combat", layout: combatLayouts[n]!, waves });
   }
-  return { x: 24, y: 24 };
-}
 
-function spawnNear(w: World, c: Vec): Vec {
-  for (let tries = 0; tries < 10; tries++) {
-    const p = { x: c.x + randRange(w, -24, 24), y: c.y + randRange(w, -24, 24) };
-    if (!insideArenaSolid(w, p)) return p;
-  }
-  return { ...c };
+  plans.push({ kind: "boss", layout: 4, waves: [["furnace_foreman"]] });
+  return plans;
 }

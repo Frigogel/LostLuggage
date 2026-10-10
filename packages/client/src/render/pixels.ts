@@ -119,7 +119,301 @@ export const SPRITES: Record<string, PixelSprite> = {
       ".kkkkkkkkkkkk.",
     ],
   },
+  slag_golem: {
+    palette: { g: "#4a3f45", G: "#6d5f66", l: "#8f8088", o: "#ff7a1a" },
+    rows: [
+      "....kkkkkkk.....",
+      "...kGGGGGGGk....",
+      "..kGlGGGGGGGk...",
+      "..kGGoGGGoGGk...",
+      "..kGGGGGGGGGk...",
+      ".kkGGoooooGGkk..",
+      "kGGkGGGGGGGkGGk.",
+      "kGlkGGoGGGGkGlk.",
+      "kGGkGGGoGGGkGGk.",
+      "kGGkgGGGGGgkGGk.",
+      ".kk.kgggggk.kk..",
+      "....kGGkGGk.....",
+      "...kGGk.kGGk....",
+      "...kggk.kggk....",
+      "...kkk...kkk....",
+    ],
+  },
+  acid_slime: {
+    palette: { o: "#ff7a1a", a: "#7ee05a", A: "#4fa63a", e: "#1b1020" },
+    rows: [
+      ".....o......",
+      "....ooo.....",
+      "....WWW.....",
+      "...ooooo....",
+      "..kkaaaakk..",
+      ".kaaAaaaaak.",
+      "kaaeaaaeaaak",
+      "kaaaaaaaaaak",
+      "kAaaaaaaaAak",
+      ".kkkkkkkkkk.",
+    ],
+  },
+  hover_wizard: {
+    palette: { p: "#8c5ad1", y: "#f2c14e", f: "#f0c8a0", b: "#3b6fd1", m: "#a7b0bb", r: "#ff7a1a", e: "#1b1020" },
+    rows: [
+      ".....pp.....",
+      "....pppp....",
+      "...ppypp....",
+      "..pppppppp..",
+      "...kffffk...",
+      "...kfefek...",
+      "..mkWWWWk...",
+      "..mkWWWWWk..",
+      ".mmkbbybbk..",
+      ".mmkbbbbbk..",
+      ".m.kbbbbbbk.",
+      "...kbbbbbbk.",
+      "..r.kkkkkk..",
+      ".ryr........",
+      "..r.........",
+    ],
+  },
+  rat_crate: {
+    palette: { n: "#b5773f", N: "#cf9152", r: "#e0533d", e: "#ffe08a", c: "#5fd3e8", p: "#f29bb0" },
+    rows: [
+      "kkkkkkkkkkkkkkkkkk",
+      "knnnnnnnnnnnnnnnnk",
+      "knNNNNNNNNNNNNNNnk",
+      "knnnnnnnnnnnnnnnnk",
+      "kkkkkkkkkkkkkkkkkk",
+      "knnnnnnnnnnnnnnnnk",
+      "knkkkkkkkkkkkkkknk",
+      "knkrekkkkkkkrekknk",
+      "knkkkkkkkkkkkkkknk",
+      "knnnnnnnnnnnnnnnnk",
+      "kkkkkkkkkkkkkkkkkk",
+      "knnnnnnnnnnnnnnnnk",
+      "knNNNcccccNNNNNNnk",
+      "knnnnnnnnnnnnnnnnk",
+      "kkkkkkkkkkkkkkkkkk",
+      "pp................",
+      ".pp...............",
+    ],
+  },
+  vending_hidden: {
+    palette: { r: "#d1423a", R: "#8c2a24", y: "#f2c14e", o: "#ff7a1a", g: "#5fd36a", b: "#4aa3ff", M: "#a7b0bb" },
+    rows: [
+      "kkkkkkkkkkkkkk",
+      "krrrrrrrrrrrrk",
+      "krWWWWWWWWWWrk",
+      "krrrrrrrrrrrrk",
+      "krkkkkkkkkrrrk",
+      "krkyogyobkrMrk",
+      "krkkkkkkkkrMrk",
+      "krkgbyogykrrrk",
+      "krkkkkkkkkrMrk",
+      "krkobgyyokrMrk",
+      "krkkkkkkkkrrrk",
+      "krkyygobgkrkrk",
+      "krkkkkkkkkrrrk",
+      "krrrrrrrrrrrrk",
+      "krkkkkkkkkkkrk",
+      "krkkkkkkkkkkrk",
+      "krrrrrrrrrrrrk",
+      "kRRRRRRRRRRRRk",
+      "kkkkkkkkkkkkkk",
+    ],
+  },
+  vending_mimic: {
+    palette: { r: "#d1423a", R: "#8c2a24", e: "#ffe08a", p: "#4a1020", t: "#f29bb0" },
+    rows: [
+      "kkkkkkkkkkkkkk",
+      "krrrrrrrrrrrrk",
+      "krWWWWWWWWWWrk",
+      "krrrrrrrrrrrrk",
+      "krreerrrreerrk",
+      "krrekrrrrekrrk",
+      "krrrrrrrrrrrrk",
+      "kkWkWkWkWkWkWk",
+      "kppppppppppppk",
+      "kpppttttpppppk",
+      "kppppppppppppk",
+      "kWkWkWkWkWkWkk",
+      "krrrrrrrrrrrrk",
+      "krrrrrrrrrrrrk",
+      "krkkkkkkkkkkrk",
+      "krrrrrrrrrrrrk",
+      "kRRRRRRRRRRRRk",
+      ".kk........kk.",
+      ".kk........kk.",
+    ],
+  },
+  molten_blob: {
+    palette: { o: "#ff7a1a", y: "#ffc14a", R: "#c23b22", c: "#5a2a22", e: "#1b1020" },
+    rows: [
+      ".....kkkk.....",
+      "...kkoyyokk...",
+      "..kooyyyyook..",
+      ".koooyyoooocRk",
+      ".kooeoooeoocRk",
+      "kooooooooooRRk",
+      "koRoooooooRook",
+      "kRooooooooooRk",
+      "kRRoooooooRRRk",
+      ".kRRRRRRRRRRk.",
+      "..kkkkkkkkkk..",
+    ],
+  },
+  blobling: {
+    palette: { o: "#ff7a1a", y: "#ffc14a", R: "#c23b22", e: "#1b1020" },
+    rows: [
+      "..kkkk..",
+      ".koyyok.",
+      "koeooeok",
+      "kooooooR",
+      "kRooooRk",
+      ".kkkkkk.",
+    ],
+  },
+  furnace_foreman: {
+    palette: { h: "#f2c14e", M: "#6d7682", m: "#4a525e", e: "#ff7a1a", o: "#ff7a1a", y: "#ffc14a", C: "#3a3a46" },
+    rows: [
+      "..........hhhhhhh...........",
+      ".........hhhhhhhhh..........",
+      "........khhhhhhhhhk.........",
+      ".......khhhhhhhhhhhk........",
+      "......kkkkkkkkkkkkkkk.......",
+      ".......kMMMMMMMMMMMk........",
+      ".......kMeeMMMMMeeMk........",
+      ".......kMMMMMMMMMMMk........",
+      ".......kMMkkkkkkkMMk........",
+      "....kkkkkMMMMMMMMMkkkkk.....",
+      "...kMMMMkMMMMMMMMMkMMMMk....",
+      "..kMMmmMkMkkkkkkkMkMmmMMk...",
+      "..kMmmMkkMkoyoyokMkkMmmMk...",
+      "..kMMMk.kMkyoyoykMk.kMMMk...",
+      "..kMMk..kMkoyoyokMk..kMMk...",
+      "..kMMk..kMkkkkkkkMk..kWWWk..",
+      "..kCCk..kMMMMMMMMMk..kWkWk..",
+      "..kCCk..kMMMMMMMMMk..kWWWk..",
+      "...kk...kmmmmmmmmmk...kkk...",
+      ".........kMMk.kMMk..........",
+      ".........kMMk.kMMk..........",
+      "........kMMMk.kMMMk.........",
+      "........kkkkk.kkkkk.........",
+    ],
+  },
+  shrine: {
+    palette: { y: "#f2c14e", Y: "#b5862a", s: "#8a93a3", S: "#5a6270", c: "#9ff3ff" },
+    rows: [
+      "....kkkk....",
+      "...kyyyyk...",
+      "...kycyyk...",
+      "...kyyyyk...",
+      "....kYYk....",
+      "...kyyyyk...",
+      "..kyyyyyyk..",
+      "..kYyyyyYk..",
+      "...kYYYYk...",
+      "..kssssssk..",
+      ".kSSSSSSSSk.",
+      ".kkkkkkkkkk.",
+    ],
+  },
+  suitcase: {
+    palette: { b: "#3b6fd1", B: "#274a94", y: "#f2c14e", t: "#f4ecd8", r: "#e0533d" },
+    rows: [
+      "......kkkk......",
+      ".....k....k.....",
+      "kkkkkkkkkkkkkkkk",
+      "kbbbbbbbbbbbbbbk",
+      "kbtttbbbbbbrrrbk",
+      "kbtttbbyybbrrrbk",
+      "kBBBBBByyBBBBBBk",
+      "kbbbbbbbbbbbbbbk",
+      "kbbbbbbbbbbbbbbk",
+      "kBBBBBBBBBBBBBBk",
+      "kkkkkkkkkkkkkkkk",
+    ],
+  },
+  suitcase_open: {
+    palette: { b: "#3b6fd1", B: "#274a94", y: "#f2c14e", s: "#c9cfd6", d: "#2a2f3a" },
+    rows: [
+      "kkkkkkkkkkkkkkkk",
+      "kbbbbbbbbbbbbbbk",
+      "kBBBBBBBBBBBBBBk",
+      "kkkkkkkkkkkkkkkk",
+      "kddddddddddddddk",
+      "kdsdddddddddsddk",
+      "kddddddWdddddddk",
+      "kbbbbbbbbbbbbbbk",
+      "kBBBBBBBBBBBBBBk",
+      "kkkkkkkkkkkkkkkk",
+    ],
+  },
+  snack: {
+    palette: { p: "#f29bb0", P: "#d9708f", d: "#c8915a", y: "#f2c14e", c: "#5fd3e8" },
+    rows: [".kkkkk.", "kpypcpk", "kPpddpk", "kpd.dPk", "kPpddpk", "kdPpPdk", ".kkkkk."],
+  },
 };
+
+export function drawVent(r: number): HTMLCanvasElement {
+  const size = r * 2 + 2;
+  const [c, ctx] = canvas(size, size);
+  const cx = size / 2;
+  ctx.fillStyle = "#1b1020";
+  ctx.beginPath();
+  ctx.arc(cx, cx, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#3a2a30";
+  ctx.beginPath();
+  ctx.arc(cx, cx, r - 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#8c1d14";
+  ctx.beginPath();
+  ctx.arc(cx, cx, r - 5, 0, Math.PI * 2);
+  ctx.fill();
+  // Grate bars.
+  ctx.fillStyle = "#2a2230";
+  for (let x = -r; x < r; x += 4) ctx.fillRect(cx + x, cx - r + 3, 2, r * 2 - 6);
+  ctx.fillStyle = "#f2c14e";
+  for (let a = 0; a < 8; a++) {
+    const ang = (a / 8) * Math.PI * 2;
+    ctx.fillRect(Math.round(cx + Math.cos(ang) * (r - 1) - 0.5), Math.round(cx + Math.sin(ang) * (r - 1) - 0.5), 1, 1);
+  }
+  return c;
+}
+
+/** The exit hatch in the top wall. */
+export function drawDoor(w: number, h: number, open: boolean): HTMLCanvasElement {
+  const [c, ctx] = canvas(w, h);
+  ctx.fillStyle = "#1b1020";
+  ctx.fillRect(0, 0, w, h);
+  if (open) {
+    ctx.fillStyle = "#0c0710";
+    ctx.fillRect(3, 0, w - 6, h - 2);
+    ctx.fillStyle = "#5fd36a";
+    // Chevrons pointing out.
+    for (let i = 0; i < 2; i++) {
+      const y = 3 + i * 5;
+      for (let k = 0; k < 5; k++) {
+        ctx.fillRect(w / 2 - 1 - k, y + k, 1, 1);
+        ctx.fillRect(w / 2 + k, y + k, 1, 1);
+      }
+    }
+  } else {
+    for (let x = -h; x < w; x += 6) {
+      ctx.fillStyle = "#f2c14e";
+      ctx.beginPath();
+      ctx.moveTo(x + 3, 2);
+      ctx.lineTo(x + 6, 2);
+      ctx.lineTo(x + 6 + h - 4, h - 2);
+      ctx.lineTo(x + 3 + h - 4, h - 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#1b1020";
+    ctx.fillRect(0, h / 2 - 1, w, 2);
+    ctx.fillStyle = "#e0533d";
+    ctx.fillRect(w / 2 - 2, h / 2 - 1, 4, 2);
+  }
+  return c;
+}
 
 // 3x5 pixel font, each glyph as five octal digits (one per row, bit 4 = left pixel).
 const GLYPHS: Record<string, string> = {
@@ -130,6 +424,7 @@ const GLYPHS: Record<string, string> = {
   "5": "74616", "6": "34652", "7": "71122", "8": "25252", "9": "25316", ".": "00002", ",": "00024",
   "!": "22202", "?": "61202", ":": "02020", "-": "00700", "+": "02720", "/": "11224", "%": "51245",
   "(": "12221", ")": "42224", "'": "22000", " ": "00000", "<": "12421", ">": "42124", "=": "07070",
+  '"': "55000", "*": "05250", "&": "25257", "#": "57575",
 };
 export const FONT_CHARS = Object.keys(GLYPHS).join("");
 export const FONT_CELL = { w: 5, h: 7 };

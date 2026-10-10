@@ -1,6 +1,6 @@
 import Phaser from "phaser";
-import { ARENA } from "@lostluggage/sim";
-import { drawCrate, drawFloor, drawFont, drawGlow, drawLava, drawRing, drawShadow, drawSprite, drawVignette, FONT_CELL, FONT_CHARS, SPRITES } from "../render/pixels";
+import { ARENA, EXIT } from "@lostluggage/sim";
+import { drawCrate, drawDoor, drawFloor, drawVent, drawFont, drawGlow, drawLava, drawRing, drawShadow, drawSprite, drawVignette, FONT_CELL, FONT_CHARS, SPRITES } from "../render/pixels";
 
 export const FLOOR_PAD = 8;
 
@@ -20,9 +20,13 @@ export class BootScene extends Phaser.Scene {
     add("shadow-s", drawShadow(10, 4));
     add("shadow-m", drawShadow(14, 5));
     add("shadow-l", drawShadow(18, 6));
+    add("shadow-xl", drawShadow(30, 9));
     add("vignette", drawVignette(480, 270));
     add("lava", drawLava(64));
     add("floor", drawFloor(ARENA.w, ARENA.h, FLOOR_PAD));
+    add("vent", drawVent(18));
+    add("door-closed", drawDoor(EXIT.w, EXIT.h, false));
+    add("door-open", drawDoor(EXIT.w, EXIT.h, true));
 
     const px = document.createElement("canvas");
     px.width = px.height = 2;

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { EMPTY_INPUT, GRENADE, GUNS, clampLen, len, scale, sub, type Player, type PlayerInput, type Vec, type World } from "@lostluggage/sim";
+import { EMPTY_INPUT, GRENADE, clampLen, gunStats, len, scale, sub, type Player, type PlayerInput, type Vec, type World } from "@lostluggage/sim";
 import { sfx } from "./sfx";
 
 export const SCREEN = { w: 480, h: 270 };
@@ -8,7 +8,7 @@ const DEADZONE = 5;
 /** A touch fire that can't happen yet (pips empty, between shots) is buffered this long. */
 const FIRE_BUFFER_MS = 220;
 
-export type ButtonId = "dash" | "skill" | "grenade";
+export type ButtonId = "dash" | "skill" | "grenade" | "interact";
 export interface Button {
   x: number;
   y: number;
@@ -17,6 +17,8 @@ export interface Button {
 // Radii are in internal pixels; scaled to a phone they stay at or above 48 CSS px.
 export const BUTTONS: Record<ButtonId, Button> = {
   skill: { x: 404, y: 140, r: 19 },
+  // Only shown (and tappable) while an item is in reach; kept away from where the aim thumb rests.
+  interact: { x: 354, y: 150, r: 16 },
   grenade: { x: 452, y: 116, r: 14 },
   dash: { x: 450, y: 168, r: 16 },
 };
@@ -57,6 +59,9 @@ export class Controls {
   private grenadeLatch: { aim: Vec } | null = null;
   private dashLatch = false;
   private skillLatch = false;
+  private interactLatch = false;
+  /** Set by the HUD each frame: is there an item in reach for the pickup button? */
+  interactAvailable = false;
   private swapLatch = false;
   private slotLatch: number | null = null;
   private gunRange = 190;
@@ -68,7 +73,7 @@ export class Controls {
   ) {
     const input = scene.input;
     input.mouse?.disableContextMenu();
-    this.keys = input.keyboard!.addKeys("W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,E,Q,ONE,TWO,T,M") as Record<string, Phaser.Input.Keyboard.Key>;
+    this.keys = input.keyboard!.addKeys("W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,E,Q,ONE,TWO,T,M,F") as Record<string, Phaser.Input.Keyboard.Key>;
 
     const kb = input.keyboard!;
     kb.on("keydown", () => {
@@ -77,6 +82,7 @@ export class Controls {
     });
     kb.on("keydown-SPACE", () => (this.dashLatch = true));
     kb.on("keydown-E", () => (this.skillLatch = true));
+    kb.on("keydown-F", () => (this.interactLatch = true));
     kb.on("keydown-Q", () => (this.grenadeLatch = { aim: { x: NaN, y: NaN } }));
     kb.on("keydown-ONE", () => (this.slotLatch = 0));
     kb.on("keydown-TWO", () => (this.slotLatch = 1));
@@ -116,6 +122,7 @@ export class Controls {
       this.pressed[btn] = p.id;
       if (btn === "dash") this.dashLatch = true;
       else if (btn === "skill") this.skillLatch = true;
+      else if (btn === "interact") this.interactLatch = true;
       else if (!this.grenadeStick) this.grenadeStick = { pointerId: p.id, base: at, cur: at };
       return;
     }
@@ -166,6 +173,7 @@ export class Controls {
 
   hitButton(x: number, y: number): ButtonId | undefined {
     for (const [id, b] of Object.entries(BUTTONS) as [ButtonId, Button][]) {
+      if (id === "interact" && !this.interactAvailable) continue;
       if (Math.hypot(x - b.x, y - b.y) <= b.r + 4) return id;
     }
     return undefined;
@@ -203,7 +211,7 @@ export class Controls {
   build(_world: World, player: Player | undefined): PlayerInput {
     if (!player) return EMPTY_INPUT;
     const gun = player.guns[player.active]!;
-    const def = GUNS[gun.defId]!;
+    const def = gunStats(gun);
     this.gunRange = def.range;
 
     const inp: PlayerInput = { ...EMPTY_INPUT, move: this.keyMove() };
@@ -233,13 +241,14 @@ export class Controls {
 
     inp.dash = this.dashLatch;
     inp.skill = this.skillLatch;
+    inp.interact = this.interactLatch;
     inp.swap = this.swapLatch || (this.slotLatch !== null && this.slotLatch !== player.active);
     if (this.grenadeLatch) {
       inp.grenade = true;
       // Keyboard grenades (NaN marker) go where the mouse points.
       inp.grenadeAim = Number.isNaN(this.grenadeLatch.aim.x) ? this.mouseOffset(player) : this.grenadeLatch.aim;
     }
-    this.dashLatch = this.skillLatch = this.swapLatch = false;
+    this.dashLatch = this.skillLatch = this.swapLatch = this.interactLatch = false;
     this.slotLatch = null;
     this.grenadeLatch = null;
     return inp;
