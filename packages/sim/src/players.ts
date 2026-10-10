@@ -1,10 +1,13 @@
-import { confine, dropGun, DT, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
+import { confine, dropGun, DT, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
 import { GRENADE } from "./data/guns";
 import { DASH, HEROES, levelMultiplier, MAX_LEVEL, REVIVE, tierLevel } from "./data/heroes";
 import { LEGENDARIES, MOOD_CYCLE } from "./data/legendaries";
+import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { souvenirMods, type SouvenirRanks } from "./data/souvenirs";
+import { ambulanceNear, detonateTurrets, useDrone, useTurret } from "./gadgets";
 import { gunFromData, gunStats, newGun, rollGun } from "./loot";
+import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
 import type { Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
 
@@ -20,6 +23,8 @@ export interface PlayerOptions {
   /** Learned skill nodes. Anything the level can't afford is dropped. */
   skills?: string[];
   souvenirs?: SouvenirRanks;
+  /** Equipped signature power. Ignored unless it belongs to this hero. */
+  signature?: string;
 }
 
 /** Level sync: co-op sets everyone to the dungeon tier's level; solo uses your own. */
@@ -36,7 +41,7 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
   const maxHp = Math.round(hero.maxHp * levelMultiplier(syncLevel) * hpMod);
   const saved = (opts.guns ?? []).slice(0, 2).map((g) => gunFromData(w, g, g.sid));
   const guns = saved.length === 2 ? saved : [newGun(w, "pistol"), newGun(w, "shotgun")];
-  return {
+  const p: Player = {
     id: newId(w),
     heroId,
     name: opts.name ?? "",
@@ -76,7 +81,16 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     mods,
     haul: [],
     panicUsed: false,
+    signature: opts.signature && SIGNATURES[opts.signature]?.heroId === heroId ? opts.signature : "",
+    shield: 0,
+    knock: { x: 0, y: 0 },
+    slowT: 0,
+    holsterCd: 0,
+    markHits: 0,
   };
+  // Second Opinion: one more Second Wind.
+  if (p.skills.includes("wd_opinion")) p.selfRevives = 2;
+  return p;
 }
 
 /** Learned a skill node. */
@@ -145,18 +159,63 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
     dashed = true;
   }
 
+  const ice = w.arena.ice;
+  p.slowT = Math.max(0, p.slowT - DT);
   let vel: Vec;
   if (p.dashT > 0) {
-    vel = scale(p.dashDir, DASH.speed);
+    vel = scale(p.dashDir, DASH.speed * (ice ? DASH.iceBoost : 1));
     p.dashT -= DT;
   } else {
-    const speed = hero.speed * p.mods.speed * (p.charging ? 0.45 : 1);
-    vel = scale(clampLen(input.move, 1), speed);
+    const speed = hero.speed * p.mods.speed * (p.charging ? 0.45 : 1) * (p.slowT > 0 ? ICE.slush : 1);
+    const want = scale(clampLen(input.move, 1), speed);
+    // On ice you steer your momentum rather than set it: a dash keeps sliding, and stopping takes a moment.
+    vel = ice ? add(p.vel, scale(sub(want, p.vel), Math.min(1, DT * ICE.grip))) : want;
   }
-  p.pos = add(p.pos, scale(vel, DT));
-  confine(w, p.pos, p.radius);
+  p.pos = add(p.pos, scale(add(vel, p.knock), DT));
+  // Shoves fade fast on deck plating and slowly on ice.
+  p.knock = scale(p.knock, ice ? ICE.knockKeep : 0.7);
+  if (len(p.knock) < 2) p.knock = { x: 0, y: 0 };
+  const before = { ...p.pos };
+  if (confine(w, p.pos, p.radius) && ice) {
+    // Sliding into a wall stops you along that wall instead of gluing you to it.
+    if (Math.abs(before.x - p.pos.x) > 0.01) vel = { x: 0, y: vel.y };
+    if (Math.abs(before.y - p.pos.y) > 0.01) vel = { x: vel.x, y: 0 };
+  }
   p.vel = vel;
   return dashed;
+}
+
+/** Frozen Caverns movement. */
+export const ICE = {
+  /** How quickly your velocity follows the stick on ice, per second. */
+  grip: 4.5,
+  /** Shove kept per tick on ice (0.7 on plating). */
+  knockKeep: 0.9,
+  /** Speed left while standing in slush. */
+  slush: 0.6,
+  /** Spike walls: damage and the bounce off them. */
+  spikeDamage: 8,
+  spikeBounce: 240,
+  /** Longer than a normal hit's, so one bad slide is one hit, not three. */
+  spikeIframes: 0.9,
+};
+
+/** Touching a spike wall hurts and bounces you off it. */
+function touchSpikes(w: World, p: Player): void {
+  for (const r of w.arena.spikes) {
+    const cx = clamp(p.pos.x, r.x, r.x + r.w);
+    const cy = clamp(p.pos.y, r.y, r.y + r.h);
+    const off = sub(p.pos, { x: cx, y: cy });
+    if (len(off) > p.radius + 1) continue;
+    const out = len(off) > 0.01 ? norm(off) : { x: 0, y: 1 };
+    if (hurtPlayer(w, p, ICE.spikeDamage)) {
+      p.knock = scale(out, ICE.spikeBounce);
+      p.vel = { x: 0, y: 0 };
+      p.iframes = Math.max(p.iframes, ICE.spikeIframes);
+      w.events.push({ type: "spiked", x: cx, y: cy });
+    }
+    return;
+  }
 }
 
 /** Facing follows the aim, or the movement when not aiming. */
@@ -173,8 +232,10 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
   p.grenadeCd = Math.max(0, p.grenadeCd - DT);
   p.shotCd = Math.max(0, p.shotCd - DT);
   p.streakT = Math.max(0, p.streakT - DT);
+  p.holsterCd = Math.max(0, p.holsterCd - DT);
   // Every carried gun reloads, holstered or not: generous on purpose.
-  const reloadBoost = 1 + 0.15 * (p.boosts.quickPips ?? 0) + (p.streakT > 0 ? 0.5 : 0);
+  const steady = hasSkill(p, "gs_steady") && marksUp(w, p) ? 0.5 : 0;
+  const reloadBoost = 1 + 0.15 * (p.boosts.quickPips ?? 0) + (p.streakT > 0 ? 0.5 : 0) + steady;
   for (const g of p.guns) {
     const s = gunStats(g);
     if (g.pips < s.pips) g.pips = Math.min(s.pips, g.pips + (DT * 1000 * reloadBoost) / s.reloadMs);
@@ -195,17 +256,24 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
   if (input.swap && !p.charging && p.burstLeft === 0) {
     p.active = (p.active + 1) % p.guns.length;
     w.events.push({ type: "swap", id: p.id });
+    // Hot Holster: the gun you swap to comes up with a fresh pip.
+    if (hasSkill(p, "gs_holster") && p.holsterCd <= 0) {
+      refillPip(p);
+      p.holsterCd = 1.5;
+    }
   }
 
   if (stepMovement(w, p, input)) {
     w.events.push({ type: "dash", id: p.id });
     if (p.boosts.dashBurst) playerExplosion(w, p.pos, 34, 8 * p.boosts.dashBurst, 120, p.id, "shock");
+    if (hasSkill(p, "gs_spin")) refillPip(p);
   }
+  if (w.arena.spikes.length > 0) touchSpikes(w, p);
 
   if (input.skill && p.skillCharge >= 1) {
     p.skillCharge = 0;
-    spawnDome(w, p);
-  }
+    useSkill(w, p);
+  } else if (input.skill && hasSkill(p, "tk_early")) detonateTurrets(w, p);
 
   if (input.grenade && p.grenadeCd <= 0) {
     let offset: Vec;
@@ -229,6 +297,30 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
   updateShooting(w, p, input);
 }
 
+/** One pip back on the gun in hand. */
+function refillPip(p: Player): void {
+  const g = p.guns[p.active]!;
+  g.pips = Math.min(gunStats(g).pips, g.pips + 1);
+}
+
+/** The hero's action skill. */
+export function useSkill(w: World, p: Player): void {
+  switch (HEROES[p.heroId]!.skill.type) {
+    case "dome":
+      spawnDome(w, p);
+      break;
+    case "mark":
+      useMarks(w, p);
+      break;
+    case "turret":
+      useTurret(w, p);
+      break;
+    case "drone":
+      useDrone(w, p);
+      break;
+  }
+}
+
 /** Downed: either Second Wind is counting down, or teammates standing close fill the revive bar. */
 function updateDowned(w: World, p: Player): void {
   if (p.reviveT !== Infinity) {
@@ -237,10 +329,18 @@ function updateDowned(w: World, p: Player): void {
     return;
   }
   const helpers = w.players.filter((o) => o !== p && canAct(o) && dist(o.pos, p.pos) < REVIVE.reach + o.radius);
-  if (helpers.length > 0) {
-    // A second helper speeds it up a little; stacking the whole party doesn't trivialize it.
-    p.reviveProgress += (DT * (1 + 0.5 * (helpers.length - 1))) / REVIVE.seconds;
-    if (p.reviveProgress >= 1) revive(w, p, helpers[0]!.id, REVIVE.hpFrac);
+  // Owl Ambulance: a Warden's owl counts as a helper.
+  const owl = ambulanceNear(w, p);
+  if (helpers.length > 0 || owl) {
+    // A second helper speeds it up a little; stacking the whole party doesn't trivialize it. Bedside Manner doubles yours.
+    const n = helpers.length + (owl ? 1 : 0);
+    const fast = helpers.some((o) => hasSkill(o, "wd_hustle")) ? 2 : 1;
+    p.reviveProgress += (DT * fast * (1 + 0.5 * (n - 1))) / REVIVE.seconds;
+    if (p.reviveProgress >= 1) {
+      const by = helpers.find((o) => hasSkill(o, "wd_getup")) ?? helpers[0];
+      const credit = by ?? owl!;
+      revive(w, p, credit.id, hasSkill(credit, "wd_getup") ? 0.7 : REVIVE.hpFrac);
+    }
   } else {
     // Progress drains slowly, so stepping away to dodge doesn't throw it all away.
     p.reviveProgress = Math.max(0, p.reviveProgress - DT / (REVIVE.seconds * 2));
@@ -268,7 +368,7 @@ export function checkWipe(w: World): void {
   const lucky = present.find((p) => p.selfRevives > 0);
   if (lucky) {
     lucky.selfRevives--;
-    lucky.reviveT = 3;
+    lucky.reviveT = hasSkill(lucky, "wd_hustle") ? 1.5 : 3;
     w.events.push({ type: "secondWind", id: lucky.id });
     return;
   }
@@ -279,7 +379,8 @@ export function checkWipe(w: World): void {
 /** Resolves where a shot goes. Returns an offset whose length matters for lobbed guns. */
 function resolveAim(w: World, p: Player, input: PlayerInput, range: number): Vec {
   if (!input.autoAim && len(input.aim) > 1) return input.aim;
-  const target = nearestEnemy(w, p.pos, range * 1.15);
+  // Gunslinger: auto-aim goes for your marks first.
+  const target = nearestMarked(w, p.pos, p.id, range * 1.3) ?? nearestEnemy(w, p.pos, range * 1.15);
   if (target) return sub(target.pos, p.pos);
   return scale(p.facing, range * 0.75);
 }
@@ -310,7 +411,7 @@ function updateShooting(w: World, p: Player, input: PlayerInput): void {
   if (input.fire && p.shotCd <= 0 && gun.pips >= 1) {
     const aim = resolveAim(w, p, input, s.range);
     gun.pips -= 1;
-    p.shotCd = s.fireDelayMs / 1000;
+    p.shotCd = (s.fireDelayMs / 1000) * (hasSkill(p, "gs_fan") && marksUp(w, p) ? 0.5 : 1);
     p.shotAim = aim;
     p.facing = norm(aim);
     if (s.chargeMs > 0) {
@@ -357,6 +458,8 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
   }
 
   const bounces = s.bounces + (p.boosts.bounce ?? 0);
+  // While you have marks up, your shots seek them out.
+  const seek = marksUp(w, p);
   const spread = (s.spreadDeg * Math.PI) / 180;
   for (let i = 0; i < s.pellets; i++) {
     let a = base;
@@ -373,6 +476,7 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
     w.projectiles.push({
       ...pr,
       ...(s.homing > 0 ? { homing: s.homing, special: true } : {}),
+      ...(seek ? { seekMarks: p.id, homing: Math.max(s.homing, MARK.homing), special: true } : {}),
       ...(effect === "boomerang" ? { turnT: life, pierce: pr.pierce + 2, special: true } : {}),
       ...(effect === "ricochet" ? { ricochet: 3, special: true } : {}),
       ...(effect === "fireLine" ? { fireLine: true } : {}),

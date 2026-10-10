@@ -57,9 +57,9 @@ async function play(s: NetSession, seconds: number, observer?: NetSession, scrip
 
 async function measure(lagMs: number) {
   server.simulateLatency(lagMs);
-  const host = await NetSession.connect({ kind: "create" }, { name: "A" }, url);
+  const host = await NetSession.connect({ kind: "create" }, { name: "A" }, {}, url);
   await until(() => !!host.lobby);
-  const friend = await NetSession.connect({ kind: "code", code: host.lobby!.code }, { name: "B" }, url);
+  const friend = await NetSession.connect({ kind: "code", code: host.lobby!.code }, { name: "B" }, {}, url);
   await until(() => host.lobby?.seats.length === 2);
   host.start();
   await until(() => host.ready && friend.ready && host.myId > 0);

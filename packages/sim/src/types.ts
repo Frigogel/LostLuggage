@@ -83,13 +83,30 @@ export interface Gun extends GunData {
 
 // ---------------------------------------------------------------- heroes
 
+export type HeroSkill =
+  /** Vanguard: a dome that keeps enemies and their shots out. */
+  | { type: "dome"; radius: number; durationMs: number }
+  /** Gunslinger: marks the nearest enemies; your shots seek them and hit harder. */
+  | { type: "mark"; count: number; range: number; durationMs: number; bonus: number }
+  /** Tinker: a turret that shoots the nearest enemy with your gun's element. */
+  | { type: "turret"; durationMs: number; hp: number; range: number; fireMs: number; damage: number }
+  /** Warden: a drone that follows you, healing allies and slowing enemies around it. */
+  | { type: "drone"; durationMs: number; radius: number; heal: number; slow: number };
+
 export interface HeroDef {
   id: string;
   name: string;
+  /** Tank, damage, area control, support. */
+  role: string;
+  flavor: string;
   maxHp: number;
   speed: number;
   radius: number;
-  skill: { type: "dome"; radius: number; durationMs: number };
+  skill: HeroSkill;
+  /** Action skill name, short enough for the HUD button. */
+  skillName: string;
+  /** What the action skill does, plainly. */
+  skillText: string;
   /** Damage dealt to fully charge the action skill. */
   skillChargeDamage: number;
 }
@@ -127,6 +144,8 @@ export type AttackDef =
       damage: number;
       /** Recovery when the dash ends against a wall. */
       stunMs: number;
+      /** Shoves the players it hits sideways, px/s. */
+      push?: number;
     })
   | (AttackBase & {
       type: "lobbedProjectile";
@@ -137,8 +156,8 @@ export type AttackDef =
       /** Extra shells land around the target. */
       count?: number;
       scatter?: number;
-      /** Leaves a damaging puddle where it lands. */
-      puddle?: { radius: number; durationMs: number; damage: number };
+      /** Leaves a damaging puddle where it lands (or slippery slush, with `ice`). */
+      puddle?: Puddle;
     })
   | (AttackBase & {
       /** Ground pound around the enemy itself. */
@@ -146,6 +165,19 @@ export type AttackDef =
       telegraph: "groundCircle";
       radius: number;
       damage: number;
+      /** Shoves players out of the circle, px/s. On ice they keep sliding. */
+      push?: number;
+    })
+  | (AttackBase & {
+      /** Breath in a wedge in front of the enemy. Can leave icy ground behind. */
+      type: "cone";
+      telegraph: "cone";
+      length: number;
+      angleDeg: number;
+      damage: number;
+      push?: number;
+      /** Patches of ice left along the wedge. */
+      ice?: { radius: number; durationMs: number };
     })
   | (AttackBase & {
       type: "projectile";
@@ -174,6 +206,14 @@ export type AttackDef =
 
 export type AttackType = AttackDef["type"];
 
+export interface Puddle {
+  radius: number;
+  durationMs: number;
+  damage: number;
+  /** Slush that slows instead of acid that hurts. */
+  ice?: boolean;
+}
+
 export interface BossPhase {
   /** Phase starts when hp falls to this fraction. */
   hpFrac: number;
@@ -199,6 +239,8 @@ export interface EnemyDef {
   /** Cost against the director's room budget. 0 = never picked by the director. */
   threatCost: number;
   fireImmune?: boolean;
+  /** Frost still slows it a little, but never freezes it. */
+  frostImmune?: boolean;
   /** Leaves a damaging trail while moving. */
   trail?: { intervalMs: number; radius: number; durationMs: number; damage: number };
   onDeath?: { split?: { enemyId: string; count: number } };
@@ -291,9 +333,24 @@ export interface Player {
   haul: Gun[];
   /** Panic Room skill: the free dome is used up until the next room. */
   panicUsed: boolean;
+  /** Equipped signature power (co-op drop that changes the action skill), or "". */
+  signature: string;
+  /** Overheal turned into a shield (Warden): soaks damage before health. */
+  shield: number;
+  /** Shoves from enemy attacks, px/s. Fades fast on deck plating, slowly on ice. */
+  knock: Vec;
+  /** Standing in icy slush: moving slower for a moment. */
+  slowT: number;
+  /** Hot Holster skill: the swap refill is cooling down. */
+  holsterCd: number;
+  /** Bullseye skill: hits on marked enemies, every fourth is a crit. */
+  markHits: number;
 }
 
 export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";
+
+/** Elite modifiers change behavior, not just stats (design doc: Elite modifiers). */
+export type EliteId = "shielded" | "splitting" | "teleporting" | "vengeful" | "linked" | "hasted";
 
 export interface Status {
   burnT: number;
@@ -338,6 +395,55 @@ export interface Enemy {
   /** Who summoned this enemy, for summon caps. */
   parentId: number;
   phase: number;
+  /** Size relative to its kind: Splitting elites leave smaller copies behind. */
+  size: number;
+  /** Copies and relinked twins don't drop loot a second time. */
+  noLoot: boolean;
+  /** Stunned: can't move or attack (Gunslinger's Hands Up). */
+  stunT: number;
+  /** Slowed by a Warden's drone: the fraction of speed taken away, refreshed while it's close. */
+  slowT: number;
+  slow: number;
+  /** Gunslinger mark: seconds left, and who marked it. */
+  markT: number;
+  markBy: number;
+  /** A Tinker's turret has its attention (taunt): the gadget id, or 0. */
+  taunt: number;
+  elite?: EliteId;
+  /** Shielded elites: what the front shield can still soak before it shatters. */
+  guard: number;
+  /** Where it looks. Shielded elites turn slowly, so you can get around the shield. */
+  facing: Vec;
+  /** Linked elites: the partner's id, or 0. */
+  link: number;
+  /** Linked: the partner died and comes back unless this one dies within `linkT` seconds. */
+  linkT: number;
+  linkGhost?: { defId: string; pos: Vec; maxHp: number; elite: EliteId };
+  /** Teleporting: seconds to the next blink, then where it's about to appear. */
+  blinkT: number;
+  blinkTo?: Vec;
+}
+
+/** Something a hero put on the field: a Tinker's turret or a Warden's drone. */
+export interface Gadget {
+  id: number;
+  kind: "turret" | "drone";
+  ownerId: number;
+  pos: Vec;
+  t: number;
+  maxT: number;
+  hp: number;
+  maxHp: number;
+  /** Turrets shoot with the element their owner's gun had when they were dropped. */
+  element: Element;
+  /** Time to the next shot (turret) or zap (drone). */
+  fireCd: number;
+  /** Time to the next heal (drone). */
+  tickT: number;
+  /** Turret Army's small turrets: short-lived and never taunt. */
+  mini: boolean;
+  /** Guardian Owl already caught someone this time. */
+  saved: boolean;
 }
 
 export interface Lob {
@@ -346,7 +452,7 @@ export interface Lob {
   t: number;
   dur: number;
   radius: number;
-  puddle?: { radius: number; durationMs: number; damage: number };
+  puddle?: Puddle;
 }
 
 export interface Projectile {
@@ -381,6 +487,10 @@ export interface Projectile {
   fireLine?: boolean;
   /** Flies in a way co-op clients don't predict (curves, returns, reflections), so it's always drawn from the server. */
   special?: boolean;
+  /** Gunslinger shots home in on enemies this player marked. */
+  seekMarks?: number;
+  /** Damage from gadgets doesn't charge the action skill, or turrets would pay for themselves. */
+  noCharge?: boolean;
 }
 
 export interface Dome {
@@ -399,7 +509,8 @@ export interface Dome {
 /** Ground effects that hurt whoever stands in them. */
 export interface Hazard {
   id: number;
-  kind: "acid" | "fire";
+  /** Acid and fire hurt; ice slush slows players down. */
+  kind: "acid" | "fire" | "ice";
   owner: "player" | "enemy";
   pos: Vec;
   radius: number;
@@ -439,6 +550,9 @@ export interface Pickup {
 
 export type RoomKind = "intro" | "combat" | "breather" | "boss";
 
+/** Each biome brings an enemy family and a terrain rule (design doc: Biomes). */
+export type Biome = "foundry" | "caverns";
+
 export interface RoomPlan {
   kind: RoomKind;
   layout: number;
@@ -463,6 +577,7 @@ export interface Room {
 }
 
 export interface Run {
+  biome: Biome;
   plans: RoomPlan[];
   room: Room;
   /** Higher = bigger budgets and better loot. Normal = 0. */
@@ -475,16 +590,27 @@ export interface Run {
   victory: boolean;
 }
 
+export interface Arena {
+  w: number;
+  h: number;
+  obstacles: Rect[];
+  /** Frozen Caverns: icy floor. You slide, and your dash goes further. */
+  ice: boolean;
+  /** Frozen Caverns: spiky walls that hurt whoever gets shoved into them. */
+  spikes: Rect[];
+}
+
 export interface World {
   tick: number;
   time: number;
   seed: number;
   nextId: number;
-  arena: { w: number; h: number; obstacles: Rect[] };
+  arena: Arena;
   players: Player[];
   enemies: Enemy[];
   projectiles: Projectile[];
   domes: Dome[];
+  gadgets: Gadget[];
   hazards: Hazard[];
   pickups: Pickup[];
   run: Run;
@@ -517,6 +643,24 @@ export type SimEvent =
   | { type: "ventWarn"; id: number }
   | { type: "ventErupt"; id: number; x: number; y: number }
   | { type: "playerHurt"; id: number; damage: number }
+  /** Someone (player or enemy) got shoved into a spike wall. */
+  | { type: "spiked"; x: number; y: number }
+  /** Gunslinger marked an enemy. */
+  | { type: "mark"; id: number; by: number }
+  /** A critical hit on a marked enemy (Bullseye), or a mark going off (Grand Finale). */
+  | { type: "crit"; x: number; y: number }
+  /** A turret or drone appeared, or ended (`gone`). */
+  | { type: "gadget"; id: number; kind: Gadget["kind"]; x: number; y: number; gone: boolean }
+  /** A turret took a hit. */
+  | { type: "gadgetHit"; id: number }
+  /** Guardian Owl caught a player who would have gone down. */
+  | { type: "saved"; id: number }
+  /** A teleporting elite is about to appear at x, y; `done` once it has. */
+  | { type: "blink"; id: number; x: number; y: number; done: boolean }
+  /** A linked elite's partner came back because it wasn't killed in time. */
+  | { type: "relink"; id: number }
+  /** A shielded elite's front shield stopped a shot. */
+  | { type: "deflect"; x: number; y: number }
   | { type: "playerDowned"; id: number; canRevive: boolean }
   /** The last player standing went down and Second Wind kicks in. */
   | { type: "secondWind"; id: number }

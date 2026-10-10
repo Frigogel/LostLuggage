@@ -7,6 +7,7 @@ import {
   EMPTY_INPUT,
   ENEMIES,
   GRENADE,
+  marksUp,
   angleOf,
   fromAngle,
   gunStats,
@@ -17,7 +18,9 @@ import {
   sub,
   unpredictable,
   ventState,
+  type Biome,
   type Enemy,
+  type Gadget,
   type Pickup,
   type Player,
   type PlayerInput,
@@ -29,7 +32,8 @@ import {
   type World,
 } from "@lostluggage/sim";
 import type { LocalShot, NetSession } from "../net";
-import { DEFENSE_COLORS, ELEMENT_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR, SLOT_COLORS } from "../render/colors";
+import { DEFENSE_COLORS, ELEMENT_COLORS, ELITE_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR, SLOT_COLORS } from "../render/colors";
+import { BIOME_ART, drawSpikes } from "../render/pixels";
 import { sfx } from "../sfx";
 import { FLOOR_PAD } from "./BootScene";
 import type { UIScene } from "./UIScene";
@@ -38,12 +42,17 @@ import type { UIScene } from "./UIScene";
 export interface GameData {
   net?: NetSession;
   profile?: PlayerOptions;
+  /** Solo: which adventure. Co-op gets it from the server. */
+  biome?: Biome;
   /** Solo: saves the run (XP, loot) and says what it earned. Co-op rewards come from the server instead. */
   onRunEnd?: (w: World, me: Player) => RunReward | undefined;
 }
 
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
-const textureFor = (e: Enemy) => (e.defId === "vending_mimic" && e.state === "hidden" ? "vending_hidden" : e.defId);
+/** Mimics look like their prop until they reveal. */
+const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden", ice_machine: "ice_hidden" };
+const textureFor = (e: Enemy) => (e.state === "hidden" && HIDDEN_TEXTURE[e.defId]) || e.defId;
+const heroKey = (p: Player) => `${p.heroId}_${p.slot}`;
 const BEAM_HEIGHT = { common: 0, uncommon: 14, rare: 24, epic: 36, legendary: 64 };
 
 const D = {
@@ -73,6 +82,12 @@ interface PickupView {
   glow: Phaser.GameObjects.Image;
   beam?: Phaser.GameObjects.Image;
   key: string;
+}
+
+interface GadgetView {
+  body: Phaser.GameObjects.Image;
+  shadow: Phaser.GameObjects.Image;
+  light: Phaser.GameObjects.Image;
 }
 
 interface PlayerView {
@@ -107,6 +122,7 @@ export class GameScene extends Phaser.Scene {
   myId = -1;
 
   private profile: PlayerOptions = {};
+  private biome?: Biome;
   private onRunEnd?: GameData["onRunEnd"];
   /** Solo: what this run earned, once it has been saved. */
   reward?: RunReward;
@@ -131,6 +147,7 @@ export class GameScene extends Phaser.Scene {
   private ground!: Phaser.GameObjects.Graphics;
   private over!: Phaser.GameObjects.Graphics;
   private domeLights = new Map<number, Phaser.GameObjects.Image>();
+  private gadgetViews = new Map<number, GadgetView>();
   private lava!: Phaser.GameObjects.TileSprite;
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private fire!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -147,6 +164,7 @@ export class GameScene extends Phaser.Scene {
     // Scene instances are reused on restart, so reset all per-run state here.
     this.net = data.net;
     this.profile = data.profile ?? {};
+    this.biome = data.biome;
     this.onRunEnd = data.onRunEnd;
     this.reward = undefined;
     this.reported = false;
@@ -164,6 +182,7 @@ export class GameScene extends Phaser.Scene {
     this.pickupViews.clear();
     this.pools.clear();
     this.domeLights.clear();
+    this.gadgetViews.clear();
     this.ventViews.clear();
     this.goo.clear();
     this.roomObjs = [];
@@ -190,16 +209,18 @@ export class GameScene extends Phaser.Scene {
       // Dev shortcuts: ?seed=123 replays a run, ?room=4 jumps straight to a room.
       const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
-      this.world = createWorld({ seed, players: [this.profile] });
+      this.world = createWorld({ seed, players: [this.profile], biome: this.biome });
       const room = Number(params.get("room"));
       if (room > 1 && room <= this.world.run.plans.length) enterRoom(this.world, room - 1);
       this.myId = this.world.players[0]!.id;
     }
     const { w, h } = this.world.arena;
+    const caverns = this.world.run.biome === "caverns";
+    const art = BIOME_ART[this.world.run.biome];
 
-    // Lava sea under the deck, with glow along the rim: atmosphere for the price of one tile.
-    this.lava = this.add.tileSprite(-240, -240, w + 480, h + 480, "lava").setOrigin(0).setDepth(D.lava);
-    this.add.image(-FLOOR_PAD, -FLOOR_PAD, "floor").setOrigin(0).setDepth(D.floor);
+    // Lava (or icy water) under the deck, with glow along the rim: atmosphere for the price of one tile.
+    this.lava = this.add.tileSprite(-240, -240, w + 480, h + 480, caverns ? "sea-caverns" : "lava").setOrigin(0).setDepth(D.lava);
+    this.add.image(-FLOOR_PAD, -FLOOR_PAD, caverns ? "floor-caverns" : "floor").setOrigin(0).setDepth(D.floor);
     for (let x = 0; x <= w; x += 60) {
       for (const y of [-14, h + 14]) this.lavaGlow(x, y);
     }
@@ -210,16 +231,16 @@ export class GameScene extends Phaser.Scene {
     this.ground = this.add.graphics().setDepth(D.ground);
     this.over = this.add.graphics().setDepth(D.overlay);
 
-    // Particles.
+    // Ambient particles: embers rising in the foundry, snow drifting down in the caverns.
     this.add.particles(0, 0, "px", {
       emitZone: { type: "random", source: new Phaser.Geom.Rectangle(-200, -100, w + 400, h + 300) } as Phaser.Types.GameObjects.Particles.ParticleEmitterRandomZoneConfig,
       lifespan: { min: 2000, max: 4500 },
-      speedY: { min: -26, max: -8 },
-      speedX: { min: -6, max: 6 },
-      scale: { start: 0.6, end: 0 },
+      speedY: caverns ? { min: 8, max: 24 } : { min: -26, max: -8 },
+      speedX: caverns ? { min: -14, max: 4 } : { min: -6, max: 6 },
+      scale: { start: caverns ? 0.9 : 0.6, end: 0 },
       alpha: { start: 0.9, end: 0 },
-      tint: [0xffb238, 0xff7a1a, 0xffe08a],
-      frequency: 45,
+      tint: [...art.ambient],
+      frequency: caverns ? 30 : 45,
       blendMode: Phaser.BlendModes.ADD,
     }).setDepth(D.light);
     this.sparks = this.add.particles(0, 0, "px", {
@@ -324,7 +345,7 @@ export class GameScene extends Phaser.Scene {
   private makePlayerView(p: Player): PlayerView {
     return {
       shadow: this.add.image(0, 0, "shadow-m").setDepth(D.ground + 1),
-      body: this.add.image(0, 0, `vanguard_${p.slot}`).setOrigin(0.5, 1),
+      body: this.add.image(0, 0, heroKey(p)).setOrigin(0.5, 1),
       gun: this.add.image(0, 0, "gun_pistol").setOrigin(0.15, 0.5),
       light: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(SLOT_COLORS[p.slot] ?? 0x5fb3ff).setAlpha(0.18).setScale(3).setDepth(D.light),
       chargeGlow: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x9ff3ff).setDepth(D.light).setVisible(false),
@@ -339,7 +360,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private lavaGlow(x: number, y: number): void {
-    const g = this.add.image(x, y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0xff7a1a).setScale(3.5).setAlpha(0.35).setDepth(D.floor + 1);
+    const g = this.add.image(x, y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(BIOME_ART[this.world.run.biome].glow).setScale(3.5).setAlpha(0.35).setDepth(D.floor + 1);
     this.tweens.add({ targets: g, alpha: 0.18, duration: 900 + Math.random() * 900, yoyo: true, repeat: -1, ease: "Sine.inOut" });
   }
 
@@ -362,8 +383,14 @@ export class GameScene extends Phaser.Scene {
     this.builtRoom = room.index;
     this.bullets.forEach((b) => this.releaseProj(b.view));
     this.bullets = [];
+    const block = this.world.run.biome === "caverns" ? "ice" : "crate";
     for (const o of this.world.arena.obstacles) {
-      this.roomObjs.push(this.add.image(o.x, o.y - 8, `crate-${o.w}x${o.h}`).setOrigin(0).setDepth(o.y + o.h));
+      this.roomObjs.push(this.add.image(o.x, o.y - 8, `${block}-${o.w}x${o.h}`).setOrigin(0).setDepth(o.y + o.h));
+    }
+    for (const s of this.world.arena.spikes) {
+      const key = `spikes-${s.w}x${s.h}`;
+      if (!this.textures.exists(key)) this.textures.addCanvas(key, drawSpikes(s.w, s.h));
+      this.roomObjs.push(this.add.image(s.x, s.y, key).setOrigin(0).setDepth(s.y + s.h));
     }
     for (const v of room.vents) {
       this.roomObjs.push(this.add.image(v.pos.x, v.pos.y, "vent").setDepth(D.floor + 2));
@@ -479,7 +506,8 @@ export class GameScene extends Phaser.Scene {
     const me = this.me;
     this.shotFx(me.id, shot.x, shot.y, s.archetype, shot.gun.element, true);
     // Lobbed shots are slow arcs, and curving or returning shots can't be guessed: the server's version shows up in time.
-    if (s.lob || unpredictable(shot.gun)) return;
+    // That includes a Gunslinger's shots while marks are up: they seek.
+    if (s.lob || unpredictable(shot.gun) || marksUp(this.world, me)) return;
     const bounces = (shot.gun.perks.includes("bounce") ? 1 : 0) + (me.boosts.bounce ?? 0);
     const spread = (s.spreadDeg * Math.PI) / 180;
     for (let i = 0; i < s.pellets; i++) {
@@ -717,7 +745,7 @@ export class GameScene extends Phaser.Scene {
         this.sparks.explode(2, ev.x, ev.y);
         break;
       case "enemyWindup": {
-        const map: Record<string, string> = { melee: "windupMelee", dash: "windupDash", lobbedProjectile: "windupLob", slam: "windupLob", projectile: "windupMelee", summon: "summon", shieldAllies: "summon" };
+        const map: Record<string, string> = { melee: "windupMelee", dash: "windupDash", lobbedProjectile: "windupLob", slam: "windupLob", cone: "windupBreath", projectile: "windupMelee", summon: "summon", shieldAllies: "summon" };
         sfx.play(map[ev.attack] ?? "windupMelee");
         break;
       }
@@ -725,6 +753,12 @@ export class GameScene extends Phaser.Scene {
         if (ev.attack === "melee") sfx.play("bite");
         else if (ev.attack === "lobbedProjectile") sfx.play("mortarFire");
         else if (ev.attack === "projectile") sfx.play("bolt");
+        else if (ev.attack === "cone") {
+          sfx.play("breath");
+          const e = this.enemyById(ev.id);
+          if (e) for (let i = 1; i <= 4; i++) this.ice.explode(6, e.pos.x + e.attackDir.x * i * 26, e.pos.y + e.attackDir.y * i * 26);
+          this.shake(200, 0.006);
+        }
         break;
       case "reveal": {
         const e = this.enemyById(ev.id);
@@ -813,12 +847,78 @@ export class GameScene extends Phaser.Scene {
         sfx.play("dash");
         break;
       }
-      case "skill":
-        this.flash(ev.x, ev.y, 0x5fd3e8, 140, 350);
-        this.ringFx(ev.x, ev.y, 44, 0x9ff3ff, 300);
+      case "skill": {
+        // Each hero's skill has its own color; turrets and owls get their own pop when they appear.
+        const hero = this.playerById(ev.id)?.heroId ?? "vanguard";
+        const tint = hero === "gunslinger" ? 0xf2c14e : hero === "tinker" ? 0xffb238 : hero === "warden" ? 0x5fd36a : 0x5fd3e8;
+        this.flash(ev.x, ev.y, tint, hero === "vanguard" ? 140 : 80, 350);
+        this.ringFx(ev.x, ev.y, hero === "gunslinger" ? 90 : 44, tint, 300);
         this.shake(120, 0.004);
         sfx.play("skill");
         break;
+      }
+      case "mark": {
+        const e = this.enemyById(ev.id);
+        if (e) this.ringFx(e.pos.x, e.pos.y - e.radius, e.radius + 10, 0xf2c14e, 250);
+        sfx.play("mark");
+        break;
+      }
+      case "crit":
+        this.floatText(ev.x, ev.y - 20, "CRIT!", 0xffe08a, 8, 700);
+        this.flash(ev.x, ev.y, 0xffe08a, 40, 160);
+        sfx.play("crit");
+        break;
+      case "gadget":
+        if (ev.gone) {
+          this.smoke.explode(6, ev.x, ev.y);
+          sfx.play("gadgetGone");
+        } else {
+          this.flash(ev.x, ev.y, ev.kind === "drone" ? 0x5fd36a : 0xffb238, 50, 300);
+          this.smoke.explode(4, ev.x, ev.y + 4);
+          sfx.play(ev.kind === "drone" ? "owl" : "build");
+        }
+        break;
+      case "gadgetHit": {
+        const g = this.world.gadgets.find((x) => x.id === ev.id);
+        if (g) this.sparks.explode(3, g.pos.x, g.pos.y - 4);
+        break;
+      }
+      case "saved": {
+        const p = at(ev.id);
+        this.ringFx(p.x, p.y, 50, 0x5fd36a, 450);
+        this.floatText(p.x, p.y - 22, "SAVED!", 0x5fd36a, 8, 1000);
+        sfx.play("saved");
+        break;
+      }
+      case "blink":
+        if (ev.done) {
+          this.flash(ev.x, ev.y, 0xb46cff, 50, 250);
+          this.smoke.explode(5, ev.x, ev.y);
+          sfx.play("blinkDone");
+        } else sfx.play("blink");
+        break;
+      case "relink": {
+        const e = this.enemyById(ev.id);
+        if (e) {
+          this.ringFx(e.pos.x, e.pos.y, 40, 0xf2c14e, 400);
+          this.floatText(e.pos.x, e.pos.y - 26, "RELINKED", 0xf2c14e, 8, 1000);
+        }
+        sfx.play("relink");
+        break;
+      }
+      case "deflect":
+        this.flash(ev.x, ev.y, 0x5fb3ff, 20, 120);
+        this.sparks.explode(3, ev.x, ev.y);
+        sfx.play("deflect");
+        break;
+      case "spiked": {
+        this.ice.explode(10, ev.x, ev.y);
+        this.sparks.explode(4, ev.x, ev.y);
+        const near = Math.hypot(me.pos.x - ev.x, me.pos.y - ev.y) < 30;
+        if (near) this.shake(120, 0.006);
+        sfx.play("spiked");
+        break;
+      }
       case "grenade":
         sfx.play("throw");
         break;
@@ -876,12 +976,14 @@ export class GameScene extends Phaser.Scene {
           if (!this.world.run.victory) sfx.play("door");
         });
         break;
-      case "roomEnter":
-        this.cameras.main.fadeIn(350, 27, 16, 32);
+      case "roomEnter": {
+        const [r, g, b] = BIOME_ART[this.world.run.biome].fade;
+        this.cameras.main.fadeIn(350, r, g, b);
         if (this.builtRoom !== this.world.run.room.index) this.buildRoom();
         this.cameras.main.centerOn(me.pos.x, me.pos.y);
         if (!this.net) this.prev.clear();
         break;
+      }
       case "victory":
         sfx.play("victory");
         break;
@@ -903,6 +1005,7 @@ export class GameScene extends Phaser.Scene {
     this.renderHazards(t);
     this.renderPickups(t);
     this.renderDomes(t);
+    this.renderGadgets(t);
     this.renderEnemies(alpha, t);
     this.renderProjectiles(alpha);
     this.renderLocalBullets(dt);
@@ -952,6 +1055,13 @@ export class GameScene extends Phaser.Scene {
         if (Math.random() < 0.08 * k) this.flames.explode(1, h.pos.x + (Math.random() - 0.5) * r, h.pos.y);
         continue;
       }
+      if (h.kind === "ice") {
+        // Slush: pale blue and glinting. It slows you; it doesn't hurt.
+        g.fillStyle(0x9fd8ff, 0.45 * k).fillEllipse(h.pos.x, h.pos.y, r * 2, r * 1.5);
+        g.fillStyle(0xe8f8ff, 0.35 * k).fillEllipse(h.pos.x - 1, h.pos.y - 1, r * 1.3, r * 0.9);
+        if ((t * 0.003 + h.id) % 1 < 0.08) g.fillStyle(0xffffff, 0.9 * k).fillRect(h.pos.x + Math.sin(h.id) * r * 0.5, h.pos.y - 1, 2, 1);
+        continue;
+      }
       g.fillStyle(0x4fa63a, 0.45 * k).fillEllipse(h.pos.x, h.pos.y, r * 2, r * 1.5);
       g.fillStyle(0x7ee05a, 0.35 * k).fillEllipse(h.pos.x - 1, h.pos.y - 1, r * 1.4, r);
       // Bubbles.
@@ -984,7 +1094,7 @@ export class GameScene extends Phaser.Scene {
     const moving = len(p.vel) > 5;
     const bob = moving && p.dashT <= 0 ? -Math.abs(Math.sin(t * 0.02)) * 1.5 : 0;
     const left = p.facing.x < 0;
-    const key = `vanguard_${p.slot}`;
+    const key = heroKey(p);
 
     v.shadow.setPosition(pos.x, pos.y + p.radius - 1);
     v.body.setTexture(key).setPosition(pos.x, pos.y + p.radius + bob).setFlipX(left).setDepth(pos.y);
@@ -1069,6 +1179,11 @@ export class GameScene extends Phaser.Scene {
     const hy = Math.round(pos.y - 14);
     o.fillStyle(0x1b1020).fillRect(hx - 1, hy - 1, hpW + 2, 4);
     o.fillStyle(p.hp / p.maxHp > 0.3 ? (mine || !coop ? 0x5fd36a : SLOT_COLORS[p.slot]!) : 0xe0533d).fillRect(hx, hy, Math.round((hpW * p.hp) / p.maxHp), 2);
+    // Overheal shield: a cyan line over the health bar and a faint bubble.
+    if (p.shield > 0) {
+      o.fillStyle(0x9ff3ff).fillRect(hx, hy - 1, Math.max(1, Math.round((hpW * Math.min(p.shield, 60)) / 60)), 1);
+      o.lineStyle(1, 0x9ff3ff, 0.35 + 0.15 * Math.sin(t * 0.01)).strokeCircle(pos.x, pos.y - 3, p.radius + 4);
+    }
   }
 
   /** A downed teammate: the circle to stand in, filling up as they get picked up. */
@@ -1149,12 +1264,15 @@ export class GameScene extends Phaser.Scene {
         sy = 1 + Math.sin(t * 0.025 + e.id) * 0.06;
       }
       if (e.defId === "hover_wizard") hover = -3 + Math.sin(t * 0.006 + e.id) * 1.5;
+      // A teleporter about to blink flickers out.
+      v.body.setAlpha(e.blinkTo && Math.floor(t / 50) % 2 === 0 ? 0.3 : 1);
 
       v.body
         .setPosition(pos.x + jitter, pos.y + e.radius + hover)
         .setFlipX(v.faceLeft)
-        .setScale(sx, sy)
+        .setScale(sx * e.size, sy * e.size)
         .setDepth(pos.y);
+      if (e.state !== "hidden") this.drawEnemyExtras(e, pos, t);
 
       // Tint priority: hit flash > red telegraph > frozen > burning > acid > chilled.
       const s = e.status;
@@ -1164,7 +1282,7 @@ export class GameScene extends Phaser.Scene {
       else if (e.state === "windup") v.body.setTint(0xffb0a0);
       else if (s.burnT > 0) v.body.setTint(0xffc090);
       else if (s.acidT > 0) v.body.setTint(0xb8ff9a);
-      else if (s.frost > 0.5) v.body.setTint(0xcfefff);
+      else if (s.frost > 0.5 || e.slow > 0) v.body.setTint(0xcfefff);
       else v.body.clearTint();
 
       if (s.burnT > 0 && Math.random() < 0.3) this.flames.explode(1, pos.x + (Math.random() - 0.5) * e.radius, pos.y - e.radius * 0.5);
@@ -1199,6 +1317,78 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Everything that marks an enemy as special: elite auras and their tells, Gunslinger marks, stuns.
+   * Each elite gets its own color and one clear tell, so a glance says what to do about it.
+   */
+  private drawEnemyExtras(e: Enemy, pos: Vec, t: number): void {
+    const g = this.ground;
+    const o = this.over;
+    if (e.elite) {
+      const c = ELITE_COLORS[e.elite];
+      g.lineStyle(1, c, 0.55 + 0.25 * Math.sin(t * 0.008 + e.id)).strokeEllipse(pos.x, pos.y + e.radius - 1, e.radius * 2.6, e.radius * 1.1);
+      if (Math.random() < 0.12) this.sparks.explode(1, pos.x + (Math.random() - 0.5) * e.radius * 2, pos.y - Math.random() * e.radius * 2);
+      // A small diamond over its head in the elite's color.
+      const top = Math.round(pos.y - e.radius * 2 - 11);
+      o.fillStyle(0x1b1020).fillTriangle(pos.x, top - 4, pos.x - 4, top, pos.x + 4, top).fillTriangle(pos.x, top + 4, pos.x - 4, top, pos.x + 4, top);
+      o.fillStyle(c).fillTriangle(pos.x, top - 3, pos.x - 3, top, pos.x + 3, top).fillTriangle(pos.x, top + 3, pos.x - 3, top, pos.x + 3, top);
+      switch (e.elite) {
+        case "shielded": {
+          // The front shield: an arc on the side it faces, gone while it swings or once it's broken.
+          const up = e.guard > 0 && e.stunT <= 0 && e.status.frozenT <= 0 && (e.state === "move" || e.state === "reveal");
+          if (!up) break;
+          const a = Math.atan2(e.facing.y, e.facing.x);
+          o.lineStyle(2, c, 0.9).beginPath().arc(pos.x, pos.y - e.radius * 0.6, e.radius + 5, a - 1.1, a + 1.1).strokePath();
+          o.lineStyle(1, 0xffffff, 0.5).beginPath().arc(pos.x, pos.y - e.radius * 0.6, e.radius + 7, a - 0.8, a + 0.8).strokePath();
+          break;
+        }
+        case "teleporting":
+          if (e.blinkTo) {
+            // Where it's about to appear: a shimmer that closes in.
+            const k = (t * 0.004) % 1;
+            g.lineStyle(1, c, 0.9).strokeCircle(e.blinkTo.x, e.blinkTo.y, e.radius + 2 + (1 - k) * 12);
+            g.fillStyle(c, 0.25).fillCircle(e.blinkTo.x, e.blinkTo.y, e.radius + 2);
+          }
+          break;
+        case "vengeful":
+          g.fillStyle(c, 0.12 + 0.08 * Math.sin(t * 0.012 + e.id)).fillCircle(pos.x, pos.y, 38);
+          break;
+        case "linked": {
+          const twin = this.world.enemies.find((x) => x.id === e.link && x.spawnT <= 0);
+          if (twin && e.id < twin.id) {
+            const tp = this.lerpPos(twin.id, twin.pos, this.alpha);
+            o.lineStyle(1, c, 0.5 + 0.3 * Math.sin(t * 0.02)).lineBetween(pos.x, pos.y - e.radius, tp.x, tp.y - twin.radius);
+          }
+          // Its partner fell: a ring that empties as the time to kill this one runs out.
+          if (e.linkT > 0) {
+            o.lineStyle(2, c, 1).beginPath().arc(pos.x, pos.y - e.radius, e.radius + 8, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, e.linkT / 4)).strokePath();
+          }
+          break;
+        }
+      }
+    }
+    if (e.markT > 0) {
+      // Gunslinger mark: a bounty-red crosshair that spins slowly (elites own the other colors).
+      const c = 0xff5a5a;
+      const cy = pos.y - e.radius;
+      const r = e.radius + 6;
+      const a = t * 0.003;
+      const fade = e.markT < 1 && Math.floor(t / 100) % 2 === 0 ? 0.4 : 1;
+      o.lineStyle(1, c, 0.9 * fade).strokeCircle(pos.x, cy, r);
+      for (let i = 0; i < 4; i++) {
+        const ang = a + (i * Math.PI) / 2;
+        o.lineBetween(pos.x + Math.cos(ang) * (r - 3), cy + Math.sin(ang) * (r - 3), pos.x + Math.cos(ang) * (r + 3), cy + Math.sin(ang) * (r + 3));
+      }
+    }
+    if (e.stunT > 0) {
+      // Stunned: stars circling its head.
+      for (let i = 0; i < 3; i++) {
+        const ang = t * 0.008 + (i * Math.PI * 2) / 3;
+        o.fillStyle(0xffe08a).fillRect(Math.round(pos.x + Math.cos(ang) * 6), Math.round(pos.y - e.radius * 2 - 4 + Math.sin(ang) * 2), 2, 2);
+      }
+    }
+  }
+
   /** Telegraphs stay serious even when the enemies aren't: red flash = melee, line = dash, circle = area. */
   private drawTelegraph(e: Enemy, pos: Vec, k: number, t: number): void {
     const def = ENEMIES[e.defId]!;
@@ -1223,6 +1413,15 @@ export class GameScene extends Phaser.Scene {
       case "slam":
         this.groundCircle(e.pos, atk.radius, k, t);
         break;
+      case "cone": {
+        // Breath: the wedge it will cover, filling from the mouth outward.
+        const ang = angleOf(e.attackDir);
+        const half = (atk.angleDeg * Math.PI) / 360;
+        g.fillStyle(0x7ad7ff, 0.12 + 0.12 * k).slice(pos.x, pos.y, atk.length, ang - half, ang + half, false).fillPath();
+        g.fillStyle(0x7ad7ff, 0.3).slice(pos.x, pos.y, Math.max(1, atk.length * k), ang - half, ang + half, false).fillPath();
+        g.lineStyle(1, 0xcfe8ff, 0.6 + 0.4 * Math.sin(t * 0.03)).slice(pos.x, pos.y, atk.length, ang - half, ang + half, false).strokePath();
+        break;
+      }
       case "shieldAllies":
         g.lineStyle(1, SHIELD_COLOR, 0.3 + 0.3 * k).strokeCircle(pos.x, pos.y, atk.radius * k);
         this.over.fillStyle(SHIELD_COLOR, 0.25 * k).fillCircle(pos.x, pos.y - e.radius, 4 + 6 * k);
@@ -1273,10 +1472,13 @@ export class GameScene extends Phaser.Scene {
         const k = Math.min(1, (pr.lob.t + alpha * DT) / pr.lob.dur);
         const arc = 16 + pr.lob.dur * 40;
         const z = Math.sin(Math.PI * k) * arc;
-        v.img.setPosition(pos.x, pos.y - z).setDepth(D.air).setAngle(pr.kind === "grenade" ? k * 720 : 0);
-        v.glow.setPosition(pos.x, pos.y - z);
-        v.shadow?.setPosition(pos.x, pos.y).setScale(1 - (z / arc) * 0.5);
-        if (pr.owner === "enemy") this.groundCircle(pr.lob.to, pr.lob.radius, 0.5 + k * 0.5, this.time.now, pr.lob.puddle ? 0x7ee05a : 0xe0533d);
+        // A vengeful elite's death blast is only a circle on the floor, no shell.
+        const doom = pr.kind === "doom";
+        v.img.setPosition(pos.x, pos.y - z).setDepth(D.air).setAngle(pr.kind === "grenade" ? k * 720 : 0).setVisible(!doom);
+        v.glow.setPosition(pos.x, pos.y - z).setVisible(!doom);
+        v.shadow?.setPosition(pos.x, pos.y).setScale(1 - (z / arc) * 0.5).setVisible(!doom);
+        const ring = doom ? 0xff6a3c : pr.kind === "slush" ? 0x7ad7ff : pr.lob.puddle ? 0x7ee05a : 0xe0533d;
+        if (pr.owner === "enemy") this.groundCircle(pr.lob.to, pr.lob.radius, 0.5 + k * 0.5, this.time.now, ring);
       } else {
         v.img.setPosition(pos.x, pos.y).setRotation(Math.atan2(pr.vel.y, pr.vel.x)).setDepth(pos.y + 1);
         v.glow.setPosition(pos.x, pos.y);
@@ -1302,12 +1504,18 @@ export class GameScene extends Phaser.Scene {
       const key = pr.owner === "enemy" ? "mortar_shell" : pr.kind === "grenade" ? "grenade" : "shell";
       const img = this.take(key);
       if (pr.kind === "acid") img.setTint(0x7ee05a);
-      glow.setTint(pr.owner === "enemy" ? (pr.kind === "acid" ? 0x7ee05a : 0xff6a3c) : pr.element === "none" ? 0xffd27a : elem).setScale(0.5).setAlpha(0.6);
+      if (pr.kind === "slush") img.setTint(0x9ff3ff);
+      const enemyGlow = pr.kind === "acid" ? 0x7ee05a : pr.kind === "slush" ? 0x9ff3ff : 0xff6a3c;
+      glow.setTint(pr.owner === "enemy" ? enemyGlow : pr.element === "none" ? 0xffd27a : elem).setScale(0.5).setAlpha(0.6);
       return { img, glow, shadow: this.take("shadow-s").setDepth(D.ground + 1) };
     }
     if (pr.kind === "rocket") {
       glow.setTint(0xff7a1a).setScale(0.6).setAlpha(0.9);
       return { img: this.take("shell").setTint(0xffe08a), glow };
+    }
+    if (pr.kind === "turret") {
+      glow.setTint(pr.element === "none" ? 0xffb238 : elem).setScale(0.3).setAlpha(0.8);
+      return { img: this.take("px").setTint(pr.element === "none" ? 0xffe08a : elem), glow };
     }
     if (pr.owner === "enemy") {
       // Wizard bolts: slow, big, purple and readable.
@@ -1327,12 +1535,17 @@ export class GameScene extends Phaser.Scene {
       seen.add(d.id);
       const fading = d.t < 1 && Math.floor(t / 80) % 2 === 0;
       const a = fading ? 0.4 : 1;
-      this.over.fillStyle(0x5fd3e8, 0.1 * a).fillCircle(d.pos.x, d.pos.y, d.radius);
-      this.over.lineStyle(1, 0x9ff3ff, 0.8 * a).strokeCircle(d.pos.x, d.pos.y, d.radius);
-      this.over.lineStyle(1, 0x9ff3ff, 0.25 * a).strokeCircle(d.pos.x, d.pos.y, d.radius - 3 + Math.sin(t * 0.01) * 1.5);
+      // Signature domes look different: a purple black hole, a gold revolving door.
+      const sig = this.playerById(d.ownerId)?.signature;
+      const [fill, line] = sig === "sig_blackhole" ? [0x8c5ad1, 0xd29bff] : sig === "sig_revolving" ? [0xf2c14e, 0xffe08a] : [0x5fd3e8, 0x9ff3ff];
+      this.over.fillStyle(fill, (sig === "sig_blackhole" ? 0.2 : 0.1) * a).fillCircle(d.pos.x, d.pos.y, d.radius);
+      this.over.lineStyle(1, line, 0.8 * a).strokeCircle(d.pos.x, d.pos.y, d.radius);
+      // The black hole's inner ring spirals in; the others breathe.
+      const inner = sig === "sig_blackhole" ? d.radius * (1 - ((t * 0.001) % 1)) : d.radius - 3 + Math.sin(t * 0.01) * 1.5;
+      this.over.lineStyle(1, line, 0.25 * a).strokeCircle(d.pos.x, d.pos.y, Math.max(2, inner));
       let light = this.domeLights.get(d.id);
       if (!light) {
-        light = this.take("glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x5fd3e8).setDepth(D.light);
+        light = this.take("glow").setBlendMode(Phaser.BlendModes.ADD).setTint(fill).setDepth(D.light);
         this.domeLights.set(d.id, light);
       }
       light.setPosition(d.pos.x, d.pos.y).setScale((d.radius * 2.4) / 32).setAlpha(0.25 * a);
@@ -1342,6 +1555,60 @@ export class GameScene extends Phaser.Scene {
       this.give(light);
       this.domeLights.delete(id);
     }
+  }
+
+  /** Turrets and owls: sprite, light, health and time left. */
+  private renderGadgets(t: number): void {
+    const seen = new Set<number>();
+    for (const g of this.world.gadgets) {
+      seen.add(g.id);
+      let v = this.gadgetViews.get(g.id);
+      if (!v) {
+        v = {
+          shadow: this.add.image(0, 0, "shadow-s").setDepth(D.ground + 1),
+          body: this.add.image(0, 0, g.kind === "turret" ? "turret" : "owl").setOrigin(0.5, 1),
+          light: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setDepth(D.light),
+        };
+        this.gadgetViews.set(g.id, v);
+      }
+      this.renderGadget(g, v, t);
+    }
+    for (const [id, v] of this.gadgetViews) {
+      if (seen.has(id)) continue;
+      for (const o of [v.body, v.shadow, v.light]) o.destroy();
+      this.gadgetViews.delete(id);
+    }
+  }
+
+  private renderGadget(g: Gadget, v: GadgetView, t: number): void {
+    const owner = this.playerById(g.ownerId);
+    const color = SLOT_COLORS[owner?.slot ?? 0] ?? 0xffffff;
+    // Blink in the last second so you know it's about to go.
+    const ending = g.t < 1 && Math.floor(t / 90) % 2 === 0;
+    if (g.kind === "turret") {
+      const target = this.world.enemies.reduce<Enemy | undefined>((best, e) => (e.spawnT > 0 || e.state === "hidden" ? best : !best || Math.hypot(e.pos.x - g.pos.x, e.pos.y - g.pos.y) < Math.hypot(best.pos.x - g.pos.x, best.pos.y - g.pos.y) ? e : best), undefined);
+      const scale = g.mini ? 0.7 : 1;
+      v.body.setPosition(g.pos.x, g.pos.y + 5).setScale(scale).setFlipX(!!target && target.pos.x < g.pos.x).setDepth(g.pos.y).setAlpha(ending ? 0.5 : 1);
+      v.shadow.setPosition(g.pos.x, g.pos.y + 4);
+      const elem = g.element === "none" ? 0xffd27a : ELEMENT_COLORS[g.element];
+      v.light.setPosition(g.pos.x, g.pos.y - 3).setTint(elem).setScale(0.6 * scale).setAlpha(0.35);
+      // Health, once it's been hit, and a ring in your color so friends know whose it is.
+      this.ground.lineStyle(1, color, 0.5).strokeEllipse(g.pos.x, g.pos.y + 4, 14 * scale, 5 * scale);
+      if (g.hp < g.maxHp) {
+        const bw = 12;
+        this.over.fillStyle(0x1b1020).fillRect(Math.round(g.pos.x - bw / 2) - 1, Math.round(g.pos.y - 14) - 1, bw + 2, 3);
+        this.over.fillStyle(0xf2c14e).fillRect(Math.round(g.pos.x - bw / 2), Math.round(g.pos.y - 14), Math.max(1, Math.round((bw * g.hp) / g.maxHp)), 1);
+      }
+      return;
+    }
+    // The owl bobs, and its healing reach shows as a soft green circle on the floor.
+    const bob = Math.sin(t * 0.008 + g.id) * 2;
+    v.body.setPosition(g.pos.x, g.pos.y + bob).setDepth(g.pos.y + 20).setAlpha(ending ? 0.5 : 1).setFlipX(!!owner && owner.pos.x < g.pos.x);
+    v.shadow.setPosition(g.pos.x, g.pos.y + 12).setAlpha(0.6);
+    v.light.setPosition(g.pos.x, g.pos.y - 4 + bob).setTint(0x5fd36a).setScale(0.8).setAlpha(0.3);
+    const reach = owner?.signature === "sig_flock" ? 42 : 60;
+    this.ground.fillStyle(0x5fd36a, 0.05).fillCircle(g.pos.x, g.pos.y + 8, reach);
+    this.ground.lineStyle(1, 0x5fd36a, 0.25 + 0.1 * Math.sin(t * 0.006)).strokeCircle(g.pos.x, g.pos.y + 8, reach);
   }
 
   private pickupKey(pk: Pickup): string {

@@ -12,7 +12,10 @@ function bot(w: World, i: number): PlayerInput {
   const t = w.tick / TICK_HZ + i * 1.7;
   const room = w.run.room;
   // Fight in a loose circle, then head for the exit when the room is clear.
-  const move = room.cleared ? { x: (room.exit.x + 24 - p.pos.x) / 100, y: -1 } : { x: Math.cos(t * 0.8), y: Math.sin(t * 1.1) };
+  let move = room.cleared ? { x: (room.exit.x + 24 - p.pos.x) / 100, y: -1 } : { x: Math.cos(t * 0.8), y: Math.sin(t * 1.1) };
+  // A crate between you and the exit: slide around it.
+  const blocked = w.arena.obstacles.some((o) => p.pos.x > o.x - 10 && p.pos.x < o.x + o.w + 10 && p.pos.y > o.y && p.pos.y < o.y + o.h + 20);
+  if (room.cleared && blocked) move = { x: 1, y: -0.2 };
   return { ...EMPTY_INPUT, move, fire: true, autoAim: true, grenade: w.tick % 150 === i * 20, dash: w.tick % 97 === i };
 }
 

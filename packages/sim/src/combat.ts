@@ -1,8 +1,11 @@
 import { ENEMIES } from "./data/enemies";
-import { HEROES } from "./data/heroes";
+import { HEROES, levelMultiplier } from "./data/heroes";
+import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
+import { onTurretKill, TURRET_GUN } from "./gadgets";
 import { gunStats, rollGun } from "./loot";
+import { markBonus, onMarkedDeath } from "./marks";
 import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
-import type { Dome, Element, Enemy, EnemyDef, Player, Status, World } from "./types";
+import type { Dome, Element, EliteId, Enemy, EnemyDef, HeroSkill, Player, Status, World } from "./types";
 
 export const TICK_HZ = 30;
 export const DT = 1 / TICK_HZ;
@@ -17,6 +20,7 @@ export const freshStatus = (): Status => ({ burnT: 0, burnDps: 0, burnSource: 0,
 export function confine(w: Pick<World, "arena">, p: Vec, r: number): boolean {
   let hit = false;
   for (const o of w.arena.obstacles) hit = pushCircleOutOfRect(p, r, o) || hit;
+  for (const o of w.arena.spikes) hit = pushCircleOutOfRect(p, r, o) || hit;
   const x = clamp(p.x, r, w.arena.w - r);
   const y = clamp(p.y, r, w.arena.h - r);
   if (x !== p.x || y !== p.y) hit = true;
@@ -28,6 +32,9 @@ export function confine(w: Pick<World, "arena">, p: Vec, r: number): boolean {
 export function insideArenaSolid(w: World, p: Vec): boolean {
   if (p.x < 0 || p.y < 0 || p.x > w.arena.w || p.y > w.arena.h) return true;
   for (const o of w.arena.obstacles) {
+    if (p.x > o.x && p.x < o.x + o.w && p.y > o.y && p.y < o.y + o.h) return true;
+  }
+  for (const o of w.arena.spikes) {
     if (p.x > o.x && p.x < o.x + o.w && p.y > o.y && p.y < o.y + o.h) return true;
   }
   return false;
@@ -80,6 +87,8 @@ export function elementMultiplier(def: EnemyDef, element: Element): { mult: numb
       return def.defense === "shield" ? { mult: 1.6, weak: true } : { mult: 0.9, weak: false };
     case "acid":
       return def.defense === "armor" ? { mult: 1.5, weak: true } : { mult: 0.9, weak: false };
+    case "frost":
+      return def.frostImmune ? { mult: 0.5, weak: false } : { mult: 1, weak: false };
     default:
       return { mult: 1, weak: false };
   }
@@ -93,7 +102,12 @@ export interface DamageOpts {
   gunUid?: number;
   /** Damage-over-time ticks and chain hits don't re-apply statuses or chain again. */
   secondary?: boolean;
+  /** Gadget damage doesn't charge the action skill. */
+  noCharge?: boolean;
 }
+
+/** Skill damage scales like gun damage: level (synced in co-op) and souvenirs. */
+export const skillDamage = (p: Player, base: number): number => base * levelMultiplier(p.syncLevel) * p.mods.damage;
 
 export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): void {
   if (e.hp <= 0 || e.state === "hidden") return;
@@ -101,6 +115,9 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   const { mult, weak } = elementMultiplier(def, o.element);
   let dmg = amount * mult;
   if (e.status.acidT > 0 && def.defense === "armor") dmg *= 1.25;
+  const p = w.players.find((pl) => pl.id === o.sourcePlayerId);
+  const mark = markBonus(w, e, p, !!o.secondary);
+  dmg *= mark.mult;
 
   // Support shields soak damage first; Shock tears through them.
   let hitShield = false;
@@ -122,13 +139,13 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   e.hitFlash = 0.1;
   if (!def.boss) e.knock = add(e.knock, scale(norm(o.dir), o.knockback));
 
-  const p = w.players.find((pl) => pl.id === o.sourcePlayerId);
-  if (p && !p.downed) p.skillCharge = Math.min(1, p.skillCharge + (dealt * p.mods.charge) / HEROES[p.heroId]!.skillChargeDamage);
+  if (p && !p.downed && !o.noCharge) p.skillCharge = Math.min(1, p.skillCharge + (dealt * p.mods.charge) / HEROES[p.heroId]!.skillChargeDamage);
 
   if (!o.secondary) applyStatus(w, e, def, amount, o);
 
   const kill = e.hp <= 0;
-  w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.max(1, Math.round(dmg || amount * 0.01)), kill, element: o.element, weak, shield: hitShield && dmg === 0 });
+  w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.max(1, Math.round(dmg || amount * 0.01)), kill, element: o.element, weak: weak || mark.crit, shield: hitShield && dmg === 0 });
+  if (mark.crit) w.events.push({ type: "crit", x: e.pos.x, y: e.pos.y });
   if (kill) onKill(w, e, def, o, p);
 }
 
@@ -143,7 +160,8 @@ function applyStatus(w: World, e: Enemy, def: EnemyDef, amount: number, o: Damag
       break;
     case "frost":
       s.frost += Math.max(0.5, amount / 12);
-      if (def.boss) s.frost = Math.min(s.frost, 3); // Frost is weak against bosses: slow, never freeze.
+      // Frost is weak against bosses and useless against the frost-immune: slow, never freeze.
+      if (def.boss || def.frostImmune) s.frost = Math.min(s.frost, def.frostImmune ? 1.5 : 3);
       else if (s.frost >= 5 && s.frozenT <= 0) {
         s.frost = 0;
         s.frozenT = 1.6;
@@ -179,13 +197,19 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
     }
   }
 
-  // Loot: guns by the enemy's drop chance, health snacks sometimes.
-  const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0) + partyLuck(w);
-  const drops = def.boss ? 2 : rand(w) < def.dropChance ? 1 : 0;
-  for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : "common");
-  if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
+  onEliteDeath(w, e, def);
+  onMarkedDeath(w, e);
+
+  // Loot: guns by the enemy's drop chance (elites twice as likely, and luckier), health snacks sometimes.
+  if (!e.noLoot) {
+    const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0) + (e.elite ? 0.4 : 0) + partyLuck(w);
+    const drops = def.boss ? 2 : rand(w) < def.dropChance * (e.elite ? 2 : 1) ? 1 : 0;
+    for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
+    if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
+  }
 
   if (!p) return;
+  if (o.gunUid === TURRET_GUN) onTurretKill(w, e, p);
   const gun = o.gunUid !== undefined ? p.guns.find((g) => g.uid === o.gunUid) : undefined;
   if (gun?.perks.includes("killReload")) gun.pips = Math.min(gunStats(gun).pips, gun.pips + 1);
   if (gun?.perks.includes("hotStreak")) p.streakT = 3;
@@ -221,9 +245,9 @@ export function dropHeal(w: World, at: Vec, amount: number): void {
   w.pickups.push({ id: newId(w), kind: "heal", pos: clampToArena(w, at, 10), heal: amount, used: false });
 }
 
-export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number): Enemy {
+export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number, elite?: EliteId): Enemy {
   const def = ENEMIES[defId]!;
-  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss));
+  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss) * (elite ? ELITE_HP : 1));
   const e: Enemy = {
     id: newId(w),
     defId,
@@ -250,17 +274,45 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
     trailT: 0,
     parentId: 0,
     phase: 0,
+    size: 1,
+    noLoot: false,
+    stunT: 0,
+    slowT: 0,
+    slow: 0,
+    markT: 0,
+    markBy: 0,
+    taunt: 0,
+    guard: elite === "shielded" ? hp * ELITE.guard : 0,
+    facing: { x: 0, y: 1 },
+    link: 0,
+    linkT: 0,
+    // Teleporters wait a few seconds before their first blink, so they're seen arriving.
+    blinkT: elite === "teleporting" ? 3 + rand(w) * 2 : 0,
   };
+  if (elite) e.elite = elite;
   w.enemies.push(e);
   return e;
 }
 
 export function hurtPlayer(w: World, p: Player, amount: number): boolean {
   if (p.downed || p.away || p.iframes > 0) return false;
-  p.hp -= amount;
+  // Overheal shields soak the hit first.
+  const soaked = Math.min(p.shield, amount);
+  p.shield -= soaked;
+  p.hp -= amount - soaked;
   p.iframes = 0.45;
   p.hurtT = 0.2;
   w.events.push({ type: "playerHurt", id: p.id, damage: amount });
+  // Guardian Owl: once per owl, a nearby ally who would go down stays up at 1 HP.
+  if (p.hp <= 0) {
+    const owl = w.gadgets.find((g) => g.kind === "drone" && !g.saved && dist(g.pos, p.pos) < 70 && w.players.find((o) => o.id === g.ownerId)?.skills.includes("wd_guardian"));
+    if (owl) {
+      owl.saved = true;
+      p.hp = 1;
+      p.iframes = 1.2;
+      w.events.push({ type: "saved", id: p.id });
+    }
+  }
   // Panic Room: a free dome when things get bad, once per room.
   if (p.hp > 0 && p.hp < p.maxHp * 0.3 && !p.panicUsed && p.skills.includes("vg_panic")) {
     p.panicUsed = true;
@@ -278,6 +330,25 @@ export function hurtPlayer(w: World, p: Player, amount: number): boolean {
     w.events.push({ type: "playerDowned", id: p.id, canRevive });
   }
   return true;
+}
+
+/** Overheal shield caps (Warden's Overheal and Bubble Wrap). */
+export const OVERHEAL = { cap: 30, padded: 60 };
+
+/** Heals a player. With a Warden's Overheal, what doesn't fit becomes a shield. Returns the amount that landed. */
+export function healPlayer(w: World, p: Player, amount: number, healer?: Player): number {
+  if (p.downed || p.away || amount <= 0) return 0;
+  const toHp = Math.min(amount, p.maxHp - p.hp);
+  p.hp += toHp;
+  let toShield = 0;
+  if (healer?.skills.includes("wd_overheal")) {
+    const cap = healer.skills.includes("wd_padding") ? OVERHEAL.padded : OVERHEAL.cap;
+    toShield = Math.max(0, Math.min(amount - toHp, cap - p.shield));
+    p.shield += toShield;
+  }
+  const total = toHp + toShield;
+  if (total > 0) w.events.push({ type: "heal", id: p.id, amount: total });
+  return total;
 }
 
 /** Enemy health scales with the party: a bit for regular enemies (there are also more of them), a lot for bosses. */
@@ -311,9 +382,13 @@ export function pointInDome(w: World, p: Vec): boolean {
 
 /** The Vanguard's action skill, shaped by the Bulkhead branch. */
 export function spawnDome(w: World, p: Player): Dome {
-  const s = HEROES[p.heroId]!.skill;
-  const radius = s.radius * (p.skills.includes("vg_wide") ? 1.3 : 1);
-  const t = s.durationMs / 1000 + (p.skills.includes("vg_overtime") ? 2 : 0);
+  // Panic Room can pop a dome for any hero shape, so fall back to the Vanguard's numbers.
+  const hs = HEROES[p.heroId]!.skill;
+  const s = hs.type === "dome" ? hs : (HEROES.vanguard!.skill as Extract<HeroSkill, { type: "dome" }>);
+  // Signatures: the black hole is smaller; the revolving door is short-lived.
+  const sig = p.signature === "sig_blackhole" ? 0.8 : 1;
+  const radius = s.radius * (p.skills.includes("vg_wide") ? 1.3 : 1) * sig;
+  const t = (s.durationMs / 1000 + (p.skills.includes("vg_overtime") ? 2 : 0)) * (p.signature === "sig_revolving" ? 0.55 : 1);
   const d: Dome = { id: newId(w), ownerId: p.id, pos: { ...p.pos }, radius, t, maxT: t, tickT: 0.5, bonus: 0 };
   w.domes.push(d);
   w.events.push({ type: "skill", id: p.id, x: p.pos.x, y: p.pos.y });

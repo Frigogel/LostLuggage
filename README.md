@@ -3,9 +3,41 @@
 A casual, mobile-first co-op looter brawler. The full design lives in
 [Co-op Looter Brawler — Game Design Doc.md](Co-op%20Looter%20Brawler%20—%20Game%20Design%20Doc.md).
 
-**Current state: roadmap phase 4, progression.** The Burning Foundry adventure (hand-made intro room, two
-director-built combat rooms, a breather room with a shrine and a suitcase, the Furnace Foreman mini-boss) can be
-played solo or with up to 4 friends, and now gives you reasons to come back tomorrow:
+**Current state: roadmap phase 5, content (first pass).** Two adventures, the Burning Foundry and the Frozen
+Caverns (each a hand-made intro room, two director-built combat rooms, a breather with a shrine and a suitcase, and a
+boss), playable solo or with up to 4 friends, with four heroes to choose from:
+
+- **Four heroes**, each with their own level, action skill and three five-node skill branches. Pick one on the main
+  menu; switching is free.
+  - **Vanguard** (tank): a dome that blocks shots. Branches: Bulkhead, Static, Return to Sender.
+  - **Gunslinger** (damage): marks the 3 nearest enemies; your shots seek them and hit 40% harder. Branches:
+    Showboat (trick shots, crits), Fast Hands (reloads), Bounty Hunter (marks spread on kill, stuns, slows).
+  - **Tinker** (area control): drops a turret that shoots with your gun's element. Branches: Mass Production (two
+    turrets, tiny turrets from kills), Customer Attention (taunts, health, zaps back), Planned Obsolescence (it
+    explodes).
+  - **Warden** (support): an owl drone that heals allies and slows enemies near it. Branches: First Aid (faster
+    revives, the owl picks people up, a second Second Wind), Owl Tactics (zaps, hunting), Extra Padding (overheal
+    becomes a shield).
+- **Elite modifiers**: the director spends part of each wave's budget on elites instead of more enemies (more in later
+  rooms and on harder tiers; the first wave of a run stays plain). Each has a colored ring, a diamond over its head and
+  one clear tell, and is explained the first time you meet it:
+  - **Shielded** (melee kinds only): a front shield that turns slowly. Flank it, lob over it, hit it while it swings,
+    or batter it until it breaks.
+  - **Splitting**: two smaller copies on death. **Vengeful**: explodes where it dies after a telegraphed moment.
+  - **Teleporting**: shimmers where it's going, then blinks behind you. **Hasted**: faster windups and attacks.
+  - **Linked**: two elites on a tether. Kill one and the other brings it back unless it dies within 4 seconds.
+- **The Frozen Caverns**: icy floors (you slide, and your dash goes further), spike walls that hurt and bounce you
+  off (and hurt enemies you shove into them), slush that slows you, and a new family built to push you around:
+  Waiter Penguins, Yeti Bouncers, Curling Golems, Slush Slimes, Ski Instructors, Penguin Igloos, Ice Machine mimics
+  and Snowmen. Mostly armored and frost-immune, so bring Acid. The boss is the **Customer Complaints Dragon**: frost
+  breath in a wedge that leaves slush, a tail swipe that sends you sliding, icicles, a belly slide and waiter
+  penguins. Pick the adventure on the main menu; rooms you create run the one you picked.
+- **Signature powers**: rare co-op drops (30% of co-op wins on Normal, more on harder tiers) that change a hero's
+  action skill. Sidegrades, each with a catch: Black Hole Dome and Revolving Door (Vanguard), Six Shooter and Dead
+  or Alive (Gunslinger), Turret With Legs and Patio Heater (Tinker), Owl Parliament and Rescue Owl (Warden). Equip
+  them on the Skills screen.
+
+From phase 4:
 
 - **Accounts**: a name and password keep your hero, guns and souvenirs on every device. Guests can still play
   everything, but nothing is saved.
@@ -61,7 +93,7 @@ on, so a phone on the same Wi-Fi can open the `Network:` address. Solo works wit
 | `npm run typecheck` | Type-checks every package |
 | `npm run build` | Production build into `packages/client/dist` |
 | `npm start` | The server, which also serves the built client: one process for the whole game |
-| `npm run balance -- 30` | A bot plays 30 solo runs and reports room times, damage taken and deaths (add `--god` to never die) |
+| `npm run balance -- 30` | A bot plays 30 solo runs and reports room times, damage taken and deaths. Options: `--hero tinker`, `--biome caverns`, `--level 20`, `--tier 1`, `--elite shielded` (every elite is that kind), `--god` (never die) |
 | `npm run bandwidth` | Four bots play a co-op run; reports snapshot sizes and data use per phone |
 
 To feel the netcode on a bad connection, start the server with simulated latency: `LAG=200 npm run dev:server`
@@ -104,7 +136,7 @@ stragglers, or opens right away once everyone who can walk is at the door.
 | Move | Left joystick (appears where your thumb lands) | WASD / arrows |
 | Shoot | Right joystick: tap = auto-aim, drag = aim, release = fire | Mouse + left click (T toggles auto-aim) |
 | Dash | DASH button | Space |
-| Vanguard dome | DOME button (charged by dealing damage) | E or right click |
+| Action skill | DOME / MARK / BUILD / OWL button (charged by dealing damage) | E or right click |
 | Grenade | NADE button: tap = nearest enemy, drag = aim | Q (throws at the mouse) |
 | Swap gun | Tap a weapon slot | 1 / 2 or mouse wheel |
 | Pick up / use item | SWAP / PRAY / OPEN button (appears near an item) | F |
@@ -125,11 +157,14 @@ a guest's hero is level 25.
 packages/
   sim/      Pure TypeScript game rules: fixed 30 Hz tick, seeded RNG, no rendering code.
             Runs in the browser for solo and on the server for co-op.
-    src/data/   Guns, enemies, heroes, manufacturers, legendaries, skill trees and souvenirs as data
+    src/data/   Guns, enemies and biomes, heroes, manufacturers, legendaries, skill trees, signatures, souvenirs
     src/director.ts  Encounter director: threat budgets, role templates, pacing curve, party scaling
     src/room.ts      Room layouts, lava vents, waves, exits
     src/loot.ts      Rarity, manufacturers, legendaries, elements, perks, shrine boosts
     src/domes.ts     The Vanguard's dome skills: zaps, shoves, healing, reflections
+    src/marks.ts     The Gunslinger's marks: seeking shots, crits, marks that spread
+    src/gadgets.ts   The Tinker's turrets and the Warden's owl drone
+    src/elites.ts    Elite modifiers: shields, splits, blinks, death blasts, links, haste
     src/progress.ts  Profiles, XP and levels, stash and loadout, souvenirs: one reducer for client and server
     src/net.ts       Co-op wire format: snapshots, events and inputs as small integer arrays
     scripts/balance.ts  Bot-driven balance harness
@@ -150,8 +185,9 @@ All art, the pixel font and the sounds are generated in code as placeholders
 
 The server runs the same sim the browser runs in solo. Clients send one input per tick (30 a second); the server
 applies them and broadcasts a snapshot every second tick. Snapshots are arrays of small integers (positions in
-quarter pixels, timers in centiseconds) packed with msgpack and deflated by the websocket: about 9 KB/s per phone
-on average and 15 KB/s in the busiest fights, or roughly 8 MB for a 15-minute dungeon (`npm run bandwidth`).
+quarter pixels, timers in centiseconds) packed with msgpack and deflated by the websocket: about 11 KB/s per phone
+on average and 22 KB/s in the busiest fights, or roughly 10 MB for a 15-minute dungeon (`npm run bandwidth`). Plain
+enemies send a single 0 where elites, marks and slows would go.
 
 Each client draws other players and enemies about 130 ms in the past, interpolating between two snapshots. Your
 own hero runs ahead: the client applies your inputs to a copy of your hero with the sim's own movement code, and
@@ -173,3 +209,18 @@ server, build it with `VITE_SERVER_URL=https://example.com`.
 
 World units are internal-resolution pixels (480×270 screen), so ranges and distances are smaller than the
 doc's example values (for example the mortar beetle keeps 120–220 px away instead of 200–350).
+
+## Balance
+
+`npm run balance` drives a simple bot (no real dodging, so treat its deaths as an upper bound on difficulty). With 40
+runs per hero at level 1 on Normal, after the phase 5 tuning:
+
+| Hero | Burning Foundry wins | Frozen Caverns wins |
+| --- | --- | --- |
+| Vanguard | 39/40 | 31/40 |
+| Gunslinger | 38/40 | 35/40 |
+| Tinker | 38/40 | 29/40 |
+| Warden | 40/40 | 35/40 |
+
+The Foundry plays as it did before phase 5 (59/60 wins, about 8 elites a run). The Caverns are the harder adventure,
+mostly because of the bot's trouble on ice; the dragon accounts for most Caverns losses.

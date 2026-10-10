@@ -33,6 +33,94 @@ export const SPRITES: Record<string, PixelSprite> = {
       "....kk..kk..",
     ],
   },
+  // The other heroes use the same b/B/r keys as the Vanguard, so party-slot recolors work on all of them.
+  gunslinger: {
+    palette: { n: "#9a6a42", N: "#6e4a2c", f: "#f0c8a0", e: "#1b1020", r: "#e0533d", b: "#3b6fd1", B: "#274a94", y: "#f2c14e", d: "#5e3a26" },
+    rows: [
+      "....nnnn....",
+      "...nNNNNn...",
+      ".nnnnnnnnnn.",
+      "...kffffk...",
+      "..fkfffek...",
+      "...kffffk...",
+      "...krrrrk...",
+      "..kbbbbbbk..",
+      ".kbbbybbbbk.",
+      ".kbBbbbbBbk.",
+      "..kBBBBBBk..",
+      "...kdk.kdk..",
+      "...kdk.kdk..",
+      "...kkk.kkk..",
+    ],
+  },
+  tinker: {
+    palette: { g: "#7fbf4a", G: "#5a8f32", c: "#5fd3e8", e: "#1b1020", r: "#e0533d", b: "#3b6fd1", B: "#274a94", y: "#f2c14e", d: "#5a6270" },
+    rows: [
+      "....kkkkk...",
+      "...kgggggk..",
+      "..kgcckcckk.",
+      "gkkgcckcckkg",
+      ".kGgggggggk.",
+      "..kgggegek..",
+      "...krrrrk...",
+      "..kbbbbbbk..",
+      ".kbWbybbbbk.",
+      ".kbbbbbbbbk.",
+      "..kBBBBBBk..",
+      "..kdk..kdk..",
+      "..kdk..kdk..",
+      "..kkk..kkk..",
+    ],
+  },
+  warden: {
+    palette: { n: "#8a5a3c", l: "#5fd36a", f: "#f0c8a0", e: "#1b1020", r: "#e0533d", b: "#3b6fd1", B: "#274a94" },
+    rows: [
+      "..n......n..",
+      "..nl....ln..",
+      "...nkkkkn...",
+      "..kbbbbbbk..",
+      "..kbffffbk..",
+      "..kbffefbk..",
+      "..kbffffbk..",
+      ".kbbrrrrbbk.",
+      ".kbbbbbbbbk.",
+      "kbbBbbbbBbbk",
+      "kbbBbbbbBbbk",
+      ".kBBBBBBBBk.",
+      "..kfk..kfk..",
+      "..kkk..kkk..",
+    ],
+  },
+  turret: {
+    palette: { m: "#a7b0bb", M: "#6d7682", c: "#5fd3e8", d: "#3a3a46" },
+    rows: [
+      "....kkkkk...",
+      "...kmmmmmkkk",
+      "..kmMmmmmmmm",
+      "..kmmcmmmkkk",
+      "..kmmmmmmk..",
+      "...kWkkkk...",
+      "....kdk.....",
+      "...kdkdk....",
+      "..kdk.kdk...",
+      ".kdk...kdk..",
+      ".kk.....kk..",
+    ],
+  },
+  owl: {
+    palette: { o: "#a87a4a", O: "#7a5432", e: "#1b1020", y: "#f2c14e", m: "#a7b0bb", c: "#5fd3e8" },
+    rows: [
+      ".kkkkkkkk.",
+      "....kk....",
+      ".kkkkkkkk.",
+      "kooWooWook",
+      "koWeooWeok",
+      "kooooyooOk",
+      ".kooooooOk",
+      "..kmcmmk..",
+      "...k..k...",
+    ],
+  },
   cone_rat: {
     palette: { o: "#ff7a1a", g: "#8a7f7a", G: "#5e5450", e: "#1b1020", p: "#f29bb0" },
     rows: [
@@ -351,7 +439,174 @@ export const SPRITES: Record<string, PixelSprite> = {
     palette: { p: "#f29bb0", P: "#d9708f", d: "#c8915a", y: "#f2c14e", c: "#5fd3e8" },
     rows: [".kkkkk.", "kpypcpk", "kPpddpk", "kpd.dPk", "kPpddpk", "kdPpPdk", ".kkkkk."],
   },
+
+  // ---------------------------------------------------------------- Frozen Caverns
+  waiter_penguin: {
+    palette: { p: "#22283a", y: "#f2a23a", e: "#1b1020", t: "#c9cfd6" },
+    rows: [
+      "....kkk...",
+      "...kpppk..",
+      "...kpWey..",
+      "..kppWWk..",
+      "..kpWWWk..",
+      "ttkpWWWk..",
+      "..kpWWpk..",
+      "..kppppk..",
+      "...yk.yk..",
+    ],
+  },
+  yeti_bouncer: {
+    palette: { w: "#cfd8e3", b: "#2a2f3a", y: "#f2c14e", m: "#8a93a3" },
+    rows: [
+      "....kkkkkk......",
+      "...kWWWWWWk.....",
+      "..kWWWWWWWWk....",
+      "..kWkkkWkkkk....",
+      "..kWWWWWWWWk....",
+      ".kkWWWmmmWWkk...",
+      "kWWkWWWWWWkWWk..",
+      "kWwkbbbbbbkwWk..",
+      "kWwkbbybbbkwWk..",
+      "kWWkbbbbbbkWWk..",
+      ".kk.kbbbbk.kk...",
+      "....kWWkWWk.....",
+      "...kWWk.kWWk....",
+      "...kwwk.kwwk....",
+      "...kkk...kkk....",
+    ],
+  },
+  curling_golem: {
+    palette: { s: "#8a93a3", S: "#5a6270", r: "#e0533d", e: "#1b1020", Y: "#f2c14e" },
+    rows: [
+      "....kkkk......",
+      "....krrk......",
+      "...kkrrkk.....",
+      ".kkssssssskk..",
+      "kssSsssssSssk.",
+      "ksssesssssesk.",
+      "kYYYYYYYYYYYk.",
+      "kssssssssssssk",
+      ".kSSSSSSSSSSk.",
+      "..kkkkkkkkkk..",
+    ],
+  },
+  frost_slime: {
+    palette: { r: "#e0533d", a: "#7ad7ff", A: "#4aa3d8", e: "#1b1020" },
+    rows: [
+      "........r...",
+      ".......r....",
+      "......r.....",
+      "..kkaaaakk..",
+      ".kaaAaaaaak.",
+      "kaaeaaaeaaak",
+      "kaaaaaaaaaak",
+      "kAaaaaaaaAak",
+      ".kkkkkkkkkk.",
+    ],
+  },
+  ski_instructor: {
+    palette: { p: "#e0533d", y: "#ffffff", f: "#f0c8a0", b: "#2ab0a0", m: "#f2c14e", r: "#5fd3e8", e: "#1b1020", c: "#5fd3e8" },
+    rows: [
+      ".....yy.....",
+      "....pppp....",
+      "...pppppp...",
+      "..pppppppp..",
+      "...kccccck..",
+      "...kfffek...",
+      "..mkbbbbk...",
+      "..mkbbbbbk..",
+      ".mmkbbybbk..",
+      ".mmkbbbbbk..",
+      ".m.kbbbbbbk.",
+      "...kbbbbbbk.",
+      "....kk.kk...",
+      "mmmmmmmmmmmm",
+    ],
+  },
+  penguin_igloo: {
+    palette: { w: "#cfe8ff", p: "#22283a", e: "#ffffff", y: "#f2a23a" },
+    rows: [
+      "......kkkkkk......",
+      "....kkWWWWWWkk....",
+      "...kWWwWWWWwWWk...",
+      "..kWWWWWWWWWWWWk..",
+      ".kwWWWwWWWWwWWWWk.",
+      ".kWWWWWWWWWWWWWWk.",
+      "kWWwWWkkkkkkWWwWWk",
+      "kWWWWkppppppkWWWWk",
+      "kWWWWkpepepykWWWWk",
+      "kwWWWkppppppkWWwWk",
+      "kWWWWkppppppkWWWWk",
+      "kkkkkkkkkkkkkkkkkk",
+    ],
+  },
+  snowman: {
+    palette: { w: "#cfe8ff", o: "#ff7a1a", n: "#9a6a42", N: "#6e4a2c", e: "#1b1020" },
+    rows: [
+      ".....kkkk.....",
+      "....kWWWWk....",
+      "....kWeWek....",
+      "....kWWoook...",
+      ".....kWWk.....",
+      "...kkWWWWkk...",
+      "..knWWWWWWnk..",
+      "..knWWeWWWnk..",
+      "..knWWWWWWnk..",
+      ".knNWWWWWWNnk.",
+      ".knNWWeWWWNnk.",
+      ".knNwWWWWwNnk.",
+      "..kkkkkkkkkk..",
+    ],
+  },
+  snowball: {
+    palette: { w: "#cfe8ff", e: "#1b1020" },
+    rows: ["..kkkk..", ".kWWWWk.", "kWeWWeWk", "kWWWWWWw", "kwWWWWwk", ".kkkkkk."],
+  },
+  complaint_dragon: {
+    palette: { b: "#6fa8dc", B: "#cfe8ff", e: "#e0533d", y: "#f4ecd8", N: "#5a6270", c: "#9ff3ff" },
+    rows: [
+      "..........kk....kk............",
+      "..........kck..kck............",
+      ".........kbbbkkbbbk...........",
+      "........kbbbbbbbbbbk..........",
+      "........kbbebbbbebbk..........",
+      "........kbbbbbbbbbbbkkk.......",
+      "........kbbbbbbbbbbbbbbk......",
+      ".........kbbbbkkkkkbbbbk......",
+      "..........kbbk..cc.kkkk.......",
+      "...kk.....kbbbk...............",
+      "..kbbk...kbbbbbk..............",
+      ".kbbbbk.kbbBBBbbk.............",
+      "kbbBBbbkbbBBBBBbbk..kkkkk.....",
+      "kbBBBBbbbbBBBBBBbbkkyyyyyk....",
+      "kbBBkBbbbbBBBBBBbbbkyNNNyk....",
+      ".kbk.kbbbbBBBBBBbbbkyyyyyk....",
+      "..k...kbbbBBBBBBbbbkyNNNyk....",
+      "......kbbbbBBBBbbbbkyyyyyk....",
+      ".......kbbbbbbbbbbk.kkkkk.....",
+      "........kbbk..kbbk............",
+      "........kbbk..kbbk............",
+      ".......kbbbk..kbbbk...........",
+      ".......kkkkk..kkkkk...........",
+    ],
+  },
 };
+
+// Recolors of existing shapes.
+SPRITES.ice_hidden = {
+  rows: SPRITES.vending_hidden!.rows,
+  palette: { r: "#a8c8d8", R: "#6a8ca0", y: "#e8f8ff", o: "#cfe8ff", g: "#9ff3ff", b: "#7ad7ff", M: "#5a6270" },
+};
+SPRITES.ice_machine = {
+  rows: SPRITES.vending_mimic!.rows,
+  palette: { r: "#a8c8d8", R: "#6a8ca0", e: "#9ff3ff", p: "#1b3040", t: "#cfe8ff" },
+};
+
+/** The biome-specific look of the rooms. */
+export const BIOME_ART = {
+  foundry: { sea: ["#5a0f12", "#8c1d14", "#c8401a", "#f07a22", "#ffc14a"], glow: 0xff7a1a, ambient: [0xffb238, 0xff7a1a, 0xffe08a], fade: [27, 16, 32] },
+  caverns: { sea: ["#0c1a2e", "#14304a", "#1f4a6e", "#3a7aa8", "#9fd8ff"], glow: 0x5fb3ff, ambient: [0xffffff, 0xcfe8ff, 0x9ff3ff], fade: [12, 20, 36] },
+} as const;
 
 export function drawVent(r: number): HTMLCanvasElement {
   const size = r * 2 + 2;
@@ -527,9 +782,9 @@ function hash(x: number, y: number, s = 0): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-export function drawLava(size: number): HTMLCanvasElement {
+/** The sea under the deck: lava in the foundry, icy water in the caverns. */
+export function drawLava(size: number, cols: readonly string[] = BIOME_ART.foundry.sea): HTMLCanvasElement {
   const [c, ctx] = canvas(size, size);
-  const cols = ["#5a0f12", "#8c1d14", "#c8401a", "#f07a22", "#ffc14a"];
   // Tileable value noise: sample a wrapped lattice and smooth it.
   const cell = 8;
   const n = size / cell;
@@ -637,5 +892,116 @@ export function drawCrate(w: number, h: number): HTMLCanvasElement {
   ctx.fillRect(3, h + 2, Math.min(w - 6, 10), 2);
   ctx.fillStyle = "#e0533d";
   ctx.fillRect(w - 6, h + 2, 3, 3);
+  return c;
+}
+
+/** The caverns floor: packed ice tiles with frost cracks and snow drifts. */
+export function drawIceFloor(w: number, h: number, pad: number): HTMLCanvasElement {
+  const [c, ctx] = canvas(w + pad * 2, h + pad * 2);
+  // Rim: a frosty edge instead of hazard stripes.
+  ctx.fillStyle = "#1f3a52";
+  ctx.fillRect(0, 0, c.width, c.height);
+  for (let i = 0; i < c.width; i += 6) {
+    ctx.fillStyle = hash(i, 3, 4) < 0.5 ? "#cfe8ff" : "#9fd8ff";
+    ctx.fillRect(i, 0, 3, 2);
+    ctx.fillRect(i, c.height - 2, 3, 2);
+  }
+  ctx.fillStyle = "#0c1a2e";
+  ctx.fillRect(pad - 2, pad - 2, w + 4, h + 4);
+
+  const T = 16;
+  for (let ty = 0; ty < h / T; ty++) {
+    for (let tx = 0; tx < w / T; tx++) {
+      const x = pad + tx * T;
+      const y = pad + ty * T;
+      const r = hash(tx, ty, 11);
+      ctx.fillStyle = r < 0.2 ? "#3f6584" : r < 0.65 ? "#466d8c" : "#4c7494";
+      ctx.fillRect(x, y, T, T);
+      ctx.fillStyle = "#5e88a8";
+      ctx.fillRect(x, y, T, 1);
+      ctx.fillRect(x, y, 1, T);
+      ctx.fillStyle = "#34556f";
+      ctx.fillRect(x, y + T - 1, T, 1);
+      ctx.fillRect(x + T - 1, y, 1, T);
+      // A glint on some tiles sells the slipperiness.
+      if (r > 0.8) {
+        ctx.fillStyle = "#a8d8f0";
+        ctx.fillRect(x + 3, y + 3, 3, 1);
+        ctx.fillRect(x + 3, y + 4, 1, 1);
+      } else if (r > 0.72) {
+        // Frost crack.
+        ctx.fillStyle = "#2e4c66";
+        let cx = x + 2;
+        let cy = y + 4 + Math.floor(hash(tx, ty, 12) * 8);
+        for (let i = 0; i < 11; i++) {
+          ctx.fillRect(cx, cy, 1, 1);
+          cx += 1;
+          cy += hash(tx + i, ty, 13) < 0.5 ? -1 : 1;
+        }
+      }
+    }
+  }
+  // Snow drifts.
+  for (let i = 0; i < 16; i++) {
+    const sx = pad + hash(i, 1, 14) * w;
+    const sy = pad + hash(i, 2, 14) * h;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 16);
+    g.addColorStop(0, "rgba(200,230,250,0.22)");
+    g.addColorStop(1, "rgba(200,230,250,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - 16, sy - 16, 32, 32);
+  }
+  return c;
+}
+
+/** An ice block with a top face and an 8px front face, in place of a cargo crate. */
+export function drawIceBlock(w: number, h: number): HTMLCanvasElement {
+  const front = 8;
+  const [c, ctx] = canvas(w, h + front);
+  ctx.fillStyle = "#1b3040";
+  ctx.fillRect(0, 0, w, h + front);
+  ctx.fillStyle = "#cfe8ff";
+  ctx.fillRect(1, 1, w - 2, h - 2);
+  ctx.fillStyle = "#e8f8ff";
+  ctx.fillRect(2, 2, w - 4, 2);
+  ctx.fillStyle = "#9fd8ff";
+  for (let i = 0; i < 3; i++) ctx.fillRect(3 + i * 7, 6 + i * 3, 4, 1);
+  ctx.fillStyle = "#7ab8e0";
+  ctx.fillRect(1, h - 1, w - 2, front);
+  ctx.fillStyle = "#9fd8ff";
+  ctx.fillRect(3, h + 1, w - 6, 1);
+  return c;
+}
+
+/** A strip of icicle spikes, pointing away from the wall they grow on. */
+export function drawSpikes(w: number, h: number): HTMLCanvasElement {
+  const [c, ctx] = canvas(w, h);
+  ctx.fillStyle = "#1b3040";
+  ctx.fillRect(0, 0, w, h);
+  const across = w >= h;
+  const n = Math.max(1, Math.floor((across ? w : h) / 6));
+  for (let i = 0; i < n; i++) {
+    const o = i * 6 + 3;
+    ctx.fillStyle = "#e8f8ff";
+    ctx.beginPath();
+    if (across) {
+      ctx.moveTo(o - 3, 0);
+      ctx.lineTo(o + 3, 0);
+      ctx.lineTo(o, h);
+      ctx.moveTo(o - 3, h);
+      ctx.lineTo(o + 3, h);
+      ctx.lineTo(o, 0);
+    } else {
+      ctx.moveTo(0, o - 3);
+      ctx.lineTo(0, o + 3);
+      ctx.lineTo(w, o);
+      ctx.moveTo(w, o - 3);
+      ctx.lineTo(w, o + 3);
+      ctx.lineTo(0, o);
+    }
+    ctx.fill();
+  }
+  ctx.fillStyle = "#e0533d";
+  for (let i = 0; i < n; i += 3) ctx.fillRect(across ? i * 6 + 2 : Math.floor(w / 2), across ? Math.floor(h / 2) : i * 6 + 2, 1, 1);
   return c;
 }

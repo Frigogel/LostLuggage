@@ -252,10 +252,53 @@ describe("accounts", () => {
     await wait(100);
     expect(guestReward).toBe(false);
 
+    // Losing never drops a signature power.
+    expect(r.reward.signature).toBeUndefined();
+
     // The next run starts with the launcher in hand.
     host.send("again");
     const fresh = decodeSnapshot(await nextMessage<Snapshot>(host, "s", (s) => !decodeSnapshot(s).world.gameOver));
     expect(fresh.world.players[0]!.guns[0]!.defId).toBe("launcher");
     await Promise.all([host.leave(), guest.leave()]);
+  });
+
+  it("rooms run the adventure they were made for, with each guest's own hero", async () => {
+    const host = await new Client(url).create("run", { private: true, name: "A", heroId: "tinker", biome: "caverns" });
+    const friend = await new Client(url).joinById(host.roomId, { name: "B", heroId: "warden" });
+    const lobby = await nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats.length === 2);
+    expect(lobby.biome).toBe("caverns");
+    expect(lobby.seats.map((s) => s.heroId)).toEqual(["tinker", "warden"]);
+    host.send("start");
+    const snap = decodeSnapshot(await nextMessage<Snapshot>(friend, "s"));
+    expect(snap.world.run.biome).toBe("caverns");
+    expect(snap.world.arena.ice).toBe(true);
+    expect(snap.world.players.map((p) => p.heroId)).toEqual(["tinker", "warden"]);
+    await Promise.all([host.leave(), friend.leave()]);
+  });
+
+  it("a co-op win can drop a signature power for the hero you played", async () => {
+    const { data } = await api<AuthReply>("/api/register", { username: "DEE", password: "secret1" });
+    await api("/api/sync", { actions: [{ type: "hero", id: "h", heroId: "gunslinger" }] }, data.token);
+    const host = await new Client(url).create("run", { private: true, token: data.token });
+    host.send("start");
+    await nextMessage<LobbyInfo>(host, "lobby", (l) => l.running);
+    const room = matchMaker.getLocalRoomById(host.roomId) as unknown as { world: World };
+    expect(room.world.players[0]!.heroId).toBe("gunslinger");
+
+    // Skip to an empty boss room: it clears on the next tick, which is a win. Make the drop roll lucky.
+    const reward = nextMessage<RewardInfo>(host, "reward");
+    const random = Math.random;
+    Math.random = () => 0;
+    try {
+      const w = room.world;
+      w.run.room = { ...w.run.room, index: w.run.plans.length - 1, kind: "boss", waves: [], waveIdx: 0, cleared: false };
+      w.enemies = [];
+      const r = await reward;
+      expect(r.reward.signature).toBe("sig_sixshooter");
+      expect(r.profile.signatures).toEqual(["sig_sixshooter"]);
+    } finally {
+      Math.random = random;
+    }
+    await host.leave();
   });
 });

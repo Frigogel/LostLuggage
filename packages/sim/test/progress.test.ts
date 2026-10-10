@@ -410,7 +410,8 @@ describe("progression", () => {
     expect(p.name).toBe("SCRIPT");
     expect(p.heroes.vanguard!.level).toBe(MAX_LEVEL);
     expect(p.heroes.vanguard!.skills).toEqual(["vg_wide"]);
-    expect(Object.keys(p.heroes)).toEqual(Object.keys(HEROES));
+    // Unknown heroes are dropped; real ones the save never played are simply absent.
+    expect(Object.keys(p.heroes)).toEqual(["vanguard"]);
     expect(p.stash.map((g) => [g.id, g.rarity, g.perks])).toEqual([["b", "common", ["pierce"]]]);
     expect(p.souvenirs.gym).toBe(5);
     // The loadout points at guns that no longer exist: the starter kit fills in.

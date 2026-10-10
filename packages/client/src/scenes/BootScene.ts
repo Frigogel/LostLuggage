@@ -1,7 +1,25 @@
 import Phaser from "phaser";
-import { ARENA, EXIT } from "@lostluggage/sim";
+import { ARENA, EXIT, HERO_IDS } from "@lostluggage/sim";
 import { SLOT_PALETTES } from "../render/colors";
-import { drawCrate, drawDoor, drawFloor, drawVent, drawFont, drawGlow, drawLava, drawRing, drawShadow, drawSprite, drawVignette, FONT_CELL, FONT_CHARS, SPRITES } from "../render/pixels";
+import {
+  BIOME_ART,
+  drawCrate,
+  drawDoor,
+  drawFloor,
+  drawFont,
+  drawGlow,
+  drawIceBlock,
+  drawIceFloor,
+  drawLava,
+  drawRing,
+  drawShadow,
+  drawSprite,
+  drawVent,
+  drawVignette,
+  FONT_CELL,
+  FONT_CHARS,
+  SPRITES,
+} from "../render/pixels";
 
 export const FLOOR_PAD = 8;
 
@@ -16,7 +34,10 @@ export class BootScene extends Phaser.Scene {
 
     for (const [key, s] of Object.entries(SPRITES)) add(key, drawSprite(s));
     // One recolored hero per party slot, so friends can tell each other apart.
-    SLOT_PALETTES.forEach((pal, i) => add(`vanguard_${i}`, drawSprite({ ...SPRITES.vanguard!, palette: { ...SPRITES.vanguard!.palette, ...pal } })));
+    for (const hero of HERO_IDS) {
+      const s = SPRITES[hero]!;
+      SLOT_PALETTES.forEach((pal, i) => add(`${hero}_${i}`, drawSprite({ ...s, palette: { ...s.palette, ...pal } })));
+    }
     add("font", drawFont());
     add("glow", drawGlow(32));
     add("ring", drawRing(64, 3));
@@ -26,7 +47,9 @@ export class BootScene extends Phaser.Scene {
     add("shadow-xl", drawShadow(30, 9));
     add("vignette", drawVignette(480, 270));
     add("lava", drawLava(64));
+    add("sea-caverns", drawLava(64, BIOME_ART.caverns.sea));
     add("floor", drawFloor(ARENA.w, ARENA.h, FLOOR_PAD));
+    add("floor-caverns", drawIceFloor(ARENA.w, ARENA.h, FLOOR_PAD));
     add("vent", drawVent(18));
     add("door-closed", drawDoor(EXIT.w, EXIT.h, false));
     add("door-open", drawDoor(EXIT.w, EXIT.h, true));
@@ -46,7 +69,10 @@ export class BootScene extends Phaser.Scene {
     sctx.fillRect(0, 0, 10, 2);
     add("streak", streak);
 
-    for (const size of [[32, 32], [48, 16]] as const) add(`crate-${size[0]}x${size[1]}`, drawCrate(size[0], size[1]));
+    for (const size of [[32, 32], [48, 16]] as const) {
+      add(`crate-${size[0]}x${size[1]}`, drawCrate(size[0], size[1]));
+      add(`ice-${size[0]}x${size[1]}`, drawIceBlock(size[0], size[1]));
+    }
 
     this.cache.bitmapFont.add(
       "pixel",

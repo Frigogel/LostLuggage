@@ -2,10 +2,12 @@ import { DT } from "./combat";
 import { planRun } from "./director";
 import { updateDomes } from "./domes";
 import { updateEnemies } from "./enemies";
+import { updateGadgets } from "./gadgets";
 import { checkWipe, EMPTY_INPUT, makePlayer, MAX_PLAYERS, startPos, updatePickups, updatePlayer, type PlayerOptions } from "./players";
 import { updateHazards, updateProjectiles } from "./projectiles";
 import { ARENA, enterRoom, START, updateRoom } from "./room";
-import type { PlayerInput, World } from "./types";
+import { BIOMES } from "./data/enemies";
+import type { Biome, PlayerInput, World } from "./types";
 
 export interface WorldOptions {
   seed: number;
@@ -17,6 +19,8 @@ export interface WorldOptions {
   tier?: number;
   /** Co-op run: level sync and waiting for the party at the exit. A co-op room with one player is still co-op. */
   coop?: boolean;
+  /** Which adventure: the Burning Foundry (default) or the Frozen Caverns. */
+  biome?: Biome;
 }
 
 export function createWorld(opts: WorldOptions): World {
@@ -25,14 +29,16 @@ export function createWorld(opts: WorldOptions): World {
     time: 0,
     seed: opts.seed | 0,
     nextId: 1,
-    arena: { w: ARENA.w, h: ARENA.h, obstacles: [] },
+    arena: { w: ARENA.w, h: ARENA.h, obstacles: [], ice: false, spikes: [] },
     players: [],
     enemies: [],
     projectiles: [],
     domes: [],
+    gadgets: [],
     hazards: [],
     pickups: [],
     run: {
+      biome: opts.biome && BIOMES[opts.biome] ? opts.biome : "foundry",
       plans: [],
       // Replaced by enterRoom below.
       room: { index: 0, kind: "intro", waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exit: { x: 0, y: 0, w: 0, h: 0 }, exitT: -1, vents: [] },
@@ -65,6 +71,7 @@ export function step(w: World, inputs: readonly PlayerInput[]): void {
   updatePickups(w, inputs);
 
   updateDomes(w);
+  updateGadgets(w);
 
   updateEnemies(w);
   updateProjectiles(w);

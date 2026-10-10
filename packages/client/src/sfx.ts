@@ -224,6 +224,49 @@ class Sfx {
       case "door":
         if (this.ok(name, 200)) { this.noise(0.5, 0.2, 400, 1500); this.tone(300, 600, 0.3, "square", 0.12, 0.3); }
         break;
+      // Phase 5: hero gadgets, elites and the caverns.
+      case "mark":
+        if (this.ok(name, 60)) [1320, 1760].forEach((f, i) => this.tone(f, f, 0.07, "square", 0.12, i * 0.05));
+        break;
+      case "crit":
+        if (this.ok(name, 60)) { this.tone(2000, 900, 0.12, "square", 0.18); this.noise(0.06, 0.2, 6000); }
+        break;
+      case "turret":
+        if (this.ok(name, 40)) this.tone(1500, 700, 0.05, "square", 0.08);
+        break;
+      case "build":
+        if (this.ok(name, 120)) [300, 450, 600].forEach((f, i) => { this.noise(0.04, 0.2, 3000, 800, i * 0.07); this.tone(f, f, 0.05, "square", 0.12, i * 0.07); });
+        break;
+      case "owl":
+        if (this.ok(name, 200)) { this.tone(500, 420, 0.18, "sine", 0.22); this.tone(420, 380, 0.25, "sine", 0.22, 0.22); }
+        break;
+      case "gadgetGone":
+        if (this.ok(name, 120)) this.tone(500, 120, 0.25, "triangle", 0.15);
+        break;
+      case "saved":
+        if (this.ok(name, 200)) { this.tone(400, 1600, 0.3, "sine", 0.3); this.tone(800, 2400, 0.3, "triangle", 0.15, 0.08); }
+        break;
+      case "blink":
+        if (this.ok(name, 120)) this.tone(1800, 300, 0.25, "sine", 0.15);
+        break;
+      case "blinkDone":
+        if (this.ok(name, 120)) { this.tone(300, 1800, 0.12, "sine", 0.2); this.noise(0.1, 0.15, 4000); }
+        break;
+      case "deflect":
+        if (this.ok(name, 50)) this.tone(2600, 2200, 0.05, "triangle", 0.15);
+        break;
+      case "relink":
+        if (this.ok(name, 200)) { this.tone(150, 600, 0.4, "sawtooth", 0.2); this.tone(600, 150, 0.3, "sawtooth", 0.15, 0.3); }
+        break;
+      case "spiked":
+        if (this.ok(name, 80)) { this.noise(0.12, 0.4, 5000, 900); this.tone(700, 200, 0.12, "square", 0.2); }
+        break;
+      case "breath":
+        if (this.ok(name, 150)) { this.noise(0.6, 0.5, 6000, 400); this.tone(200, 90, 0.5, "sawtooth", 0.15); }
+        break;
+      case "windupBreath":
+        if (this.ok(name, 150)) this.noise(0.9, 0.15, 300, 3000);
+        break;
       case "victory":
         if (this.ok(name, 500)) [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => this.tone(f, f, 0.2, "square", 0.2, i * 0.12));
         break;

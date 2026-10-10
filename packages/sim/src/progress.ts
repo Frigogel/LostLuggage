@@ -11,6 +11,7 @@ import { GUNS } from "./data/guns";
 import { HEROES, MAX_LEVEL, tierLevel } from "./data/heroes";
 import { LEGENDARIES } from "./data/legendaries";
 import { MAKERS } from "./data/makers";
+import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { SOUVENIR_CAP, SOUVENIR_IDS, SOUVENIRS, souvenirTotal, type SouvenirId, type SouvenirRanks } from "./data/souvenirs";
 import { gunData, PERKS, RARITIES } from "./loot";
@@ -34,6 +35,8 @@ export interface HeroProgress {
   /** XP toward the next level. */
   xp: number;
   skills: string[];
+  /** Equipped signature power, or "" for the plain action skill. */
+  signature?: string;
 }
 
 export interface Profile {
@@ -45,6 +48,8 @@ export interface Profile {
   /** Stash ids of the two equipped guns. */
   loadout: string[];
   souvenirs: SouvenirRanks;
+  /** Signature powers found in co-op dungeons, for any hero. */
+  signatures: string[];
   /** Souvenirs found but not unpacked yet. */
   pendingSouvenirs: number;
   /** Seeds the next souvenir offer, so every device shows the same three. */
@@ -70,6 +75,8 @@ export interface RunResult {
   day: string;
   /** Co-op: you helped someone below the dungeon tier's level. */
   helped?: boolean;
+  /** Co-op: a signature power dropped for you. */
+  signature?: string;
 }
 
 export interface RunReward {
@@ -84,6 +91,8 @@ export interface RunReward {
   scrapped: number;
   legendaries: number;
   souvenir: boolean;
+  /** A new signature power was found. */
+  signature?: string;
 }
 
 export type Action =
@@ -93,6 +102,8 @@ export type Action =
   | { type: "skills"; id: string; heroId: string; skills: string[] }
   | { type: "souvenir"; id: string; pick: SouvenirId }
   | { type: "name"; id: string; name: string }
+  | { type: "hero"; id: string; heroId: string }
+  | { type: "signature"; id: string; heroId: string; signature: string }
   | { type: "seen"; id: string };
 
 // ---------------------------------------------------------------- basics
@@ -147,6 +158,7 @@ export function newProfile(name = ""): Profile {
     stash: STARTERS.map((g) => ({ ...g, perks: [] })),
     loadout: STARTERS.map((g) => g.id),
     souvenirs: {},
+    signatures: [],
     pendingSouvenirs: 0,
     offerSeed: 1,
     lastDailyWin: "",
@@ -173,6 +185,7 @@ export function playerOptions(p: Profile): PlayerOptions {
     skills: hero.skills,
     guns: loadoutGuns(p).map((g) => ({ ...gunData(g), sid: g.id })),
     souvenirs: p.souvenirs,
+    signature: hero.signature && p.signatures.includes(hero.signature) ? hero.signature : undefined,
   };
 }
 
@@ -214,6 +227,11 @@ export function cleanProfile(raw: unknown, name = ""): Profile {
     if (!HEROES[id] || !h) continue;
     const level = int(h.level, 1, MAX_LEVEL);
     p.heroes[id] = { level, xp: level >= MAX_LEVEL ? 0 : int(h.xp, 0, xpToNext(level) - 1), skills: validSkills(id, level, Array.isArray(h.skills) ? h.skills : []) };
+  }
+  if (Array.isArray(r.signatures)) p.signatures = [...new Set(r.signatures.filter((s): s is string => typeof s === "string" && !!SIGNATURES[s]))];
+  for (const [id, h] of Object.entries(r.heroes ?? {})) {
+    const sig = h?.signature;
+    if (p.heroes[id] && typeof sig === "string" && p.signatures.includes(sig) && SIGNATURES[sig]!.heroId === id) p.heroes[id]!.signature = sig;
   }
   if (Array.isArray(r.stash)) {
     const seen = new Set<string>();
@@ -293,6 +311,19 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
   };
 }
 
+/** A signature power for this profile's hero that it doesn't own yet, or any it doesn't own. The roll is in [0, 1). */
+export function signatureDrop(p: Profile, heroId: string, roll: number): string | undefined {
+  const unowned = Object.values(SIGNATURES).filter((s) => !p.signatures.includes(s.id));
+  const mine = unowned.filter((s) => s.heroId === heroId);
+  const pool = mine.length > 0 ? mine : unowned;
+  return pool.length > 0 ? pool[Math.floor(roll * pool.length)]!.id : undefined;
+}
+
+/** Odds that a co-op win drops a signature power: rare on Normal, better on harder tiers. */
+export function signatureChance(tier: number): number {
+  return 0.3 + 0.15 * tier;
+}
+
 /** Co-op "reasons to group with newer players": you're at or above the tier's level and someone else is below it. */
 export function helpedNewer(w: World, p: Player): boolean {
   const lv = tierLevel(w.run.tier);
@@ -340,6 +371,9 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     day: String(raw.day ?? "").slice(0, 10),
     helped: raw.helped === true,
   };
+  // Signature powers only come from co-op dungeons.
+  const sig = raw.mode === "coop" && typeof raw.signature === "string" && SIGNATURES[raw.signature] && !p.signatures.includes(raw.signature) ? raw.signature : undefined;
+  if (sig) p.signatures.push(sig);
   const levelBefore = heroOf(p, heroId).level;
   const daily = r.victory && !!r.day && r.day !== p.lastDailyWin;
   if (daily) p.lastDailyWin = r.day;
@@ -382,7 +416,9 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   if (r.victory) p.stats.wins++;
   p.stats.kills += r.kills;
   p.stats.legendaries += legendaries;
-  return { xp: xp + scrapXp, bonuses, levelBefore, levelAfter: heroOf(p, heroId).level, kept, scrapped, legendaries, souvenir };
+  const reward: RunReward = { xp: xp + scrapXp, bonuses, levelBefore, levelAfter: heroOf(p, heroId).level, kept, scrapped, legendaries, souvenir };
+  if (sig) reward.signature = sig;
+  return reward;
 }
 
 /** Applies one action to a copy of the profile. Invalid actions change nothing. */
@@ -422,6 +458,20 @@ export function applyAction(profile: Profile, action: Action): { profile: Profil
     case "name":
       p.name = cleanName(action.name, p.name);
       break;
+    case "hero": {
+      if (!HEROES[action.heroId]) break;
+      p.heroId = action.heroId;
+      p.heroes[action.heroId] ??= { level: 1, xp: 0, skills: [] };
+      break;
+    }
+    case "signature": {
+      const h = p.heroes[action.heroId];
+      const sig = String(action.signature ?? "");
+      if (!h) break;
+      if (sig === "") delete h.signature;
+      else if (p.signatures.includes(sig) && SIGNATURES[sig]?.heroId === action.heroId) h.signature = sig;
+      break;
+    }
     case "seen":
       for (const g of p.stash) delete g.new;
       break;

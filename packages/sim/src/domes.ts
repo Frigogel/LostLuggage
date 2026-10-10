@@ -1,8 +1,7 @@
 // The Vanguard's dome and the skill nodes that change it: following you around, zapping, shoving, healing,
 // exploding at the end, and sending enemy shots back where they came from.
-import { damageEnemy, DT, nearestEnemy, playerExplosion, targetable } from "./combat";
+import { damageEnemy, DT, nearestEnemy, playerExplosion, skillDamage, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
-import { levelMultiplier } from "./data/heroes";
 import { add, dist, len, norm, scale, sub } from "./math";
 import { canAct, hasSkill } from "./players";
 import type { Dome, Player, Projectile, World } from "./types";
@@ -12,13 +11,17 @@ const CAPACITOR = { perShot: 2, max: 20 };
 
 const ownerOf = (w: World, d: Dome): Player | undefined => w.players.find((p) => p.id === d.ownerId);
 
-/** Skill damage scales like gun damage: level (synced in co-op) and souvenirs. */
-const skillDamage = (p: Player, base: number) => base * levelMultiplier(p.syncLevel) * p.mods.damage;
+/** Black Hole Dome signature: how hard it pulls, how far out it reaches, and what it does to those inside. */
+const BLACK_HOLE = { pull: 70, reach: 1.7, damage: 4 };
+
+/** Signature domes that let enemies in (and pull them toward the middle). */
+export const isBlackHole = (w: World, d: Dome): boolean => ownerOf(w, d)?.signature === "sig_blackhole";
 
 export function updateDomes(w: World): void {
   for (const d of w.domes) {
     const owner = ownerOf(w, d);
     if (owner && hasSkill(owner, "vg_moving") && canAct(owner)) d.pos = { ...owner.pos };
+    if (owner?.signature === "sig_blackhole") pull(w, d);
     d.t -= DT;
     d.tickT -= DT;
     if (owner && d.tickT <= 0) {
@@ -32,9 +35,27 @@ export function updateDomes(w: World): void {
   w.domes = w.domes.filter((d) => d.t > 0);
 }
 
+/** Black Hole Dome: everything nearby slides toward the middle. Bosses are too heavy. */
+function pull(w: World, d: Dome): void {
+  for (const e of w.enemies) {
+    if (!targetable(e) || ENEMIES[e.defId]!.boss || ENEMIES[e.defId]!.movement.type === "stationary") continue;
+    const off = sub(d.pos, e.pos);
+    const l = len(off);
+    if (l > d.radius * BLACK_HOLE.reach || l < 4) continue;
+    e.pos = add(e.pos, scale(off, (BLACK_HOLE.pull * DT) / l));
+  }
+}
+
 /** Once a second (twice with Thunderdome): zap, shove and heal around the dome. */
 function domeTick(w: World, d: Dome, owner: Player): void {
   let pulse = 0;
+  if (owner.signature === "sig_blackhole") {
+    for (const e of [...w.enemies]) {
+      if (!targetable(e) || dist(e.pos, d.pos) > d.radius + e.radius) continue;
+      damageEnemy(w, e, skillDamage(owner, BLACK_HOLE.damage), { dir: sub(d.pos, e.pos), knockback: 0, sourcePlayerId: owner.id, element: "none", secondary: true });
+    }
+    pulse = d.radius;
+  }
   if (hasSkill(owner, "vg_cling")) {
     const reach = d.radius + (hasSkill(owner, "vg_thunder") ? 24 : 12);
     for (const e of [...w.enemies]) {

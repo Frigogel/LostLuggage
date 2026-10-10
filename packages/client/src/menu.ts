@@ -2,7 +2,13 @@
 // their own keyboard for names and codes, and lists scroll like any web page.
 import type Phaser from "phaser";
 import {
+  BIOMES,
+
   ELEMENT_INFO,
+  HERO_IDS,
+  SIGNATURES,
+  signaturesFor,
+  type Biome,
   GUNS,
   heroOf,
   HEROES,
@@ -38,6 +44,16 @@ import { sfx } from "./sfx";
 import type { GameData } from "./scenes/GameScene";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const BIOME_KEY = "lostluggage.biome";
+
+function loadBiome(): Biome {
+  try {
+    const b = localStorage.getItem(BIOME_KEY) as Biome | null;
+    return b && BIOMES[b] ? b : "foundry";
+  } catch {
+    return "foundry";
+  }
+}
 const SCREENS = ["home", "lobby", "signin", "skills", "armory", "souvenirs"] as const;
 type Screen = (typeof SCREENS)[number];
 
@@ -63,6 +79,8 @@ export class Menu {
   private openGun = "";
   /** Guns that were new when the armory opened: they keep their badge while you look. */
   private fresh = new Set<string>();
+  /** The adventure for solo runs and rooms you create. Remembered on this device. */
+  private biome: Biome = loadBiome();
 
   constructor(private game: Phaser.Game) {
     const name = $<HTMLInputElement>("name");
@@ -96,6 +114,17 @@ export class Menu {
     $("si-register").addEventListener("click", () => void this.signIn("register"));
     $("skills-reset").addEventListener("click", () => this.account.dispatch({ type: "skills", heroId: this.account.profile.heroId, skills: [] }));
     $("armory-scrap").addEventListener("click", () => this.scrapCommons());
+    for (const b of document.querySelectorAll<HTMLButtonElement>("#biome-pick button")) {
+      b.addEventListener("click", () => {
+        this.biome = b.dataset.biome as Biome;
+        try {
+          localStorage.setItem(BIOME_KEY, this.biome);
+        } catch {
+          /* private mode: it just won't be remembered */
+        }
+        this.render();
+      });
+    }
 
     this.account.onChange(() => this.render());
     game.events.on("leave", () => this.leave());
@@ -117,7 +146,7 @@ export class Menu {
 
   private get joinOptions(): JoinOptions {
     const me = this.me;
-    return { name: me.name, level: me.level, token: this.account.signedIn ? this.account.token : undefined };
+    return { name: me.name, level: me.level, heroId: me.heroId, token: this.account.signedIn ? this.account.token : undefined };
   }
 
   // ---------------------------------------------------------------- screens
@@ -167,6 +196,9 @@ export class Menu {
     if (document.activeElement !== name) name.value = p.name;
     $("name-label").textContent = a.signedIn ? "Name shown to friends" : "Your name";
 
+    this.renderHeroes();
+    for (const b of document.querySelectorAll<HTMLButtonElement>("#biome-pick button")) b.classList.toggle("on", b.dataset.biome === this.biome);
+
     const free = skillPoints(hero.level) - spentPoints(p.heroId, hero.skills);
     const newGuns = p.stash.filter((g) => g.new).length;
     this.label("to-skills", "Skills", free > 0 ? String(free) : "");
@@ -176,6 +208,28 @@ export class Menu {
     if (this.screen === "skills") this.renderSkills();
     if (this.screen === "armory") this.renderArmory();
     if (this.screen === "souvenirs") this.renderSouvenirs();
+  }
+
+  /** Four heroes, each with their own level. Picking one is free and instant. */
+  private renderHeroes(): void {
+    const p = this.account.profile;
+    $("hero-pick").replaceChildren(
+      ...HERO_IDS.map((id) => {
+        const lv = heroOf(p, id).level;
+        const b = el("button", { className: id === p.heroId ? "on" : "" }, HEROES[id]!.name, el("small", { textContent: `${HEROES[id]!.role} · LV ${lv}` }));
+        b.addEventListener("click", () => {
+          if (id !== p.heroId) this.account.dispatch({ type: "hero", heroId: id });
+        });
+        return b;
+      }),
+    );
+    const h = HEROES[p.heroId]!;
+    const sig = heroOf(p).signature ? SIGNATURES[heroOf(p).signature!] : undefined;
+    $("hero-info").replaceChildren(
+      el("b", { textContent: sig ? sig.name : h.skillName }),
+      ` ${sig ? sig.text : h.skillText}. `,
+      el("i", { textContent: h.flavor }),
+    );
   }
 
   private label(id: string, text: string, badge: string): void {
@@ -209,6 +263,7 @@ export class Menu {
     const tree = SKILL_TREES[p.heroId]!;
     const free = skillPoints(hero.level) - spentPoints(p.heroId, hero.skills);
     $("skills-points").textContent = `${HEROES[p.heroId]!.name.toUpperCase()} LV ${hero.level}: ${free} OF ${skillPoints(hero.level)} POINTS FREE. ONE PER LEVEL. RESPEC ANY TIME.`;
+    this.renderSignatures();
     $("skills-tree").replaceChildren(
       ...tree.branches.map((br, b) => {
         const nodes = tree.nodes.filter((n) => n.branch === b);
@@ -230,6 +285,22 @@ export class Menu {
         }
         return col;
       }),
+    );
+  }
+
+  /** Signature powers for this hero: the plain skill, plus any found in co-op dungeons. */
+  private renderSignatures(): void {
+    const p = this.account.profile;
+    const h = HEROES[p.heroId]!;
+    const current = heroOf(p).signature ?? "";
+    const option = (id: string, name: string, text: string, owned: boolean) => {
+      const b = el("button", { className: id === current ? "on" : "", disabled: !owned }, el("b", { textContent: owned ? name : "???" }), owned ? text : "Not found yet. Signature powers drop in co-op dungeons.");
+      b.addEventListener("click", () => this.account.dispatch({ type: "signature", heroId: p.heroId, signature: id }));
+      return b;
+    };
+    $("skills-sig").replaceChildren(
+      el("h3", { textContent: `Action skill: ${h.skillName}` }),
+      el("div", { className: "row3" }, option("", h.skillName, h.skillText, true), ...signaturesFor(p.heroId).map((id) => option(id, SIGNATURES[id]!.name, SIGNATURES[id]!.text, p.signatures.includes(id)))),
     );
   }
 
@@ -347,6 +418,7 @@ export class Menu {
   startSolo(): void {
     this.runScenes({
       profile: this.me,
+      biome: this.biome,
       // Solo results are trusted (friends-only game): applied here and synced when there's a connection.
       onRunEnd: (w, p): RunReward | undefined => this.account.dispatch({ type: "run", result: runResult(w, p, { mode: "solo", day: localDay() }) }).reward,
     });
@@ -362,7 +434,7 @@ export class Menu {
     // The server loads your saved loadout, so get the latest changes to it first.
     await within(this.account.sync(), 3000);
     try {
-      const s = await NetSession.connect(how, this.joinOptions);
+      const s = await NetSession.connect(how, this.joinOptions, { biome: this.biome });
       this.session = s;
       this.startedRun = -1;
       s.onLobby = (l) => this.onLobby(l);
@@ -397,6 +469,7 @@ export class Menu {
     }
     this.showLobby();
     $("lobby-code").textContent = l.code;
+    $("lobby-biome").textContent = BIOMES[l.biome]?.name ?? "";
     const list = $("lobby-seats");
     list.replaceChildren(
       ...l.seats.map((seat, i) => {
@@ -406,7 +479,7 @@ export class Menu {
         const you = seat.sessionId === s.sessionId ? " - YOU" : "";
         li.append(`${seat.name}${host}${you}`);
         const small = document.createElement("small");
-        small.textContent = seat.connected ? `LV ${seat.level}` : "RECONNECTING";
+        small.textContent = seat.connected ? `${HEROES[seat.heroId]?.name ?? ""} LV ${seat.level}` : "RECONNECTING";
         li.append(small);
         return li;
       }),

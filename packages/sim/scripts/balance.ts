@@ -1,10 +1,24 @@
 // Balance harness: a simple bot plays full runs on many seeds and reports pacing and survival.
-// Run with `npm run balance -w @lostluggage/sim` (optionally `-- 50` for the number of runs).
+// Run with `npm run balance -w @lostluggage/sim` (optionally `-- 50` for the number of runs, `--hero tinker`,
+// `--biome caverns`, `--level 20`, `--tier 1`).
 // The bot is much worse than a person (no real dodging), so treat deaths as an upper bound on difficulty.
-import { createWorld, EMPTY_INPUT, runResult, runXp, step, type PlayerInput, type Vec, type World } from "../src";
+import { createWorld, EMPTY_INPUT, runResult, runXp, step, type Biome, type PlayerInput, type Vec, type World } from "../src";
 
-const runs = Number(process.argv[2] ?? 20);
-const god = process.argv.includes("--god");
+const args = process.argv.slice(2);
+const opt = (name: string) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+const runs = Number(args.find((a) => /^\d+$/.test(a)) ?? 20);
+const god = args.includes("--god");
+const heroId = opt("--hero") ?? "vanguard";
+const biome = (opt("--biome") ?? "foundry") as Biome;
+const level = Number(opt("--level") ?? 1);
+const tier = Number(opt("--tier") ?? 0);
+/** Forces every elite the director rolls to one kind, to see what each costs. */
+const forceElite = opt("--elite");
+let elites = 0;
+let spiked = 0;
 
 function botInput(w: World): PlayerInput {
   const p = w.players[0]!;
@@ -52,6 +66,16 @@ function botInput(w: World): PlayerInput {
     const other = p.guns[1 - p.active]!;
     if (cur.pips < 1 && other.pips >= 2) inp.swap = true;
   }
+  // Steer away from spike walls you can see, like a person would.
+  for (const s of w.arena.spikes) {
+    const cx = Math.max(s.x, Math.min(s.x + s.w, p.pos.x));
+    const cy = Math.max(s.y, Math.min(s.y + s.h, p.pos.y));
+    const d = Math.hypot(p.pos.x - cx, p.pos.y - cy);
+    if (d < 36) {
+      move.x += ((p.pos.x - cx) / (d || 1)) * 2;
+      move.y += ((p.pos.y - cy) / (d || 1)) * 2;
+    }
+  }
   const l = Math.hypot(move.x, move.y) || 1;
   inp.move = { x: move.x / l, y: move.y / l };
   return inp;
@@ -69,7 +93,8 @@ const kills: number[] = [];
 const found: number[] = [];
 
 for (let seed = 1; seed <= runs; seed++) {
-  const w = createWorld({ seed: seed * 7919 });
+  const w = createWorld({ seed: seed * 7919, biome, tier, players: [{ heroId, level }] });
+  if (forceElite) for (const plan of w.run.plans) plan.waves = plan.waves.map((wave) => wave.map((id) => id.replace(/@\w+/, "@" + forceElite)));
   let roomStart = 0;
   let lastRoom = 0;
   let taken = 0;
@@ -81,6 +106,9 @@ for (let seed = 1; seed <= runs; seed++) {
     for (const ev of w.events) {
       if (ev.type === "playerHurt") taken += ev.damage;
       if (ev.type === "playerDowned") downed++;
+      // Spike walls hurt in the same tick they report the hit.
+      if (ev.type === "playerHurt" && w.events.some((x) => x.type === "spiked")) spiked += ev.damage;
+      if (ev.type === "enemySpawn" && w.enemies.find((e) => e.id === ev.id)?.elite) elites++;
     }
     lowest = Math.min(lowest, w.players[0]!.hp);
     if (w.run.room.index !== lastRoom) {
@@ -104,10 +132,10 @@ for (let seed = 1; seed <= runs; seed++) {
 }
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-const kinds = createWorld({ seed: 1 }).run.plans.map((p) => p.kind);
-console.log(`${runs} runs${god ? " (god mode)" : ""}: ${wins} victories`);
+const kinds = createWorld({ seed: 1, biome }).run.plans.map((p) => p.kind);
+console.log(`${runs} runs as ${heroId} LV ${level} in the ${biome}, tier ${tier}${god ? " (god mode)" : ""}: ${wins} victories, ${(elites / runs).toFixed(1)} elites a run`);
 roomTimes.forEach((ts, i) => console.log(`  room ${i + 1} ${kinds[i]!.padEnd(8)} avg ${avg(ts).toFixed(0)}s over ${ts.length} clears`));
 if (totals.length) console.log(`  full run avg ${(avg(totals) / 60).toFixed(1)} min`);
-console.log(`  damage taken avg ${avg(hurt).toFixed(0)}, downs avg ${avg(downs).toFixed(2)}, lowest hp avg ${avg(minHp).toFixed(0)}`);
+console.log(`  damage taken avg ${avg(hurt).toFixed(0)} (${(spiked / runs).toFixed(0)} from spikes), downs avg ${avg(downs).toFixed(2)}, lowest hp avg ${avg(minHp).toFixed(0)}`);
 console.log(`  kills avg ${avg(kills).toFixed(0)}, guns dropped avg ${avg(found).toFixed(1)}, XP avg ${avg(xps).toFixed(0)} (first win of the day x1.5)`);
 console.log(`  deaths by room: ${JSON.stringify(Object.fromEntries(Object.entries(deathsByRoom).map(([k, v]) => [Number(k) + 1, v])))}`);

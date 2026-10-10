@@ -1,6 +1,9 @@
 import Phaser from "phaser";
 import {
+  BIOMES,
   BOOSTS,
+  ELITES,
+  SIGNATURES,
   DASH,
   ELEMENT_INFO,
   ENEMIES,
@@ -30,7 +33,20 @@ const BUTTON_LABELS: Record<ButtonId, { touch: string; keys: string }> = {
   grenade: { touch: "NADE", keys: "Q" },
   interact: { touch: "GRAB", keys: "F" },
 };
-const DESKTOP_HELP = "WASD MOVE  CLICK SHOOT  SPACE DASH  E DOME  Q NADE\n1/2 SWAP  T AUTO-AIM  M MUTE  P PAUSE";
+const DESKTOP_HELP = (skill: string) => `WASD MOVE  CLICK SHOOT  SPACE DASH  E ${skill}  Q NADE\n1/2 SWAP  T AUTO-AIM  M MUTE  P PAUSE`;
+/** Each hero's skill button has its own color. */
+const SKILL_COLORS: Record<string, number> = { vanguard: 0x5fd3e8, gunslinger: 0xf2c14e, tinker: 0xffb238, warden: 0x5fd36a };
+/** What the bosses have to say as they get angrier. */
+const BOSS_PHASES: Record<string, string[]> = {
+  furnace_foreman: ["HE'S FILING A COMPLAINT", "HE WANTS A FULL REFUND"],
+  complaint_dragon: ["IT'S CC'ING YOUR MANAGER", "IT WANTS COMPENSATION. IN GOLD."],
+};
+const BOSS_WINS: Record<string, string> = {
+  furnace_foreman: "THE FOREMAN HAS BEEN ESCALATED.",
+  complaint_dragon: "THE COMPLAINT HAS BEEN FILED. AND IGNORED.",
+};
+/** Who splits into what, for introducing the pieces. */
+const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball" };
 /** What the pickup button says for each kind of item. */
 const PICKUP_VERBS = { gun: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB" };
 const ROOM_ICONS = { intro: 0xc9cfd6, combat: 0xe0533d, breather: 0x5fd36a, boss: 0xff9a2a };
@@ -80,6 +96,9 @@ export class UIScene extends Phaser.Scene {
   private rewardShown = false;
   private statusShown = false;
   private seen = loadSeen();
+  /** Toasts wait their turn, so a new enemy and a new elite arriving together are both read. */
+  private toastQueue: [string, string, number][] = [];
+  private toastUntil = 0;
 
   constructor() {
     super("ui");
@@ -98,6 +117,8 @@ export class UIScene extends Phaser.Scene {
     this.statusShown = false;
     this.rewardText = [];
     this.rewardShown = false;
+    this.toastQueue = [];
+    this.toastUntil = 0;
   }
 
   private get game_(): GameScene {
@@ -134,7 +155,7 @@ export class UIScene extends Phaser.Scene {
     this.banner = this.text(SCREEN.w / 2, 92, "", 16).setOrigin(0.5).setAlpha(0);
     this.subBanner = this.text(SCREEN.w / 2, 112, "", 8).setOrigin(0.5).setAlpha(0).setTint(0xffe08a);
     this.card = [0, 1, 2, 3, 4, 5, 6].map((i) => this.text(SCREEN.w / 2, SCREEN.h - 70 + i * 11, "").setOrigin(0.5, 0));
-    this.help = this.text(SCREEN.w / 2, SCREEN.h - 4, DESKTOP_HELP, 8).setOrigin(0.5, 1).setCenterAlign().setTint(0xc9cfd6);
+    this.help = this.text(SCREEN.w / 2, SCREEN.h - 4, DESKTOP_HELP(HEROES[game.me.heroId]!.skillName), 8).setOrigin(0.5, 1).setCenterAlign().setTint(0xc9cfd6);
     this.tweens.add({ targets: this.help, alpha: 0, delay: 12000, duration: 1500 });
     this.exitLabel = this.text(0, 0, "EXIT", 8).setOrigin(0.5).setTint(0x5fd36a);
     this.toast = [this.text(6, 52, "").setTint(0xffe08a), this.text(6, 63, "").setTint(0xc9cfd6)];
@@ -235,15 +256,34 @@ export class UIScene extends Phaser.Scene {
   private introduce(defId: string): void {
     // Bosses get a full-screen banner instead.
     if (this.seen.has(defId) || ENEMIES[defId]!.role === "boss") return;
-    this.seen.add(defId);
+    const def = ENEMIES[defId]!;
+    this.toastOnce(defId, `NEW: ${def.name.toUpperCase()}`, def.flavor.toUpperCase(), 0xffe08a);
+  }
+
+  /** The first time a toast's key comes up, it slides in under the party list. Remembered across runs. */
+  private toastOnce(key: string, title: string, line: string, tint: number): void {
+    if (this.seen.has(key)) return;
+    this.seen.add(key);
     try {
       localStorage.setItem(SEEN_KEY, JSON.stringify([...this.seen]));
     } catch {
       /* private mode: show it again next time */
     }
-    const def = ENEMIES[defId]!;
-    this.toast[0]!.setText(`NEW: ${def.name.toUpperCase()}`);
-    this.toast[1]!.setText(def.flavor.toUpperCase());
+    this.showToast(title, line, tint);
+  }
+
+  private showToast(title: string, line: string, tint: number): void {
+    if (this.time.now < this.toastUntil) {
+      this.toastQueue.push([title, line, tint]);
+      return;
+    }
+    this.toastUntil = this.time.now + 4500;
+    this.time.delayedCall(4600, () => {
+      const next = this.toastQueue.shift();
+      if (next) this.showToast(...next);
+    });
+    this.toast[0]!.setText(title).setTint(tint);
+    this.toast[1]!.setText(line);
     this.tweens.killTweensOf(this.toast);
     const top = 52 + Math.max(0, this.game_.world.players.length - 1) * 10;
     this.toast.forEach((t, i) => t.setAlpha(1).setX(-200).setY(top + i * 11));
@@ -258,8 +298,10 @@ export class UIScene extends Phaser.Scene {
     for (const ev of events) {
       switch (ev.type) {
         case "waveStart":
-          if (world.run.room.kind === "boss") this.showBanner("FURNACE FOREMAN", "WOULD LIKE TO SPEAK TO YOUR MANAGER", 0xff9a2a, 2400);
-          else this.showBanner(`WAVE ${ev.wave}/${ev.waves}`, world.run.room.index === 0 && ev.wave === 1 ? "THE BURNING FOUNDRY" : "");
+          if (world.run.room.kind === "boss") {
+            const boss = ENEMIES[BIOMES[world.run.biome].boss]!;
+            this.showBanner(boss.name.toUpperCase(), boss.flavor.toUpperCase(), 0xff9a2a, 2400);
+          } else this.showBanner(`WAVE ${ev.wave}/${ev.waves}`, world.run.room.index === 0 && ev.wave === 1 ? BIOMES[world.run.biome].name.toUpperCase() : "");
           break;
         case "roomCleared":
           // Breather rooms start clear; their own banner already says so.
@@ -267,22 +309,31 @@ export class UIScene extends Phaser.Scene {
           break;
         case "roomEnter":
           if (ev.kind === "breather") this.showBanner("LOST & FOUND", "A SHRINE AND A SUITCASE. TAKE A BREATH.", 0x5fd36a, 2400);
-          else if (ev.kind === "boss") this.showBanner("THE FOREMAN'S OFFICE", "", 0xff9a2a);
+          else if (ev.kind === "boss") this.showBanner(BIOMES[world.run.biome].bossRoom.toUpperCase(), "", 0xff9a2a);
+          else if (ev.index === 0 && world.run.biome === "caverns") this.showBanner("MIND THE ICE", "YOU SLIDE. YOUR DASH GOES FURTHER. SPIKES HURT.", 0x9ff3ff, 2600);
           break;
         case "enemySpawn": {
+          const e = world.enemies.find((en) => en.id === ev.id);
+          if (!e) break;
+          this.introduce(e.defId);
+          // Each kind of elite gets explained once.
+          if (e.elite) this.toastOnce(`elite:${e.elite}`, `ELITE: ${ELITES[e.elite].name.toUpperCase()}`, ELITES[e.elite].hint.toUpperCase(), 0xff9a2a);
+          break;
+        }
+        case "reveal": {
           const e = world.enemies.find((en) => en.id === ev.id);
           if (e) this.introduce(e.defId);
           break;
         }
-        case "reveal":
-          this.introduce("vending_mimic");
-          break;
         case "split":
-          this.introduce("blobling");
+          this.introduce(SPLITS[world.run.biome] ?? "blobling");
           break;
-        case "bossPhase":
-          this.showBanner(ev.phase === 1 ? "HE'S FILING A COMPLAINT" : "HE WANTS A FULL REFUND", "", 0xe0533d);
+        case "bossPhase": {
+          const boss = world.enemies.find((en) => en.id === ev.id);
+          const lines = BOSS_PHASES[boss?.defId ?? ""] ?? BOSS_PHASES.furnace_foreman!;
+          this.showBanner(lines[ev.phase - 1] ?? lines.at(-1)!, "", 0xe0533d);
           break;
+        }
         case "playerHurt":
           if (ev.id !== myId) break;
           this.hurtOverlay.setAlpha(0.25);
@@ -341,7 +392,7 @@ export class UIScene extends Phaser.Scene {
     c.add([
       bg,
       t(-70, won ? "LUGGAGE RECOVERED!" : "LUGGAGE LOST", 16, won ? 0x5fd36a : 0xe0533d),
-      t(-50, won ? "THE FOREMAN HAS BEEN ESCALATED." : `REACHED ROOM ${run.room.index + 1}/${run.plans.length}. THE CRUISE LINE IS NOT LIABLE.`, 8),
+      t(-50, won ? (BOSS_WINS[BIOMES[run.biome].boss] ?? "") : `REACHED ROOM ${run.room.index + 1}/${run.plans.length}. THE CRUISE LINE IS NOT LIABLE.`, 8),
       t(-38, `${mins}:${secs}   ${run.kills} KILLS   ${run.gunsFound} GUNS FOUND`, 8, 0xc9cfd6),
     ]);
     this.rewardText = [-20, -8, 4, 16, 28].map((y) => t(y, "", 8));
@@ -382,7 +433,10 @@ export class UIScene extends Phaser.Scene {
     lines[2]!.setText(loot + (r.scrapped ? ` (${r.scrapped} SCRAPPED: STASH FULL)` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
     lines[3]!.setText(r.souvenir ? "SOUVENIR FOUND! UNPACK IT IN THE MENU" : up ? "NEW SKILL POINTS: SPEND THEM IN THE MENU" : "").setTint(0xf2c14e);
     if (r.souvenir && up) lines[4]!.setText("NEW SKILL POINTS TOO").setTint(0xf2c14e);
-    if (up || r.souvenir || r.legendaries) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
+    // A signature power is the rarest thing a run can give: it takes the last line.
+    const sig = r.signature ? SIGNATURES[r.signature] : undefined;
+    if (sig) lines[4]!.setText(`SIGNATURE POWER: ${sig.name.toUpperCase()}! EQUIP IT IN SKILLS`).setTint(0xff9a2a);
+    if (up || r.souvenir || r.legendaries || sig) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
   }
 
   update(): void {
@@ -429,7 +483,7 @@ export class UIScene extends Phaser.Scene {
 
     // Action buttons with cooldown fills.
     const touch = this.controls.touchMode;
-    this.drawButton("skill", p.skillCharge, p.skillCharge >= 1, 0x5fd3e8, touch);
+    this.drawButton("skill", p.skillCharge, p.skillCharge >= 1, SKILL_COLORS[p.heroId] ?? 0x5fd3e8, touch, HEROES[p.heroId]!.skillName);
     this.drawButton("dash", 1 - p.dashCd / (DASH.cooldownMs / 1000), p.dashCd <= 0, 0xffffff, touch);
     this.drawButton("grenade", 1 - p.grenadeCd / (GRENADE.cooldownMs / 1000), p.grenadeCd <= 0, 0x8fd18f, touch);
 
@@ -519,6 +573,8 @@ export class UIScene extends Phaser.Scene {
     const frac = p.hp / p.maxHp;
     g.fillStyle(frac > 0.3 ? 0x5fd36a : 0xe0533d).fillRect(6, 15, Math.round(hpW * frac), 6);
     g.fillStyle(0xffffff, 0.25).fillRect(6, 15, Math.round(hpW * frac), 1);
+    // Overheal shield sits on top of the health bar.
+    if (p.shield > 0) g.fillStyle(0x9ff3ff).fillRect(6, 13, Math.round((hpW * Math.min(p.shield, 60)) / 60), 2);
     for (let i = 1; i < 6; i++) g.fillStyle(0x1b1020, 0.5).fillRect(6 + (hpW / 6) * i, 15, 1, 6);
     this.hpText.setText(`${Math.ceil(p.hp)}`);
     const name = p.name || HEROES[p.heroId]!.name.toUpperCase();

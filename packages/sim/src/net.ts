@@ -5,11 +5,13 @@
 // four phones on mobile data stay well under the bandwidth of a music stream. Clients decode a snapshot
 // back into an ordinary `World`, so the renderer doesn't care whether it is drawing solo or co-op.
 
-import { ENEMIES } from "./data/enemies";
+import { BIOME_IDS, ENEMIES } from "./data/enemies";
 import { GUNS } from "./data/guns";
 import { HEROES } from "./data/heroes";
 import { LEGENDARY_IDS } from "./data/legendaries";
 import { MAKER_IDS } from "./data/makers";
+import { SIGNATURE_IDS } from "./data/signatures";
+import { ELITE_IDS } from "./elites";
 import { BOOSTS, PERKS, RARITIES } from "./loot";
 import { clamp, fromAngle, angleOf, type Vec } from "./math";
 import { EMPTY_INPUT } from "./players";
@@ -17,11 +19,13 @@ import type { Profile, RunReward } from "./progress";
 import { EXIT, LAYOUTS } from "./room";
 import { ARENA } from "./room";
 import type {
+  Biome,
   BoostId,
   Dome,
   Element,
   Enemy,
   EnemyState,
+  Gadget,
   Gun,
   Hazard,
   PerkId,
@@ -48,7 +52,8 @@ const ELEMENT_IDS: Element[] = ["none", "fire", "shock", "frost", "acid"];
 const STATES: EnemyState[] = ["move", "windup", "attack", "recover", "hidden", "reveal"];
 const ROOM_KINDS: RoomKind[] = ["intro", "combat", "breather", "boss"];
 const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest"];
-const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket"];
+const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush"];
+const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice"];
 
 const POS = 4; // quarter pixels
 const T = 100; // centiseconds
@@ -70,9 +75,12 @@ export interface Snapshot {
   pl: number[];
   v: number[][];
   p: unknown[][];
-  e: number[][];
+  /** Enemies: plain numbers, with one nested array (or 0) for elite and status extras. */
+  e: (number | number[])[][];
   j: number[][];
   d: number[][];
+  /** Gadgets: turrets and drones. */
+  g: number[][];
   h: number[][];
   k: unknown[][];
   /** Every sim event since the previous snapshot, oldest first. */
@@ -119,6 +127,7 @@ function encodePlayer(p: Player): unknown[] {
     q(p.reviveProgress, 1000), p.selfRevives, boosts, q(p.streakT, T),
     // Souvenir mods the client's movement prediction needs.
     q(p.mods.speed, 1000), q(p.mods.dashCd, 1000),
+    SIGNATURE_IDS.indexOf(p.signature), q(p.shield, 10), Math.round(p.knock.x), Math.round(p.knock.y), q(p.slowT, T),
   ];
 }
 
@@ -167,32 +176,54 @@ function decodePlayer(a: unknown[]): Player {
     mods: { damage: 1, speed: n(33) / 1000, dashCd: n(34) / 1000, charge: 1, luck: 0 },
     haul: [],
     panicUsed: false,
+    signature: SIGNATURE_IDS[n(35)] ?? "",
+    shield: n(36) / 10,
+    knock: { x: n(37), y: n(38) },
+    slowT: n(39) / T,
+    holsterCd: 0,
+    markHits: 0,
   };
 }
 
 // ---------------------------------------------------------------- enemies
 
-function encodeEnemy(e: Enemy): number[] {
+function encodeEnemy(e: Enemy): (number | number[])[] {
   const s = e.status;
   return [
     e.id, idx(ENEMY_IDS, e.defId), q(e.pos.x, POS), q(e.pos.y, POS), Math.round(e.vel.x), Math.round(e.vel.y),
     q(Math.max(0, e.hp), 10), e.maxHp, q(e.shield, 10), idx(STATES, e.state), q(e.stateT, T), e.attackIdx,
     qa(angleOf(e.attackDir)), q(e.hitFlash, T), q(e.spawnT, T), q(s.burnT, T), q(s.frost, 10), q(s.frozenT, T), q(s.acidT, T), e.phase,
+    encodeExtras(e),
     ...e.attackPoints.flatMap((p) => [q(p.x, POS), q(p.y, POS)]),
   ];
 }
 
-function decodeEnemy(a: number[]): Enemy {
+/** Elites, marks, stuns, slows and split copies, or just 0 for the plain enemies that make up most of a room. */
+function encodeExtras(e: Enemy): number[] | 0 {
+  if (!e.elite && e.size === 1 && e.stunT <= 0 && e.markT <= 0 && e.slow <= 0) return 0;
+  return [
+    e.elite ? ELITE_IDS.indexOf(e.elite) + 1 : 0, q(e.size, 100), q(e.stunT, T), q(e.markT, T), e.markBy, qa(angleOf(e.facing)),
+    e.link, q(e.linkT, T), e.blinkTo ? q(e.blinkTo.x, POS) : -1, e.blinkTo ? q(e.blinkTo.y, POS) : -1, q(e.slow, 100), q(e.guard, 1),
+  ];
+}
+
+/** Where an enemy's attack points start on the wire. */
+const ENEMY_POINTS = 21;
+
+function decodeEnemy(raw: (number | number[])[]): Enemy {
+  const x = (Array.isArray(raw[20]) ? raw[20] : [0, 100, 0, 0, 0, 0, 0, 0, -1, -1, 0, 0]) as number[];
+  const a = raw.map((v) => (Array.isArray(v) ? 0 : v));
   const defId = ENEMY_IDS[a[1]!] ?? "cone_rat";
   const points: Vec[] = [];
-  for (let i = 20; i + 1 < a.length; i += 2) points.push({ x: a[i]! / POS, y: a[i + 1]! / POS });
-  return {
+  for (let i = ENEMY_POINTS; i + 1 < a.length; i += 2) points.push({ x: a[i]! / POS, y: a[i + 1]! / POS });
+  const size = x[1]! / 100;
+  const e: Enemy = {
     id: a[0]!,
     defId,
     pos: { x: a[2]! / POS, y: a[3]! / POS },
     vel: { x: a[4]!, y: a[5]! },
     knock: { x: 0, y: 0 },
-    radius: ENEMIES[defId]!.radius,
+    radius: Math.max(4, Math.round(ENEMIES[defId]!.radius * size)),
     hp: a[6]! / 10,
     maxHp: a[7]!,
     shield: a[8]! / 10,
@@ -211,8 +242,33 @@ function decodeEnemy(a: number[]): Enemy {
     trailT: 0,
     parentId: 0,
     phase: a[19]!,
+    size,
+    noLoot: false,
+    stunT: x[2]! / T,
+    slowT: x[10]! > 0 ? 0.1 : 0,
+    slow: x[10]! / 100,
+    markT: x[3]! / T,
+    markBy: x[4]!,
+    taunt: 0,
+    guard: x[11]!,
+    facing: dqa(x[5]!),
+    link: x[6]!,
+    linkT: x[7]! / T,
+    blinkT: 0,
   };
+  const elite = ELITE_IDS[x[0]! - 1];
+  if (elite) e.elite = elite;
+  if (x[8]! >= 0) e.blinkTo = { x: x[8]! / POS, y: x[9]! / POS };
+  return e;
 }
+
+const encodeGadget = (g: Gadget): number[] => [
+  g.id, b(g.kind === "drone"), g.ownerId, q(g.pos.x, POS), q(g.pos.y, POS), q(g.t, T), q(g.maxT, T), Math.max(0, Math.round(g.hp)), Math.round(g.maxHp), idx(ELEMENT_IDS, g.element), b(g.mini),
+];
+const decodeGadget = (a: number[]): Gadget => ({
+  id: a[0]!, kind: a[1] ? "drone" : "turret", ownerId: a[2]!, pos: { x: a[3]! / POS, y: a[4]! / POS }, t: a[5]! / T, maxT: a[6]! / T, hp: a[7]!, maxHp: a[8]!,
+  element: ELEMENT_IDS[a[9]!] ?? "none", fireCd: 0, tickT: 0, mini: a[10] === 1, saved: false,
+});
 
 // ---------------------------------------------------------------- projectiles, domes, hazards, vents, pickups
 
@@ -262,9 +318,9 @@ function decodeProjectile(a: number[]): Projectile {
 const encodeDome = (d: Dome): number[] => [d.id, d.ownerId, q(d.pos.x, POS), q(d.pos.y, POS), Math.round(d.radius), q(d.t, T), q(d.maxT, T)];
 const decodeDome = (a: number[]): Dome => ({ id: a[0]!, ownerId: a[1]!, pos: { x: a[2]! / POS, y: a[3]! / POS }, radius: a[4]!, t: a[5]! / T, maxT: a[6]! / T, tickT: 0, bonus: 0 });
 
-const encodeHazard = (h: Hazard): number[] => [h.id, b(h.kind === "fire"), b(h.owner === "enemy"), q(h.pos.x, POS), q(h.pos.y, POS), h.radius, q(h.t, T), q(h.maxT, T)];
+const encodeHazard = (h: Hazard): number[] => [h.id, idx(HAZARD_KINDS, h.kind), b(h.owner === "enemy"), q(h.pos.x, POS), q(h.pos.y, POS), h.radius, q(h.t, T), q(h.maxT, T)];
 const decodeHazard = (a: number[]): Hazard => ({
-  id: a[0]!, kind: a[1] ? "fire" : "acid", owner: a[2] ? "enemy" : "player", pos: { x: a[3]! / POS, y: a[4]! / POS }, radius: a[5]!, t: a[6]! / T, maxT: a[7]! / T, damage: 0,
+  id: a[0]!, kind: HAZARD_KINDS[a[1]!] ?? "acid", owner: a[2] ? "enemy" : "player", pos: { x: a[3]! / POS, y: a[4]! / POS }, radius: a[5]!, t: a[6]! / T, maxT: a[7]! / T, damage: 0,
 });
 
 const encodeVent = (v: Vent): number[] => [v.id, v.pos.x, v.pos.y, v.radius, q(v.periodS, T), q(v.warnS, T), q(v.eruptS, T), q(v.t, T)];
@@ -314,6 +370,15 @@ const EVENT_KEYS: EventKeys = {
   ventWarn: ["id"],
   ventErupt: ["id", "x", "y"],
   playerHurt: ["id", "damage"],
+  spiked: ["x", "y"],
+  mark: ["id", "by"],
+  crit: ["x", "y"],
+  gadget: ["id", "kind", "x", "y", "gone"],
+  gadgetHit: ["id"],
+  saved: ["id"],
+  blink: ["id", "x", "y", "done"],
+  relink: ["id"],
+  deflect: ["x", "y"],
   playerDowned: ["id", "canRevive"],
   secondWind: ["id"],
   playerRevived: ["id", "by"],
@@ -375,7 +440,7 @@ export function encodeSnapshot(w: World, events: readonly SimEvent[], acks: Read
     a: [...acks].flat(),
     r: [
       room.index, idx(ROOM_KINDS, room.kind), room.waveIdx, room.waves.length, b(room.cleared), room.exitT < 0 ? -1 : q(room.exitT, 10),
-      b(run.victory), b(w.gameOver), run.kills, run.gunsFound, q(run.time, 10), run.tier, b(run.coop),
+      b(run.victory), b(w.gameOver), run.kills, run.gunsFound, q(run.time, 10), run.tier, b(run.coop), idx(BIOME_IDS, run.biome),
     ],
     pl: run.plans.flatMap((p) => [idx(ROOM_KINDS, p.kind), p.layout]),
     v: room.vents.map(encodeVent),
@@ -383,6 +448,7 @@ export function encodeSnapshot(w: World, events: readonly SimEvent[], acks: Read
     e: w.enemies.map(encodeEnemy),
     j: w.projectiles.map(encodeProjectile),
     d: w.domes.map(encodeDome),
+    g: w.gadgets.map(encodeGadget),
     h: w.hazards.map(encodeHazard),
     k: w.pickups.map(encodePickup),
     ev: events.map(encodeEvent),
@@ -401,14 +467,16 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
     time: s.t / 30,
     seed: 0,
     nextId: 0,
-    arena: { w: ARENA.w, h: ARENA.h, obstacles: layout.obstacles.map((o) => ({ ...o })) },
+    arena: { w: ARENA.w, h: ARENA.h, obstacles: layout.obstacles.map((o) => ({ ...o })), ice: !!layout.ice, spikes: (layout.spikes ?? []).map((o) => ({ ...o })) },
     players: s.p.map(decodePlayer),
     enemies: s.e.map(decodeEnemy),
     projectiles: s.j.map(decodeProjectile),
     domes: s.d.map(decodeDome),
+    gadgets: (s.g ?? []).map(decodeGadget),
     hazards: s.h.map(decodeHazard),
     pickups: s.k.map(decodePickup),
     run: {
+      biome: BIOME_IDS[r[13]!] ?? "foundry",
       plans,
       room: {
         index,
@@ -480,6 +548,8 @@ export interface RoomOptions {
   private?: boolean;
   /** Difficulty tier, 0 = Normal. */
   tier?: number;
+  /** Which adventure the room runs. */
+  biome?: Biome;
 }
 
 /** Sent when joining. */
@@ -487,6 +557,8 @@ export interface JoinOptions {
   name?: string;
   /** Guests only (development): accounts use their saved hero. */
   level?: number;
+  /** Guests only: which hero to play. Accounts use their saved hero. */
+  heroId?: string;
   /** Account session token: the server loads your hero, loadout and skills, and saves your rewards. */
   token?: string;
 }
@@ -503,6 +575,7 @@ export interface SeatInfo {
   sessionId: string;
   name: string;
   level: number;
+  heroId: string;
   /** The sim player this seat drives, or -1 before the run starts. */
   playerId: number;
   connected: boolean;
@@ -514,6 +587,7 @@ export interface LobbyInfo {
   /** Session id of the host, who starts runs. */
   host: string;
   tier: number;
+  biome: Biome;
   /** Goes up every time a run starts. */
   runId: number;
   running: boolean;

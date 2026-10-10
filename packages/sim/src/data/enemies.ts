@@ -1,4 +1,4 @@
-import type { EnemyDef } from "../types";
+import type { Biome, EnemyDef } from "../types";
 
 // The Burning Foundry family: one enemy per role, plus a split child and the mini-boss.
 // Element focus for this biome is shields and fire immunity, so Shock and Acid shine here.
@@ -229,4 +229,247 @@ export const ENEMIES: Record<string, EnemyDef> = {
     fireImmune: true,
     dropChance: 1,
   },
+
+  // ---------------------------------------------------------------- Frozen Caverns
+  // Icy floors make you slide, and this family is built to shove you into the spike walls. Element focus is armor
+  // and frost immunity, so Acid and Fire shine here and Frost mostly doesn't.
+  waiter_penguin: {
+    id: "waiter_penguin",
+    name: "Waiter Penguin",
+    flavor: "Carries a tray. The tray is the weapon.",
+    role: "swarmer",
+    defense: "flesh",
+    hp: 22,
+    speed: 76,
+    radius: 5,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 380, range: 14, reach: 9, damage: 7, cooldownMs: 1100, recoverMs: 300 },
+    ],
+    biomes: ["caverns"],
+    threatCost: 1,
+    frostImmune: true,
+    dropChance: 0.02,
+  },
+  yeti_bouncer: {
+    id: "yeti_bouncer",
+    name: "Yeti Bouncer",
+    flavor: "Checks IDs. Doesn't read them.",
+    role: "bruiser",
+    defense: "armor",
+    hp: 240,
+    speed: 30,
+    radius: 10,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "slam", telegraph: "groundCircle", windupMs: 1100, range: 22, radius: 38, damage: 18, push: 280, cooldownMs: 2300, recoverMs: 700 },
+    ],
+    biomes: ["caverns"],
+    threatCost: 4,
+    frostImmune: true,
+    dropChance: 0.12,
+  },
+  curling_golem: {
+    id: "curling_golem",
+    name: "Curling Golem",
+    flavor: "Sweeping is optional. Getting hit isn't.",
+    role: "charger",
+    defense: "armor",
+    hp: 110,
+    speed: 34,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [
+      {
+        type: "dash", telegraph: "line", windupMs: 850, range: 170, dashSpeed: 300, dashMs: 750, damage: 20, push: 260,
+        cooldownMs: 2800, recoverMs: 600, stunMs: 1500,
+      },
+    ],
+    biomes: ["caverns"],
+    threatCost: 3,
+    frostImmune: true,
+    dropChance: 0.08,
+  },
+  frost_slime: {
+    id: "frost_slime",
+    name: "Slush Slime",
+    flavor: "Technically a beverage. Do not drink.",
+    role: "zoner",
+    defense: "flesh",
+    hp: 60,
+    speed: 30,
+    radius: 7,
+    movement: { type: "keepDistance", min: 60, max: 150 },
+    attacks: [
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 700, range: 200, radius: 16, damage: 6,
+        flightMs: 700, cooldownMs: 3000, recoverMs: 400, puddle: { radius: 22, durationMs: 5000, damage: 0, ice: true },
+      },
+    ],
+    trail: { intervalMs: 500, radius: 10, durationMs: 4000, damage: 0 },
+    biomes: ["caverns"],
+    threatCost: 2,
+    frostImmune: true,
+    dropChance: 0.06,
+  },
+  ski_instructor: {
+    id: "ski_instructor",
+    name: "Ski Instructor",
+    flavor: "Has taught nobody to ski. Very confident about it.",
+    role: "support",
+    defense: "shield",
+    hp: 75,
+    speed: 48,
+    radius: 7,
+    movement: { type: "keepDistance", min: 110, max: 190 },
+    attacks: [
+      { type: "shieldAllies", telegraph: "channel", windupMs: 1200, range: 999, radius: 100, amount: 35, cooldownMs: 5000, recoverMs: 500 },
+      {
+        type: "projectile", telegraph: "redFlash", windupMs: 600, range: 200, speed: 120, damage: 9, radius: 3,
+        count: 2, spreadDeg: 16, cooldownMs: 2200, recoverMs: 400,
+      },
+    ],
+    biomes: ["caverns"],
+    threatCost: 3,
+    dropChance: 0.1,
+  },
+  penguin_igloo: {
+    id: "penguin_igloo",
+    name: "Penguin Igloo",
+    flavor: "Penguins inside. So many penguins.",
+    role: "summoner",
+    defense: "armor",
+    hp: 150,
+    speed: 0,
+    radius: 11,
+    movement: { type: "stationary" },
+    attacks: [
+      { type: "summon", telegraph: "channel", windupMs: 900, range: 999, enemyId: "waiter_penguin", count: 2, maxAlive: 5, cooldownMs: 4500, recoverMs: 300 },
+    ],
+    biomes: ["caverns"],
+    threatCost: 4,
+    frostImmune: true,
+    dropChance: 0.15,
+  },
+  ice_machine: {
+    id: "ice_machine",
+    name: "Ice Machine Mimic",
+    flavor: "Out of order. Still dispensing. Mostly teeth.",
+    role: "ambusher",
+    defense: "armor",
+    hp: 110,
+    speed: 85,
+    radius: 9,
+    movement: { type: "ambush", trigger: 46, revealMs: 450 },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 420, range: 16, reach: 12, damage: 15, cooldownMs: 1400, recoverMs: 400 },
+    ],
+    biomes: ["caverns"],
+    threatCost: 3,
+    frostImmune: true,
+    dropChance: 0.25,
+  },
+  snowman: {
+    id: "snowman",
+    name: "Snowman",
+    flavor: "Three snowballs in a trench coat.",
+    role: "splitter",
+    defense: "flesh",
+    hp: 85,
+    speed: 32,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 500, range: 14, reach: 8, damage: 10, cooldownMs: 1300, recoverMs: 400 },
+    ],
+    biomes: ["caverns"],
+    threatCost: 3,
+    frostImmune: true,
+    onDeath: { split: { enemyId: "snowball", count: 3 } },
+    dropChance: 0.08,
+  },
+  snowball: {
+    id: "snowball",
+    name: "Snowball",
+    flavor: "Rolling. Mad about it.",
+    role: "splitter",
+    defense: "flesh",
+    hp: 18,
+    speed: 66,
+    radius: 5,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 360, range: 12, reach: 7, damage: 5, cooldownMs: 1000, recoverMs: 300 },
+    ],
+    biomes: ["caverns"],
+    threatCost: 0,
+    frostImmune: true,
+    dropChance: 0,
+  },
+  complaint_dragon: {
+    id: "complaint_dragon",
+    name: "Customer Complaints Dragon",
+    flavor: "Would like to file a complaint with the cruise line. Several.",
+    role: "boss",
+    defense: "armor",
+    hp: 2200,
+    speed: 30,
+    radius: 16,
+    movement: { type: "chase" },
+    attacks: [
+      // 0: frost breath in a wedge, leaving slush
+      {
+        type: "cone", telegraph: "cone", windupMs: 1000, range: 100, length: 120, angleDeg: 50, damage: 22, push: 140,
+        cooldownMs: 3200, recoverMs: 600, ice: { radius: 16, durationMs: 6000 },
+      },
+      // 1: tail swipe that sends you sliding
+      { type: "slam", telegraph: "groundCircle", windupMs: 900, range: 30, radius: 46, damage: 22, push: 320, cooldownMs: 2800, recoverMs: 600 },
+      // 2: icicles from the ceiling
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 1000, range: 300, radius: 20, damage: 14,
+        flightMs: 900, cooldownMs: 4200, recoverMs: 500, count: 5, scatter: 70,
+      },
+      // 3: belly slide
+      {
+        type: "dash", telegraph: "line", windupMs: 900, range: 220, dashSpeed: 300, dashMs: 800, damage: 26, push: 260,
+        cooldownMs: 4600, recoverMs: 700, stunMs: 2000,
+      },
+      // 4: calls the waiters
+      { type: "summon", telegraph: "channel", windupMs: 1000, range: 999, enemyId: "waiter_penguin", count: 4, maxAlive: 6, cooldownMs: 9000, recoverMs: 400 },
+    ],
+    boss: {
+      phases: [
+        { hpFrac: 1, attacks: [0, 1, 2], haste: 1 },
+        { hpFrac: 0.65, attacks: [0, 1, 2, 3], haste: 1.1 },
+        { hpFrac: 0.3, attacks: [0, 1, 2, 3, 4], haste: 1.3 },
+      ],
+    },
+    biomes: ["caverns"],
+    threatCost: 0,
+    frostImmune: true,
+    dropChance: 1,
+  },
 };
+
+/** Each biome's hand-made pieces: the boss at the end and the intro room's waves. */
+export const BIOMES: Record<Biome, { name: string; boss: string; bossRoom: string; intro: string[][]; swarmer: string }> = {
+  foundry: {
+    name: "The Burning Foundry",
+    boss: "furnace_foreman",
+    bossRoom: "The Foreman's Office",
+    intro: [["cone_rat", "cone_rat", "cone_rat", "cone_rat"], ["slag_golem", "cone_rat", "cone_rat", "cone_rat"], ["mortar_beetle", "acid_slime", "cone_rat", "cone_rat"]],
+    swarmer: "cone_rat",
+  },
+  caverns: {
+    name: "The Frozen Caverns",
+    boss: "complaint_dragon",
+    bossRoom: "The Complaints Desk",
+    intro: [
+      ["waiter_penguin", "waiter_penguin", "waiter_penguin", "waiter_penguin"],
+      ["yeti_bouncer", "waiter_penguin", "waiter_penguin", "waiter_penguin"],
+      ["curling_golem", "frost_slime", "waiter_penguin", "waiter_penguin"],
+    ],
+    swarmer: "waiter_penguin",
+  },
+};
+export const BIOME_IDS = Object.keys(BIOMES) as Biome[];

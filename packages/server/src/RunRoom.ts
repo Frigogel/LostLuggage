@@ -8,6 +8,11 @@ import {
   randomId,
   rollGun,
   runResult,
+  signatureChance,
+  signatureDrop,
+  BIOMES,
+  HEROES,
+  type Biome,
   createWorld,
   decodeInput,
   DT,
@@ -56,6 +61,7 @@ interface Seat {
   sessionId: string;
   name: string;
   level: number;
+  heroId: string;
   /** Signed-in players: rewards are saved to this account. Guests have none and keep nothing. */
   accountId?: number;
   /** Guests: what they asked for when joining. Accounts reload their saved hero at every run start. */
@@ -91,10 +97,12 @@ export class RunRoom extends Room {
   private acc = 0;
   private runId = 0;
   private tier = 0;
+  private biome: Biome = "foundry";
 
   onCreate(options: RoomOptions = {}): void {
     this.roomId = newCode();
     this.tier = Math.max(0, Math.min(TIER_LEVELS.length - 1, Math.round(Number(options.tier) || 0)));
+    if (options.biome && options.biome in BIOMES) this.biome = options.biome;
     // Code rooms are for friends; only quick-match rooms show up in matchmaking.
     if (options.private) void this.setPrivate(true);
     void this.setMetadata({ phase: "lobby" });
@@ -127,12 +135,14 @@ export class RunRoom extends Room {
     const account = getDb().accountForToken(options.token);
     const name = cleanName(options.name, `PLAYER ${this.seats.size + 1}`);
     const level = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(options.level) || 1)));
+    const heroId = typeof options.heroId === "string" && HEROES[options.heroId] ? options.heroId : "vanguard";
     const seat: Seat = {
       sessionId: client.sessionId,
       name,
       level,
+      heroId,
       accountId: account?.id,
-      guest: { name, level },
+      guest: { name, level, heroId },
       awardedRun: -1,
       playerId: -1,
       queue: [],
@@ -206,7 +216,9 @@ export class RunRoom extends Room {
     if (seat.accountId === undefined) return;
     const profile = getDb().profile(seat.accountId);
     seat.name = cleanName(profile.name, seat.name);
-    seat.level = playerOptions(profile).level ?? 1;
+    const opts = playerOptions(profile);
+    seat.level = opts.level ?? 1;
+    seat.heroId = opts.heroId ?? "vanguard";
   }
 
   private optionsFor(seat: Seat): PlayerOptions {
@@ -224,6 +236,8 @@ export class RunRoom extends Room {
     const result = runResult(w, p, { mode: "coop", day: localDay(), helped });
     // The doc's extra loot roll for helping someone below the dungeon tier.
     if (helped && w.run.victory) result.guns.push({ ...rollGun(w, 0.6, "rare"), id: randomId(), new: true });
+    // Signature powers only drop in co-op, and only for a win.
+    if (w.run.victory && Math.random() < signatureChance(w.run.tier)) result.signature = signatureDrop(getDb().profile(seat.accountId), p.heroId, Math.random());
     const actionId = `coop-${randomId()}`;
     const { profile, rewards } = getDb().apply(seat.accountId, [{ type: "run", id: actionId, result }]);
     const reward = rewards[actionId];
@@ -237,6 +251,7 @@ export class RunRoom extends Room {
       seed: (Math.random() * 2 ** 31) | 0,
       coop: true,
       tier: this.tier,
+      biome: this.biome,
       players: seats.map((s) => this.optionsFor(s)),
     });
     seats.forEach((s, i) => {
@@ -256,11 +271,12 @@ export class RunRoom extends Room {
       code: this.roomId,
       host: this.order[0] ?? "",
       tier: this.tier,
+      biome: this.biome,
       runId: this.runId,
       running: !!this.world,
       seats: this.order.map((id) => {
         const s = this.seats.get(id)!;
-        return { sessionId: s.sessionId, name: s.name, level: s.level, playerId: s.playerId, connected: s.connected };
+        return { sessionId: s.sessionId, name: s.name, level: s.level, heroId: s.heroId, playerId: s.playerId, connected: s.connected };
       }),
     };
     this.broadcast("lobby", info);

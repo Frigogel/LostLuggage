@@ -1,10 +1,11 @@
 import { damageEnemy, dropHeal, DT, hurtPlayer, insideArenaSolid, newId, spawnEnemy } from "./combat";
 import { ENEMIES } from "./data/enemies";
 import { MAX_ENEMIES, planCombatWaves } from "./director";
+import { linkPairs, parseElite } from "./elites";
 import { canAct, startPos } from "./players";
 import { newGun, BOOSTS } from "./loot";
 import { dist, pick, randRange, type Rect, type Vec } from "./math";
-import type { BoostId, Room, Vent, World } from "./types";
+import type { BoostId, Enemy, Room, Vent, World } from "./types";
 
 export const ARENA = { w: 720, h: 440 };
 export const START = { x: ARENA.w / 2, y: ARENA.h - 40 };
@@ -13,9 +14,18 @@ export const EXIT: Rect = { x: ARENA.w / 2 - 24, y: 0, w: 48, h: 14 };
 interface Layout {
   obstacles: Rect[];
   vents: Vec[];
+  /** Frozen Caverns: spike walls. */
+  spikes?: Rect[];
+  /** Icy floor. */
+  ice?: boolean;
 }
 
 const crate = (x: number, y: number, w = 32, h = 32): Rect => ({ x, y, w, h });
+/** Spike strips are 8 px deep. */
+const SPIKE = 8;
+const leftSpikes = (y: number, h: number): Rect => ({ x: 0, y, w: SPIKE, h });
+const rightSpikes = (y: number, h: number): Rect => ({ x: ARENA.w - SPIKE, y, w: SPIKE, h });
+const topSpikes = (x: number, w: number): Rect => ({ x, y: 0, w, h: SPIKE });
 
 /** Hand-placed room layouts. Crates come in 32x32 and 48x16 so the client has art for them. */
 export const LAYOUTS: Layout[] = [
@@ -43,6 +53,42 @@ export const LAYOUTS: Layout[] = [
   {
     obstacles: [crate(120, 120), crate(568, 120), crate(120, 288), crate(568, 288)],
     vents: [{ x: 230, y: 150 }, { x: 490, y: 150 }, { x: 230, y: 300 }, { x: 490, y: 300 }, { x: 360, y: 220 }],
+  },
+
+  // Frozen Caverns: icy floors, ice blocks for crates, and spike walls instead of vents.
+  // 5: intro, spikes only on the side walls so you learn to slide before you learn to fear them
+  {
+    obstacles: [crate(160, 112), crate(528, 112), crate(160, 296), crate(528, 296), crate(336, 200, 48, 16)],
+    vents: [],
+    spikes: [leftSpikes(150, 140), rightSpikes(150, 140)],
+    ice: true,
+  },
+  // 6: the rink, open ice around a spiked pillar
+  {
+    obstacles: [crate(344, 204), crate(120, 110, 48, 16), crate(552, 110, 48, 16), crate(120, 320, 48, 16), crate(552, 320, 48, 16)],
+    vents: [],
+    spikes: [{ x: 336, y: 204, w: SPIKE, h: 32 }, { x: 376, y: 204, w: SPIKE, h: 32 }, leftSpikes(100, 240), rightSpikes(100, 240), topSpikes(80, 200), topSpikes(440, 200)],
+    ice: true,
+  },
+  // 7: the crevasse, spike walls the whole way down both sides
+  {
+    obstacles: [crate(240, 200), crate(448, 200), crate(344, 100), crate(344, 300), crate(160, 60, 48, 16), crate(512, 60, 48, 16)],
+    vents: [],
+    spikes: [leftSpikes(40, 360), rightSpikes(40, 360)],
+    ice: true,
+  },
+  // 8: breather
+  {
+    obstacles: [crate(200, 200), crate(488, 200)],
+    vents: [],
+    ice: true,
+  },
+  // 9: the dragon's office, spikes on three walls so its shoves matter
+  {
+    obstacles: [crate(120, 120), crate(568, 120), crate(120, 288), crate(568, 288)],
+    vents: [],
+    spikes: [leftSpikes(40, 360), rightSpikes(40, 360), topSpikes(40, 240), topSpikes(440, 240)],
+    ice: true,
   },
 ];
 
@@ -96,10 +142,13 @@ export function enterRoom(w: World, index: number): void {
   }
   const layout = LAYOUTS[plan.layout]!;
   w.arena.obstacles = layout.obstacles.map((o) => ({ ...o }));
+  w.arena.spikes = (layout.spikes ?? []).map((o) => ({ ...o }));
+  w.arena.ice = !!layout.ice;
   w.enemies = [];
   w.projectiles = [];
   w.hazards = [];
   w.domes = [];
+  w.gadgets = [];
   w.pickups = [];
 
   const vents: Vent[] = layout.vents.map((pos) => {
@@ -116,6 +165,8 @@ export function enterRoom(w: World, index: number): void {
   w.players.forEach((p, i) => {
     p.pos = startPos(START, i, w.players.length);
     p.vel = { x: 0, y: 0 };
+    p.knock = { x: 0, y: 0 };
+    p.slowT = 0;
     p.dashT = 0;
     p.burstLeft = 0;
     p.charging = false;
@@ -131,7 +182,10 @@ export function enterRoom(w: World, index: number): void {
     }
   });
 
-  for (const id of props) spawnEnemy(w, id, spawnPoint(w, 110), 0);
+  for (const raw of props) {
+    const { defId, elite } = parseElite(raw);
+    spawnEnemy(w, defId, spawnPoint(w, 110), 0, elite);
+  }
 
   if (plan.kind === "intro") {
     // Gun pedestals: try every archetype before the real fights start.
@@ -202,7 +256,9 @@ function spawnWave(w: World, room: Room): void {
   w.events.push({ type: "waveStart", wave: room.waveIdx, waves: room.waves.length });
 
   let packCenter: Vec | undefined;
-  ids.slice(0, MAX_ENEMIES - w.enemies.length).forEach((id, i) => {
+  const spawned: Enemy[] = [];
+  ids.slice(0, MAX_ENEMIES - w.enemies.length).forEach((raw, i) => {
+    const { defId: id, elite } = parseElite(raw);
     const def = ENEMIES[id]!;
     const swarm = def.role === "swarmer";
     let pos: Vec;
@@ -211,14 +267,15 @@ function spawnWave(w: World, room: Room): void {
       pos = def.role === "boss" ? { x: ARENA.w / 2, y: 170 } : spawnPoint(w, 140);
       if (swarm) packCenter = pos;
     }
-    spawnEnemy(w, id, pos, 0.8 + i * 0.1);
+    spawned.push(spawnEnemy(w, id, pos, 0.8 + i * 0.1, elite));
   });
+  linkPairs(spawned);
 }
 
 function spawnPoint(w: World, minPlayerDist: number): Vec {
   for (let tries = 0; tries < 50; tries++) {
     const p = { x: randRange(w, 30, w.arena.w - 30), y: randRange(w, 40, w.arena.h - 30) };
-    if (insideArenaSolid(w, p) || w.arena.obstacles.some((o) => p.x > o.x - 12 && p.x < o.x + o.w + 12 && p.y > o.y - 12 && p.y < o.y + o.h + 12)) continue;
+    if (insideArenaSolid(w, p) || [...w.arena.obstacles, ...w.arena.spikes].some((o) => p.x > o.x - 12 && p.x < o.x + o.w + 12 && p.y > o.y - 12 && p.y < o.y + o.h + 12)) continue;
     if (w.players.some((pl) => dist(pl.pos, p) < minPlayerDist)) continue;
     if (w.run.room.vents.some((v) => dist(v.pos, p) < v.radius + 12)) continue;
     return p;

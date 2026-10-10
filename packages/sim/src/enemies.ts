@@ -1,8 +1,23 @@
 import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, spawnEnemy, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
-import { add, dist, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
-import type { AttackDef, Enemy, EnemyDef, Player, World } from "./types";
+import { isBlackHole } from "./domes";
+import { eliteHaste, eliteSpeed, updateElite } from "./elites";
+import { hurtGadget, hurtGadgetsIn, tauntOf, tauntSlow, TURRET } from "./gadgets";
+import { MARK, tickMark } from "./marks";
+import { add, clamp, dist, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
+import type { AttackDef, Enemy, EnemyDef, World } from "./types";
 import { ventState } from "./room";
+
+/** Whatever an enemy is going after: a player, or a turret that taunted it. */
+interface Target {
+  pos: Vec;
+  vel: Vec;
+  radius: number;
+  facing?: Vec;
+}
+
+/** Spike walls hurt enemies too, when they're shoved into them hard enough. */
+const SPIKES = { minKnock: 60, damage: 25, bounce: 180 };
 
 export function updateEnemies(w: World): void {
   for (const e of [...w.enemies]) updateEnemy(w, e);
@@ -11,7 +26,8 @@ export function updateEnemies(w: World): void {
     const def = ENEMIES[e.defId]!;
     if (e.state === "hidden" || def.movement.type === "stationary") continue;
     for (const d of w.domes) {
-      // Domes keep enemies out entirely.
+      // Domes keep enemies out entirely (except the Black Hole Dome, which wants them in).
+      if (isBlackHole(w, d)) continue;
       const off = sub(e.pos, d.pos);
       const l = len(off);
       const min = d.radius + e.radius;
@@ -21,12 +37,35 @@ export function updateEnemies(w: World): void {
       }
     }
     confine(w, e.pos, e.radius);
+    if (w.arena.spikes.length > 0) spikeEnemy(w, e);
   }
   w.enemies = w.enemies.filter((e) => e.hp > 0);
 }
 
+/** An enemy shoved into a spike wall gets hurt and bounced off it: the reward for knockback on ice. */
+function spikeEnemy(w: World, e: Enemy): void {
+  if (len(e.knock) < SPIKES.minKnock) return;
+  for (const r of w.arena.spikes) {
+    const c = { x: clamp(e.pos.x, r.x, r.x + r.w), y: clamp(e.pos.y, r.y, r.y + r.h) };
+    const off = sub(e.pos, c);
+    if (len(off) > e.radius + 1) continue;
+    const out = len(off) > 0.01 ? norm(off) : { x: 0, y: 1 };
+    e.knock = scale(out, SPIKES.bounce);
+    w.events.push({ type: "spiked", x: c.x, y: c.y });
+    damageEnemy(w, e, SPIKES.damage, { dir: out, knockback: 0, sourcePlayerId: -1, element: "none", secondary: true });
+    return;
+  }
+}
+
 function haste(e: Enemy, def: EnemyDef): number {
-  return def.boss ? def.boss.phases[e.phase]!.haste : 1;
+  return (def.boss ? def.boss.phases[e.phase]!.haste : 1) * eliteHaste(e);
+}
+
+/** A taunting turret wins over the nearest player. */
+function targetOf(w: World, e: Enemy): Target | undefined {
+  const t = tauntOf(w, e);
+  if (t) return { pos: t.pos, vel: { x: 0, y: 0 }, radius: TURRET.radius };
+  return nearestPlayer(w, e.pos);
 }
 
 function updateEnemy(w: World, e: Enemy): void {
@@ -43,6 +82,9 @@ function updateEnemy(w: World, e: Enemy): void {
   const s = e.status;
   s.acidT = Math.max(0, s.acidT - DT);
   s.frost = Math.max(0, s.frost - 0.8 * DT);
+  e.slowT = Math.max(0, e.slowT - DT);
+  if (e.slowT <= 0) e.slow = 0;
+  tickMark(w, e);
   if (s.burnT > 0) {
     s.burnT -= DT;
     s.burnTick -= DT;
@@ -55,9 +97,10 @@ function updateEnemy(w: World, e: Enemy): void {
   }
 
   e.pos = add(e.pos, scale(e.knock, DT));
-  e.knock = scale(e.knock, 0.8);
-  if (s.frozenT > 0) {
-    s.frozenT -= DT;
+  e.knock = scale(e.knock, w.arena.ice ? 0.88 : 0.8);
+  if (s.frozenT > 0 || e.stunT > 0) {
+    s.frozenT = Math.max(0, s.frozenT - DT);
+    e.stunT = Math.max(0, e.stunT - DT);
     e.vel = { x: 0, y: 0 };
     return;
   }
@@ -76,9 +119,13 @@ function updateEnemy(w: World, e: Enemy): void {
     }
   }
 
-  const slow = 1 - 0.1 * Math.min(s.frost, 5);
-  const target = nearestPlayer(w, e.pos);
+  const target = targetOf(w, e);
+  // Frost, an owl's slow, a Wanted Poster and a Doorstop all stack, but never to a full stop.
+  const marker = e.markT > 0 ? w.players.find((p) => p.id === e.markBy) : undefined;
+  const wanted = marker?.skills.includes("gs_wanted") ? MARK.wanted : 1;
+  const slow = Math.max(0.15, (1 - 0.1 * Math.min(s.frost, 5)) * (1 - e.slow) * wanted * tauntSlow(w, e));
   e.vel = { x: 0, y: 0 };
+  if (updateElite(w, e, target)) return;
 
   switch (e.state) {
     case "hidden": {
@@ -97,7 +144,7 @@ function updateEnemy(w: World, e: Enemy): void {
     }
     case "move": {
       if (!target) break;
-      move(w, e, def, target, slow);
+      move(w, e, def, target, slow * eliteSpeed(e));
       dropTrail(w, e, def);
       tryStartAttack(w, e, def, target);
       break;
@@ -116,7 +163,17 @@ function updateEnemy(w: World, e: Enemy): void {
       for (const p of w.players) {
         if (p.downed || e.hitPlayers.includes(p.id)) continue;
         if (dist(p.pos, e.pos) < p.radius + e.radius + 2) {
-          if (hurtPlayer(w, p, atk.damage)) e.hitPlayers.push(p.id);
+          if (hurtPlayer(w, p, atk.damage)) {
+            e.hitPlayers.push(p.id);
+            // Shoved out of the lane, sideways.
+            if (atk.push) p.knock = add(p.knock, scale(sideOf(e.attackDir, sub(p.pos, e.pos)), atk.push));
+          }
+        }
+      }
+      for (const g of w.gadgets) {
+        if (g.kind === "turret" && !e.hitPlayers.includes(-g.id) && dist(g.pos, e.pos) < TURRET.radius + e.radius + 2) {
+          e.hitPlayers.push(-g.id);
+          hurtGadget(w, g, atk.damage, e);
         }
       }
       // Ending the charge in a wall stuns: the reward for baiting it.
@@ -137,7 +194,13 @@ function updateEnemy(w: World, e: Enemy): void {
   }
 }
 
-function move(w: World, e: Enemy, def: EnemyDef, target: Player, slow: number): void {
+/** The side of a line a point is on, as a unit vector across it. */
+function sideOf(dir: Vec, off: Vec): Vec {
+  const across = { x: -dir.y, y: dir.x };
+  return dot(across, off) >= 0 ? across : scale(across, -1);
+}
+
+function move(w: World, e: Enemy, def: EnemyDef, target: Target, slow: number): void {
   const m = def.movement;
   if (m.type === "stationary") return;
   const to = sub(target.pos, e.pos);
@@ -145,7 +208,7 @@ function move(w: World, e: Enemy, def: EnemyDef, target: Player, slow: number): 
   const dir = norm(to);
   let want: Vec = { x: 0, y: 0 };
 
-  if (m.type === "chase" || m.type === "ambush") {
+  if (m.type === "chase" || m.type === "ambush" || e.taunt) {
     const stopAt = Math.max(0, attackRange(def) * 0.6);
     if (d > stopAt + target.radius + e.radius) {
       // Fan out while far away so packs surround instead of queueing.
@@ -180,7 +243,9 @@ function dropTrail(w: World, e: Enemy, def: EnemyDef): void {
   e.trailT -= DT;
   if (e.trailT > 0) return;
   e.trailT = t.intervalMs / 1000;
-  w.hazards.push({ id: newId(w), kind: "acid", owner: "enemy", pos: { ...e.pos }, radius: t.radius, t: t.durationMs / 1000, maxT: t.durationMs / 1000, damage: t.damage });
+  // In the caverns, trails are slush that slows you instead of acid that burns.
+  const kind = w.arena.ice ? "ice" : "acid";
+  w.hazards.push({ id: newId(w), kind, owner: "enemy", pos: { ...e.pos }, radius: t.radius, t: t.durationMs / 1000, maxT: t.durationMs / 1000, damage: t.damage });
 }
 
 function attackRange(def: EnemyDef): number {
@@ -202,7 +267,7 @@ function canUse(w: World, e: Enemy, atk: AttackDef, d: number): boolean {
   }
 }
 
-function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Player): void {
+function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void {
   const d = dist(e.pos, target.pos) - target.radius - e.radius;
   const usable = def.boss ? def.boss.phases[e.phase]!.attacks : def.attacks.map((_, i) => i);
   for (const i of usable) {
@@ -226,7 +291,16 @@ function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Player): void
   }
 }
 
-function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target: Player | undefined): void {
+/** Is a point inside an enemy's breath wedge? */
+export function inCone(e: Pick<Enemy, "pos" | "attackDir">, at: Vec, length: number, angleDeg: number, pad = 0): boolean {
+  const off = sub(at, e.pos);
+  const d = len(off);
+  if (d > length + pad) return false;
+  if (d < pad + 4) return true;
+  return dot(norm(off), e.attackDir) >= Math.cos((angleDeg * Math.PI) / 360);
+}
+
+function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target: Target | undefined): void {
   e.cooldowns[e.attackIdx] = atk.cooldownMs / 1000;
   e.state = "recover";
   e.stateT = atk.recoverMs / 1000;
@@ -240,6 +314,10 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
         const inReach = len(off) < e.radius + p.radius + atk.reach;
         const inFront = dot(norm(off), e.attackDir) > 0.2;
         if (inReach && inFront) hurtPlayer(w, p, atk.damage);
+      }
+      for (const g of w.gadgets) {
+        const off = sub(g.pos, e.pos);
+        if (g.kind === "turret" && len(off) < e.radius + TURRET.radius + atk.reach && dot(norm(off), e.attackDir) > 0.2) hurtGadget(w, g, atk.damage, e);
       }
       // A small lunge sells the bite.
       e.knock = add(e.knock, scale(e.attackDir, 90));
@@ -255,7 +333,8 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       for (const to of e.attackPoints) {
         const d = dist(e.pos, to);
         w.projectiles.push({
-          id: newId(w), owner: "enemy", ownerId: e.id, kind: atk.puddle ? "acid" : "mortar", element: atk.puddle ? "acid" : "none",
+          id: newId(w), owner: "enemy", ownerId: e.id, kind: atk.puddle ? (atk.puddle.ice ? "slush" : "acid") : "mortar",
+          element: atk.puddle ? (atk.puddle.ice ? "frost" : "acid") : "none",
           pos: { ...e.pos }, vel: { x: 0, y: 0 }, radius: 4, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0, life: 99,
           hitIds: [], gunUid: -1,
           lob: { from: { ...e.pos }, to: { ...to }, t: 0, dur: Math.max(0.3, (atk.flightMs / 1000) * (0.6 + (0.4 * d) / atk.range)), radius: atk.radius, puddle: atk.puddle },
@@ -268,7 +347,26 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       for (const p of w.players) {
         if (p.downed || p.away || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
         if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
-        else hurtPlayer(w, p, atk.damage);
+        else if (hurtPlayer(w, p, atk.damage) && atk.push) p.knock = add(p.knock, scale(norm(sub(p.pos, e.pos)), atk.push));
+      }
+      hurtGadgetsIn(w, e.pos, atk.radius, atk.damage, e);
+      break;
+    }
+    case "cone": {
+      w.events.push({ type: "explosion", x: e.pos.x + e.attackDir.x * atk.length * 0.5, y: e.pos.y + e.attackDir.y * atk.length * 0.5, radius: atk.length * 0.4, owner: "enemy", element: "frost" });
+      for (const p of w.players) {
+        if (p.downed || p.away || !inCone(e, p.pos, atk.length, atk.angleDeg, p.radius)) continue;
+        if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
+        else if (hurtPlayer(w, p, atk.damage) && atk.push) p.knock = add(p.knock, scale(e.attackDir, atk.push));
+      }
+      for (const g of w.gadgets) if (g.kind === "turret" && inCone(e, g.pos, atk.length, atk.angleDeg, TURRET.radius)) hurtGadget(w, g, atk.damage, e);
+      if (atk.ice) {
+        // Slush left along the breath, so the floor stays dangerous for a while.
+        const n = Math.max(2, Math.round(atk.length / 30));
+        for (let k = 1; k <= n; k++) {
+          const at = add(e.pos, scale(e.attackDir, (atk.length * k) / (n + 0.5)));
+          w.hazards.push({ id: newId(w), kind: "ice", owner: "enemy", pos: at, radius: atk.ice.radius, t: atk.ice.durationMs / 1000, maxT: atk.ice.durationMs / 1000, damage: 0 });
+        }
       }
       break;
     }

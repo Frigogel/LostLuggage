@@ -1,5 +1,8 @@
 import { damageEnemy, domeAt, DT, hurtPlayer, insideArenaSolid, nearestEnemy, newId, playerExplosion, targetable } from "./combat";
 import { domeBlocked, reflect } from "./domes";
+import { shieldBlocks } from "./elites";
+import { hurtGadget, hurtGadgetsIn, magnetize } from "./gadgets";
+import { nearestMarked } from "./marks";
 import { levelMultiplier } from "./data/heroes";
 import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub } from "./math";
 import { hasSkill } from "./players";
@@ -46,8 +49,8 @@ function updateLob(w: World, pr: Projectile): boolean {
   if (dome) {
     const owner = domeBlocked(w, dome);
     w.events.push({ type: "blocked", x: lob.to.x, y: lob.to.y });
-    // Hot Potato: the shell goes back to whoever lobbed it.
-    if (owner && hasSkill(owner, "vg_potato")) {
+    // Hot Potato (and the Revolving Door): the shell goes back to whoever lobbed it.
+    if (owner && (hasSkill(owner, "vg_potato") || owner.signature === "sig_revolving")) {
       const shooter = w.enemies.find((e) => e.id === pr.ownerId && targetable(e)) ?? nearestEnemy(w, lob.to, 260);
       if (shooter) {
         const d = Math.max(30, dist(lob.to, shooter.pos));
@@ -61,19 +64,21 @@ function updateLob(w: World, pr: Projectile): boolean {
     return false;
   }
   w.events.push({ type: "explosion", x: lob.to.x, y: lob.to.y, radius: lob.radius, owner: "enemy", element: pr.element });
+  hurtGadgetsIn(w, lob.to, lob.radius, pr.damage);
   for (const p of w.players) {
     if (dist(p.pos, lob.to) < lob.radius + p.radius * 0.5) hurtPlayer(w, p, pr.damage);
   }
   if (lob.puddle) {
     const pd = lob.puddle;
-    w.hazards.push({ id: newId(w), kind: "acid", owner: "enemy", pos: { ...lob.to }, radius: pd.radius, t: pd.durationMs / 1000, maxT: pd.durationMs / 1000, damage: pd.damage });
+    w.hazards.push({ id: newId(w), kind: pd.ice ? "ice" : "acid", owner: "enemy", pos: { ...lob.to }, radius: pd.radius, t: pd.durationMs / 1000, maxT: pd.durationMs / 1000, damage: pd.damage });
   }
   return false;
 }
 
 /** Turns a player shot a little toward the nearest enemy it hasn't hit yet. */
 function steer(w: World, pr: Projectile): void {
-  const target = nearestEnemyExcept(w, pr, 130);
+  // Gunslinger shots look for marks first, a little further out.
+  const target = (pr.seekMarks ? nearestMarked(w, pr.pos, pr.seekMarks, 200, pr.hitIds) : undefined) ?? nearestEnemyExcept(w, pr, 130);
   if (!target) return;
   const want = angleOf(sub(target.pos, pr.pos));
   const cur = angleOf(pr.vel);
@@ -152,8 +157,26 @@ function updateStraight(w: World, pr: Projectile): boolean {
         detonate(w, pr);
         return false;
       }
-      damageEnemy(w, e, pr.damage, { dir: pr.vel, knockback: pr.knockback, sourcePlayerId: pr.ownerId, element: pr.element, gunUid: pr.gunUid });
+      // Shielded elites: a shot into the shield just bounces off.
+      if (shieldBlocks(w, e, pr)) {
+        w.events.push({ type: "deflect", x: pr.pos.x, y: pr.pos.y });
+        return false;
+      }
+      const marked = e.markT > 0 && e.markBy === pr.ownerId;
+      damageEnemy(w, e, pr.damage, { dir: pr.vel, knockback: pr.knockback, sourcePlayerId: pr.ownerId, element: pr.element, gunUid: pr.gunUid, noCharge: pr.noCharge });
       pr.hitIds.push(e.id);
+      // Trick Shot: a hit on a mark bounces on to another mark.
+      if (marked && pr.seekMarks) {
+        const owner = w.players.find((pl) => pl.id === pr.ownerId);
+        const next = owner && hasSkill(owner, "gs_trick") ? nearestMarked(w, e.pos, owner.id, 160, pr.hitIds) : undefined;
+        if (next) {
+          pr.vel = scale(norm(sub(next.pos, e.pos)), len(pr.vel));
+          pr.pos = { ...e.pos };
+          pr.life = Math.max(pr.life, 0.6);
+          w.events.push({ type: "chain", x1: e.pos.x, y1: e.pos.y, x2: next.pos.x, y2: next.pos.y });
+          return true;
+        }
+      }
       // Show-Off: jump to the next enemy instead of stopping.
       if (pr.ricochet) {
         const next = nearestEnemyExcept(w, pr, 110);
@@ -172,11 +195,21 @@ function updateStraight(w: World, pr: Projectile): boolean {
     return true;
   }
 
+  // Turrets soak bolts (and Bullet Magnet pulls them in).
+  if (w.gadgets.length > 0) {
+    const m = magnetize(w, pr.pos, pr.vel);
+    pr.vel = m.vel;
+    if (m.hit) {
+      hurtGadget(w, m.hit, pr.damage, w.enemies.find((e) => e.id === pr.ownerId));
+      w.events.push({ type: "spark", x: pr.pos.x, y: pr.pos.y });
+      return false;
+    }
+  }
   const dome = domeAt(w, pr.pos);
   if (dome) {
     const owner = domeBlocked(w, dome);
-    // Rebound: the dome sends it back instead of eating it.
-    if (owner && hasSkill(owner, "vg_rebound")) {
+    // Rebound (and the Revolving Door signature): the dome sends it back instead of eating it.
+    if (owner && (hasSkill(owner, "vg_rebound") || owner.signature === "sig_revolving")) {
       reflect(w, pr, owner);
       return true;
     }
@@ -211,8 +244,10 @@ export function updateHazards(w: World): void {
       continue;
     }
     for (const p of w.players) {
-      // Player i-frames pace this into a hit about every half second.
-      if (!p.downed && p.dashT <= 0 && dist(p.pos, h.pos) < h.radius + p.radius * 0.3) hurtPlayer(w, p, h.damage);
+      if (p.downed || p.dashT > 0 || dist(p.pos, h.pos) >= h.radius + p.radius * 0.3) continue;
+      // Slush slows you down; acid hurts (player i-frames pace it into a hit about every half second).
+      if (h.kind === "ice") p.slowT = 0.3;
+      else hurtPlayer(w, p, h.damage);
     }
   }
   w.hazards = w.hazards.filter((h) => h.t > 0);

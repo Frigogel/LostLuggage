@@ -129,11 +129,12 @@ export class NetSession {
     room.ping((ms) => (this.rtt = ms));
   }
 
-  static async connect(how: JoinKind, me: JoinOptions, url = serverUrl()): Promise<NetSession> {
+  /** `room` only matters when a room gets made: which adventure it runs. */
+  static async connect(how: JoinKind, me: JoinOptions, room: RoomOptions = {}, url = serverUrl()): Promise<NetSession> {
     const client = new Client(url);
     const join = (): Promise<Room> => {
-      if (how.kind === "quick") return client.joinOrCreate("run", { ...me } satisfies JoinOptions & RoomOptions);
-      if (how.kind === "create") return client.create("run", { ...me, private: true } satisfies JoinOptions & RoomOptions);
+      if (how.kind === "quick") return client.joinOrCreate("run", { ...me, ...room } satisfies JoinOptions & RoomOptions);
+      if (how.kind === "create") return client.create("run", { ...me, ...room, private: true } satisfies JoinOptions & RoomOptions);
       return client.joinById(how.code.toUpperCase(), me);
     };
     // A phone that lost signal mid-handshake shouldn't sit on "connecting" forever.

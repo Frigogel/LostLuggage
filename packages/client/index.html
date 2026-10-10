@@ -122,7 +122,20 @@
       #menu .offers { display: flex; gap: 8px; }
       #menu .offers button { flex: 1; min-height: 96px; text-transform: none; font-size: 11px; padding: 6px; }
       #menu .offers button b { display: block; text-transform: uppercase; font-size: 12px; color: #f2c14e; margin-bottom: 4px; }
-      @media (max-width: 560px) { #menu .tree { grid-template-columns: 1fr; } #menu .offers { flex-direction: column; } }
+      #menu .heroes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 4px 0; }
+      #menu .heroes button { margin: 0; min-height: 52px; font-size: 11px; padding: 2px; line-height: 1.2; }
+      #menu .heroes button small { display: block; color: #c9cfd6; font-size: 10px; }
+      #menu .heroes button.on, #menu .pick button.on { border-color: #f2c14e; background: #4a3020; }
+      #menu .pick { display: flex; gap: 6px; margin: 6px 0 0; }
+      #menu .pick button { flex: 1; margin: 0; min-height: 44px; font-size: 12px; }
+      #menu .info { color: #c9cfd6; font-size: 11px; margin: 4px 0 8px; text-transform: none; min-height: 2.6em; }
+      #menu .info b { color: #f2c14e; text-transform: uppercase; }
+      #menu .sigs { text-align: left; margin: 8px 0; }
+      #menu .sigs h3 { margin: 0 0 2px; font-size: 13px; color: #f2c14e; }
+      #menu .sigs .row3 button { text-align: left; text-transform: none; font-size: 11px; padding: 6px 8px; line-height: 1.25; min-height: 64px; }
+      #menu .sigs .row3 button b { display: block; text-transform: uppercase; font-size: 12px; }
+      #menu .sigs .row3 button.on { border-color: #ff9a2a; background: #4a3020; }
+      @media (max-width: 560px) { #menu .tree { grid-template-columns: 1fr; } #menu .offers { flex-direction: column; } #menu .heroes { grid-template-columns: repeat(2, 1fr); } #menu .sigs .row3 { flex-direction: column; } }
     </style>
   </head>
   <body>
@@ -134,8 +147,14 @@
         <div class="bar"><span id="account-line">GUEST: NOTHING IS SAVED</span><button id="account-btn">Sign in</button></div>
         <div class="heroline"><span id="hero-name">VANGUARD LV 1</span><span id="hero-xp">0/125 XP</span></div>
         <div class="xp"><div id="hero-bar" style="width: 0"></div></div>
+        <div class="heroes" id="hero-pick"></div>
+        <p class="info" id="hero-info"></p>
         <label for="name" id="name-label">Your name</label>
         <input id="name" maxlength="10" autocomplete="nickname" spellcheck="false" placeholder="TRAVELER" />
+        <div class="pick" id="biome-pick">
+          <button data-biome="foundry">Burning Foundry</button>
+          <button data-biome="caverns">Frozen Caverns</button>
+        </div>
         <button id="solo" class="primary">Solo run</button>
         <button id="quick">Quick match</button>
         <button id="create">Create room for friends</button>
@@ -169,6 +188,7 @@
       <div class="card wide" id="skills" hidden>
         <h2>Skills</h2>
         <p class="hint" id="skills-points"></p>
+        <div class="sigs" id="skills-sig"></div>
         <div class="tree" id="skills-tree"></div>
         <div class="row3"><button id="skills-reset">Reset (free)</button><button class="back">Back</button></div>
       </div>
@@ -189,6 +209,7 @@
       <div class="card" id="lobby" hidden>
         <p class="hint">Room code</p>
         <div class="code" id="lobby-code">----</div>
+        <p class="hint" id="lobby-biome"></p>
         <p class="hint">Friends type this code to join. Up to 4 players.</p>
         <ul id="lobby-seats"></ul>
         <button id="start" class="primary">Start run</button>

@@ -1,4 +1,4 @@
-import type { Defense, Element, Rarity } from "@lostluggage/sim";
+import type { Defense, EliteId, Element, Rarity } from "@lostluggage/sim";
 
 export const RARITY_COLORS: Record<Rarity, number> = {
   common: 0xe8e8e8,
@@ -33,6 +33,26 @@ export const ENEMY_COLORS: Record<string, number[]> = {
   molten_blob: [0xff7a1a, 0xffc14a, 0xc23b22],
   blobling: [0xff7a1a, 0xffc14a],
   furnace_foreman: [0x6d7682, 0xf2c14e, 0xff7a1a],
+  waiter_penguin: [0x22283a, 0xffffff, 0xf2a23a],
+  yeti_bouncer: [0xffffff, 0xcfd8e3, 0x2a2f3a],
+  curling_golem: [0x8a93a3, 0xe0533d, 0xf2c14e],
+  frost_slime: [0x7ad7ff, 0x4aa3d8, 0xffffff],
+  ski_instructor: [0x2ab0a0, 0xe0533d, 0xf2c14e],
+  penguin_igloo: [0xffffff, 0xcfe8ff, 0x22283a],
+  ice_machine: [0xa8c8d8, 0x9ff3ff, 0xffffff],
+  snowman: [0xffffff, 0xcfe8ff, 0xff7a1a],
+  snowball: [0xffffff, 0xcfe8ff],
+  complaint_dragon: [0x6fa8dc, 0xcfe8ff, 0xf4ecd8],
+};
+
+/** Elite auras and tags: each modifier has its own color, so a glance tells you what you're dealing with. */
+export const ELITE_COLORS: Record<EliteId, number> = {
+  shielded: 0x5fb3ff,
+  splitting: 0x7ee05a,
+  teleporting: 0xb46cff,
+  vengeful: 0xff6a3c,
+  linked: 0xf2c14e,
+  hasted: 0xffffff,
 };
 
 /** Party colors by slot: name tags, HUD and arrows. */
