@@ -1,0 +1,14 @@
+{
+  "name": "lostluggage",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @lostluggage/client",
+    "build": "npm run build -w @lostluggage/client",
+    "test": "npm test -w @lostluggage/sim",
+    "typecheck": "tsc -p packages/sim && tsc -p packages/client"
+  }
+}

@@ -1,0 +1,165 @@
+// Tiny Web Audio synth: every sound is generated, so there are no audio files to download.
+// The design doc asks for one distinct sound per attack type; these are placeholders for that.
+
+type Wave = OscillatorType;
+
+class Sfx {
+  private ctx?: AudioContext;
+  private master?: GainNode;
+  private noiseBuf?: AudioBuffer;
+  private last = new Map<string, number>();
+  muted = false;
+
+  /** Must be called from a user gesture (browsers block audio until then). */
+  unlock(): void {
+    if (!this.ctx) {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      this.ctx = new Ctx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.35;
+      this.master.connect(this.ctx.destination);
+      const len = this.ctx.sampleRate * 0.5;
+      this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    }
+    if (this.ctx.state === "suspended") void this.ctx.resume();
+  }
+
+  suspend(): void {
+    void this.ctx?.suspend();
+  }
+
+  private ok(name: string, minGapMs: number): boolean {
+    if (!this.ctx || this.muted || this.ctx.state !== "running") return false;
+    const now = performance.now();
+    if (now - (this.last.get(name) ?? 0) < minGapMs) return false;
+    this.last.set(name, now);
+    return true;
+  }
+
+  private tone(freq: number, to: number, dur: number, type: Wave, vol: number, delay = 0): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + delay;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g).connect(this.master!);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  private noise(dur: number, vol: number, freq: number, to = freq, delay = 0): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + delay;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf!;
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.setValueAtTime(freq, t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(40, to), t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f).connect(g).connect(this.master!);
+    src.start(t);
+    src.stop(t + dur + 0.02);
+  }
+
+  play(name: string): void {
+    switch (name) {
+      case "pistol":
+        if (this.ok(name, 30)) { this.tone(900, 300, 0.08, "square", 0.25); this.noise(0.05, 0.2, 4000, 1000); }
+        break;
+      case "shotgun":
+        if (this.ok(name, 30)) { this.noise(0.22, 0.6, 3000, 200); this.tone(160, 50, 0.15, "square", 0.3); }
+        break;
+      case "smg":
+        if (this.ok(name, 25)) { this.tone(1200, 600, 0.04, "square", 0.15); this.noise(0.03, 0.12, 5000); }
+        break;
+      case "sniper":
+        if (this.ok(name, 30)) { this.tone(2200, 120, 0.3, "sawtooth", 0.3); this.noise(0.25, 0.5, 6000, 300); }
+        break;
+      case "launcher":
+        if (this.ok(name, 30)) { this.tone(220, 90, 0.18, "triangle", 0.5); this.noise(0.1, 0.3, 1500, 300); }
+        break;
+      case "charge":
+        if (this.ok(name, 30)) this.tone(300, 1400, 0.28, "sine", 0.2);
+        break;
+      case "hit":
+        if (this.ok(name, 35)) this.tone(500, 180, 0.06, "square", 0.15);
+        break;
+      case "kill":
+        if (this.ok(name, 40)) { this.tone(700, 1400, 0.08, "square", 0.18); this.noise(0.12, 0.25, 2500, 400); }
+        break;
+      case "explode":
+        if (this.ok(name, 50)) { this.noise(0.5, 0.8, 1800, 60); this.tone(120, 30, 0.4, "sine", 0.6); }
+        break;
+      case "mortarBoom":
+        if (this.ok(name, 50)) { this.noise(0.4, 0.55, 1200, 60); this.tone(90, 30, 0.35, "sine", 0.5); }
+        break;
+      case "hurt":
+        if (this.ok(name, 80)) { this.tone(260, 70, 0.22, "sawtooth", 0.4); this.noise(0.1, 0.3, 1200); }
+        break;
+      case "dash":
+        if (this.ok(name, 60)) this.noise(0.18, 0.35, 600, 4000);
+        break;
+      case "skill":
+        if (this.ok(name, 100)) { this.tone(200, 800, 0.35, "triangle", 0.35); this.tone(400, 1600, 0.35, "sine", 0.2, 0.05); }
+        break;
+      case "blocked":
+        if (this.ok(name, 60)) this.tone(1800, 1500, 0.12, "triangle", 0.25);
+        break;
+      case "throw":
+        if (this.ok(name, 60)) this.tone(400, 900, 0.12, "triangle", 0.25);
+        break;
+      case "swap":
+        if (this.ok(name, 60)) { this.tone(600, 600, 0.04, "square", 0.15); this.tone(900, 900, 0.04, "square", 0.15, 0.05); }
+        break;
+      case "pickup":
+        if (this.ok(name, 60)) [523, 659, 784].forEach((f, i) => this.tone(f, f, 0.1, "square", 0.18, i * 0.06));
+        break;
+      // Enemy telegraphs: each attack type has its own warning sound.
+      case "windupMelee":
+        if (this.ok(name, 90)) this.tone(1400, 2200, 0.08, "square", 0.1);
+        break;
+      case "windupDash":
+        if (this.ok(name, 120)) { this.tone(90, 260, 0.6, "sawtooth", 0.22); this.noise(0.6, 0.1, 300, 1500); }
+        break;
+      case "windupLob":
+        if (this.ok(name, 120)) this.tone(700, 350, 0.25, "triangle", 0.2);
+        break;
+      case "mortarFire":
+        if (this.ok(name, 80)) { this.tone(160, 80, 0.12, "square", 0.25); this.noise(0.08, 0.2, 900); }
+        break;
+      case "bite":
+        if (this.ok(name, 60)) this.noise(0.06, 0.3, 2500, 800);
+        break;
+      case "bonk":
+        if (this.ok(name, 80)) { this.tone(180, 60, 0.15, "square", 0.4); this.tone(1200, 1300, 0.3, "sine", 0.15, 0.08); }
+        break;
+      case "spawn":
+        if (this.ok(name, 70)) this.tone(300, 900, 0.12, "sine", 0.08);
+        break;
+      case "wave":
+        if (this.ok(name, 200)) [392, 523, 659].forEach((f, i) => this.tone(f, f, 0.18, "square", 0.18, i * 0.1));
+        break;
+      case "clear":
+        if (this.ok(name, 200)) [523, 659, 784, 1046].forEach((f, i) => this.tone(f, f, 0.15, "square", 0.18, i * 0.08));
+        break;
+      case "downed":
+        if (this.ok(name, 200)) [400, 300, 200, 120].forEach((f, i) => this.tone(f, f * 0.9, 0.2, "sawtooth", 0.25, i * 0.15));
+        break;
+      case "revive":
+        if (this.ok(name, 200)) { this.tone(200, 1200, 0.5, "triangle", 0.35); this.noise(0.4, 0.3, 500, 4000); }
+        break;
+    }
+  }
+}
+
+export const sfx = new Sfx();

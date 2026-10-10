@@ -1,0 +1,19 @@
+{
+  "name": "@lostluggage/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@lostluggage/sim": "*",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}

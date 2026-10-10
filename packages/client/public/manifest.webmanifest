@@ -1,0 +1,10 @@
+{
+  "name": "Lost Luggage",
+  "short_name": "Lost Luggage",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b1020",
+  "theme_color": "#1b1020",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

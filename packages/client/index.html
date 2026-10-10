@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#1b1020" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <title>Lost Luggage</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #1b1020;
+        overflow: hidden;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        overscroll-behavior: none;
+      }
+      #game {
+        position: fixed;
+        /* Keep the game clear of notches and home indicators. */
+        inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+      canvas { cursor: crosshair; }
+      #rotate {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        background: #1b1020;
+        color: #f2c14e;
+        font: bold 20px/1.4 monospace;
+        text-align: center;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      #rotate span { display: block; font-size: 48px; }
+      /* iPhone can't lock orientation, so ask nicely instead. */
+      @media (orientation: portrait) and (pointer: coarse) {
+        #rotate { display: flex; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="rotate"><div><span>&#x21bb;</span>Rotate your phone.<br />The luggage won't find itself.</div></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
