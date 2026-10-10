@@ -119,6 +119,7 @@ export function enterRoom(w: World, index: number): void {
     p.dashT = 0;
     p.burstLeft = 0;
     p.charging = false;
+    p.panicUsed = false;
     // Teammates left down in the last room get carried along.
     if (p.downed && p.reviveT === Infinity && index > 0) {
       p.downed = false;
@@ -135,7 +136,7 @@ export function enterRoom(w: World, index: number): void {
   if (plan.kind === "intro") {
     // Gun pedestals: try every archetype before the real fights start.
     for (const [defId, x] of [["smg", 280], ["sniper", 360], ["launcher", 440]] as const) {
-      w.pickups.push({ id: newId(w), kind: "gun", pos: { x, y: START.y - 30 + (x === 360 ? 10 : 0) }, gun: newGun(w, defId), used: false });
+      w.pickups.push({ id: newId(w), kind: "gun", pos: { x, y: START.y - 30 + (x === 360 ? 10 : 0) }, gun: { ...newGun(w, defId), loaner: true }, used: false });
     }
   }
   if (plan.kind === "breather") {

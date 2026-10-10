@@ -2,7 +2,7 @@ import { ENEMIES } from "./data/enemies";
 import { HEROES } from "./data/heroes";
 import { gunStats, rollGun } from "./loot";
 import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
-import type { Element, Enemy, EnemyDef, Player, Status, World } from "./types";
+import type { Dome, Element, Enemy, EnemyDef, Player, Status, World } from "./types";
 
 export const TICK_HZ = 30;
 export const DT = 1 / TICK_HZ;
@@ -123,7 +123,7 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   if (!def.boss) e.knock = add(e.knock, scale(norm(o.dir), o.knockback));
 
   const p = w.players.find((pl) => pl.id === o.sourcePlayerId);
-  if (p && !p.downed) p.skillCharge = Math.min(1, p.skillCharge + dealt / HEROES[p.heroId]!.skillChargeDamage);
+  if (p && !p.downed) p.skillCharge = Math.min(1, p.skillCharge + (dealt * p.mods.charge) / HEROES[p.heroId]!.skillChargeDamage);
 
   if (!o.secondary) applyStatus(w, e, def, amount, o);
 
@@ -180,7 +180,7 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
   }
 
   // Loot: guns by the enemy's drop chance, health snacks sometimes.
-  const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0);
+  const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0) + partyLuck(w);
   const drops = def.boss ? 2 : rand(w) < def.dropChance ? 1 : 0;
   for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : "common");
   if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
@@ -202,6 +202,11 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
     }
     w.events.push({ type: "explosion", x: e.pos.x, y: e.pos.y, radius: 40, owner: "player", element: "fire" });
   }
+}
+
+/** Lucky Keychain souvenirs: the party's average, so one lucky friend helps a little without dominating. */
+export function partyLuck(w: World): number {
+  return w.players.length ? w.players.reduce((sum, p) => sum + p.mods.luck, 0) / w.players.length : 0;
 }
 
 export function dropGun(w: World, at: Vec, luck: number, minRarity: Parameters<typeof rollGun>[2] = "common"): void {
@@ -256,6 +261,11 @@ export function hurtPlayer(w: World, p: Player, amount: number): boolean {
   p.iframes = 0.45;
   p.hurtT = 0.2;
   w.events.push({ type: "playerHurt", id: p.id, damage: amount });
+  // Panic Room: a free dome when things get bad, once per room.
+  if (p.hp > 0 && p.hp < p.maxHp * 0.3 && !p.panicUsed && p.skills.includes("vg_panic")) {
+    p.panicUsed = true;
+    spawnDome(w, p);
+  }
   if (p.hp <= 0) {
     p.hp = 0;
     p.downed = true;
@@ -290,6 +300,22 @@ export function playerExplosion(w: World, at: Vec, radius: number, damage: numbe
   }
 }
 
+/** The dome covering a point, if any. */
+export function domeAt(w: World, p: Vec): Dome | undefined {
+  return w.domes.find((d) => dist(d.pos, p) < d.radius);
+}
+
 export function pointInDome(w: World, p: Vec): boolean {
-  return w.domes.some((d) => dist(d.pos, p) < d.radius);
+  return !!domeAt(w, p);
+}
+
+/** The Vanguard's action skill, shaped by the Bulkhead branch. */
+export function spawnDome(w: World, p: Player): Dome {
+  const s = HEROES[p.heroId]!.skill;
+  const radius = s.radius * (p.skills.includes("vg_wide") ? 1.3 : 1);
+  const t = s.durationMs / 1000 + (p.skills.includes("vg_overtime") ? 2 : 0);
+  const d: Dome = { id: newId(w), ownerId: p.id, pos: { ...p.pos }, radius, t, maxT: t, tickT: 0.5, bonus: 0 };
+  w.domes.push(d);
+  w.events.push({ type: "skill", id: p.id, x: p.pos.x, y: p.pos.y });
+  return d;
 }

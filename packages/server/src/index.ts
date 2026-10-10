@@ -4,7 +4,12 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { Server, WebSocketTransport } from "colyseus";
+import { mountApi } from "./api";
+import { getDb } from "./db";
 import { RunRoom } from "./RunRoom";
+
+// Open (and create) the database before anyone connects.
+getDb();
 
 const port = Number(process.env.PORT) || 2567;
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
@@ -13,9 +18,11 @@ const server = new Server({
   // Snapshots are repetitive arrays of small numbers: compression roughly halves them on mobile data.
   transport: new WebSocketTransport({ perMessageDeflate: { threshold: 256 } }),
   express: (app) => {
+    app.set("trust proxy", true); // behind a Cloudflare Tunnel or a TLS proxy
     app.get("/health", (_req, res) => {
       res.json({ ok: true });
     });
+    mountApi(app);
     if (existsSync(clientDist)) app.use(express.static(clientDist));
   },
 });

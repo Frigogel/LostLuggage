@@ -228,7 +228,8 @@ describe("net codec", () => {
   it("round-trips a busy world closely enough to render", () => {
     const w = createWorld({ seed: 77, coop: true, players: [{ name: "Ana", level: 4 }, { name: "Bo", level: 12 }] });
     enterRoom(w, 4); // the boss room has everything going on
-    w.players[0]!.guns[0] = newGun(w, "smg", "epic", "shock", ["bounce", "extraPip"]);
+    w.players[0]!.guns[0] = newGun(w, "smg", "epic", "shock", ["bounce", "extraPip"], "megamart");
+    w.players[1]!.guns[1] = { ...newGun(w, "pistol", "legendary", "none", ["pierce"], "wizard"), legendary: "show_off" };
     w.players[0]!.boosts = { vampire: 2 };
     const inputs = [input({ fire: true, autoAim: true, move: { x: 0.5, y: -1 } }), input({ fire: true, autoAim: true, move: { x: -1, y: -0.4 } })];
     run(w, 200, inputs);
@@ -248,7 +249,7 @@ describe("net codec", () => {
       expect(q.pos.x).toBeCloseTo(p.pos.x, 0);
       expect(q.pos.y).toBeCloseTo(p.pos.y, 0);
       expect(q.hp).toBeCloseTo(p.hp, 0);
-      expect(q.guns.map((g) => [g.uid, g.defId, g.element, g.rarity, g.perks])).toEqual(p.guns.map((g) => [g.uid, g.defId, g.element, g.rarity, g.perks]));
+      expect(q.guns.map((g) => [g.uid, g.defId, g.element, g.rarity, g.perks, g.maker, g.legendary])).toEqual(p.guns.map((g) => [g.uid, g.defId, g.element, g.rarity, g.perks, g.maker, g.legendary]));
       expect(q.boosts).toEqual(p.boosts);
       expect(q.facing.x).toBeCloseTo(p.facing.x, 2);
     });
@@ -260,14 +261,14 @@ describe("net codec", () => {
       expect(q.hp).toBeCloseTo(Math.max(0, e.hp), 0);
       expect(q.attackPoints.length).toBe(e.attackPoints.length);
     });
-    expect(d.projectiles.map((p) => [p.id, p.owner, p.kind, !!p.lob])).toEqual(w.projectiles.map((p) => [p.id, p.owner, p.kind, !!p.lob]));
+    expect(d.projectiles.map((p) => [p.id, p.owner, p.kind, !!p.lob, !!p.special])).toEqual(w.projectiles.map((p) => [p.id, p.owner, p.kind, !!p.lob, !!p.special]));
     expect(d.pickups.map((p) => [p.id, p.kind, p.used])).toEqual(w.pickups.map((p) => [p.id, p.kind, p.used]));
     expect(d.run.room.vents.map((v) => v.id)).toEqual(w.run.room.vents.map((v) => v.id));
   });
 
   it("round-trips every event type", () => {
     const w = createWorld({ seed: 1 });
-    const gun = newGun(w, "sniper", "legendary", "fire", ["pierce"]);
+    const gun = { ...newGun(w, "sniper", "legendary", "fire", ["pierce"], "dwarfcorp"), legendary: "hot_take" };
     const events: SimEvent[] = [
       { type: "shot", playerId: 1, x: 10, y: 20, angle: 1.234, archetype: "smg", element: "shock" },
       { type: "charge", playerId: 1 },
@@ -279,6 +280,8 @@ describe("net codec", () => {
       { type: "shieldUp", id: 5 },
       { type: "shieldBroken", id: 5, x: 1, y: 2 },
       { type: "blocked", x: 1, y: 2 },
+      { type: "domePulse", id: 5, x: 1, y: 2, radius: 56 },
+      { type: "reflect", x: 1, y: 2 },
       { type: "spark", x: 1, y: 2 },
       { type: "enemyWindup", id: 5, attack: "dash" },
       { type: "enemyAttack", id: 5, attack: "slam" },

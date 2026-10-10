@@ -94,6 +94,35 @@
       #menu li { padding: 8px 10px; margin: 4px 0; background: #2a1c30; border-left: 6px solid; display: flex; justify-content: space-between; }
       #menu li small { color: #c9cfd6; font-size: 11px; }
       #menu .hint { color: #c9cfd6; font-size: 11px; margin: 4px 0; }
+      #menu .card.wide { width: min(760px, calc(100vw - 32px)); }
+      #menu .bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: #c9cfd6; margin-bottom: 10px; }
+      #menu .bar button { width: auto; min-height: 36px; margin: 0; padding: 0 10px; font-size: 11px; }
+      #menu .heroline { display: flex; justify-content: space-between; font-size: 13px; margin: 4px 0; }
+      #menu .xp { height: 8px; background: #2a1c30; border: 2px solid #5a5060; margin: 2px 0 6px; }
+      #menu .xp div { height: 100%; background: #5fd3e8; }
+      #menu .row3 { display: flex; gap: 6px; }
+      #menu .row3 button { flex: 1; font-size: 12px; padding: 0 4px; }
+      #menu .badge { color: #1b1020; background: #f2c14e; padding: 0 4px; margin-left: 4px; }
+      #menu h2 { margin: 0 0 4px; font-size: 20px; color: #f2c14e; }
+      #menu .tree { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: left; }
+      #menu .tree h3 { margin: 0; font-size: 13px; color: #f2c14e; }
+      #menu .tree p { margin: 0 0 4px; font-size: 10px; color: #c9cfd6; text-transform: none; }
+      #menu .node { display: block; text-align: left; padding: 6px 8px; min-height: 48px; text-transform: none; font-size: 11px; line-height: 1.25; }
+      #menu .node b { display: block; text-transform: uppercase; font-size: 12px; }
+      #menu .node.on { border-color: #f2c14e; background: #4a3020; }
+      #menu .node.next { border-color: #c9cfd6; }
+      #menu .node.locked { opacity: 0.45; }
+      #menu .guns { list-style: none; margin: 8px 0; padding: 0; text-align: left; }
+      #menu .guns li { display: block; padding: 6px 10px; cursor: pointer; text-transform: none; font-size: 11px; }
+      #menu .guns li b { text-transform: uppercase; font-size: 12px; }
+      #menu .guns li .act { display: flex; gap: 6px; margin-top: 6px; }
+      #menu .guns li .act button { margin: 0; min-height: 40px; font-size: 11px; }
+      #menu .up { color: #5fd36a; }
+      #menu .down { color: #e0533d; }
+      #menu .offers { display: flex; gap: 8px; }
+      #menu .offers button { flex: 1; min-height: 96px; text-transform: none; font-size: 11px; padding: 6px; }
+      #menu .offers button b { display: block; text-transform: uppercase; font-size: 12px; color: #f2c14e; margin-bottom: 4px; }
+      @media (max-width: 560px) { #menu .tree { grid-template-columns: 1fr; } #menu .offers { flex-direction: column; } }
     </style>
   </head>
   <body>
@@ -102,7 +131,10 @@
       <div class="card" id="home">
         <h1>LOST LUGGAGE</h1>
         <p class="tag">The cruise line is not liable.</p>
-        <label for="name">Your name</label>
+        <div class="bar"><span id="account-line">GUEST: NOTHING IS SAVED</span><button id="account-btn">Sign in</button></div>
+        <div class="heroline"><span id="hero-name">VANGUARD LV 1</span><span id="hero-xp">0/125 XP</span></div>
+        <div class="xp"><div id="hero-bar" style="width: 0"></div></div>
+        <label for="name" id="name-label">Your name</label>
         <input id="name" maxlength="10" autocomplete="nickname" spellcheck="false" placeholder="TRAVELER" />
         <button id="solo" class="primary">Solo run</button>
         <button id="quick">Quick match</button>
@@ -111,7 +143,48 @@
           <input id="code" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE" />
           <button id="join">Join</button>
         </div>
+        <div class="row3">
+          <button id="to-skills">Skills</button>
+          <button id="to-armory">Armory</button>
+          <button id="to-souvenirs">Souvenirs</button>
+        </div>
         <p class="status" id="status"></p>
+      </div>
+      <div class="card" id="signin" hidden>
+        <h2>Your account</h2>
+        <p class="hint">Keeps your hero, guns and souvenirs on every device.</p>
+        <label for="si-user">Name (3-10 letters or digits)</label>
+        <input id="si-user" maxlength="10" autocomplete="username" autocapitalize="characters" spellcheck="false" />
+        <label for="si-pass">Password (6+ characters)</label>
+        <input id="si-pass" type="password" autocomplete="current-password" />
+        <div id="si-invite-wrap" hidden>
+          <label for="si-invite">Invite code (new accounts)</label>
+          <input id="si-invite" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+        </div>
+        <button id="si-login" class="primary">Sign in</button>
+        <button id="si-register">Create account</button>
+        <button class="back">Back</button>
+        <p class="status" id="si-status"></p>
+      </div>
+      <div class="card wide" id="skills" hidden>
+        <h2>Skills</h2>
+        <p class="hint" id="skills-points"></p>
+        <div class="tree" id="skills-tree"></div>
+        <div class="row3"><button id="skills-reset">Reset (free)</button><button class="back">Back</button></div>
+      </div>
+      <div class="card wide" id="armory" hidden>
+        <h2>Armory</h2>
+        <p class="hint" id="armory-hint"></p>
+        <ul class="guns" id="armory-list"></ul>
+        <div class="row3"><button id="armory-scrap">Scrap all commons</button><button class="back">Back</button></div>
+        <p class="status" id="armory-status"></p>
+      </div>
+      <div class="card wide" id="souvenirs" hidden>
+        <h2>Souvenirs</h2>
+        <p class="hint" id="souv-hint"></p>
+        <div class="offers" id="souv-offers"></div>
+        <ul class="guns" id="souv-list"></ul>
+        <button class="back">Back</button>
       </div>
       <div class="card" id="lobby" hidden>
         <p class="hint">Room code</p>

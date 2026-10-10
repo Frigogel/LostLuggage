@@ -1,9 +1,12 @@
-import { confine, dropGun, DT, nearestEnemy, newId, playerExplosion } from "./combat";
+import { confine, dropGun, DT, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
 import { GRENADE } from "./data/guns";
-import { DASH, HEROES, levelMultiplier, REVIVE, tierLevel } from "./data/heroes";
-import { gunStats, newGun, rollGun } from "./loot";
+import { DASH, HEROES, levelMultiplier, MAX_LEVEL, REVIVE, tierLevel } from "./data/heroes";
+import { LEGENDARIES, MOOD_CYCLE } from "./data/legendaries";
+import { validSkills } from "./data/skills";
+import { souvenirMods, type SouvenirRanks } from "./data/souvenirs";
+import { gunFromData, gunStats, newGun, rollGun } from "./loot";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
-import type { Gun, Pickup, Player, PlayerInput, World } from "./types";
+import type { Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
 
 export const MAX_PLAYERS = 4;
 
@@ -12,6 +15,11 @@ export interface PlayerOptions {
   name?: string;
   /** The hero's own level (1-30). */
   level?: number;
+  /** Saved loadout. `sid` is the stash id, so the run knows which guns are already at home. Defaults to the starter kit. */
+  guns?: (GunData & { sid?: string })[];
+  /** Learned skill nodes. Anything the level can't afford is dropped. */
+  skills?: string[];
+  souvenirs?: SouvenirRanks;
 }
 
 /** Level sync: co-op sets everyone to the dungeon tier's level; solo uses your own. */
@@ -20,11 +28,14 @@ export function syncLevelFor(w: World, level: number): number {
 }
 
 export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): Player {
-  const heroId = opts.heroId ?? "vanguard";
+  const heroId = opts.heroId && HEROES[opts.heroId] ? opts.heroId : "vanguard";
   const hero = HEROES[heroId]!;
-  const level = Math.max(1, Math.round(opts.level ?? 1));
+  const level = Math.max(1, Math.min(MAX_LEVEL, Math.round(opts.level ?? 1)));
   const syncLevel = syncLevelFor(w, level);
-  const maxHp = Math.round(hero.maxHp * levelMultiplier(syncLevel));
+  const { hp: hpMod, ...mods } = souvenirMods(opts.souvenirs);
+  const maxHp = Math.round(hero.maxHp * levelMultiplier(syncLevel) * hpMod);
+  const saved = (opts.guns ?? []).slice(0, 2).map((g) => gunFromData(w, g, g.sid));
+  const guns = saved.length === 2 ? saved : [newGun(w, "pistol"), newGun(w, "shotgun")];
   return {
     id: newId(w),
     heroId,
@@ -39,7 +50,7 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     hp: maxHp,
     maxHp,
     facing: { x: 1, y: 0 },
-    guns: [newGun(w, "pistol"), newGun(w, "shotgun")],
+    guns,
     active: 0,
     shotCd: 0,
     burstLeft: 0,
@@ -60,8 +71,16 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     selfRevives: 1,
     boosts: {},
     streakT: 0,
+    // Veterans keep their wider toolbox in co-op: skills follow the hero's own level, not the synced one.
+    skills: validSkills(heroId, level, opts.skills ?? []),
+    mods,
+    haul: [],
+    panicUsed: false,
   };
 }
+
+/** Learned a skill node. */
+export const hasSkill = (p: Pick<Player, "skills">, id: string): boolean => p.skills.includes(id);
 
 /** Where player `i` of `n` stands at a room's entrance: side by side, so nobody spawns inside a friend. */
 export function startPos(start: Vec, i: number, n: number): Vec {
@@ -120,7 +139,7 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
   if (input.dash && p.dashCd <= 0 && p.dashT <= 0) {
     p.dashDir = len(input.move) > 0.1 ? norm(input.move) : { ...p.facing };
     p.dashT = DASH.durationMs / 1000;
-    p.dashCd = DASH.cooldownMs / 1000;
+    p.dashCd = (DASH.cooldownMs / 1000) * p.mods.dashCd;
     p.iframes = Math.max(p.iframes, DASH.iframesMs / 1000);
     p.charging = false; // Dashing cancels a sniper charge; the pip is already spent.
     dashed = true;
@@ -131,7 +150,7 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
     vel = scale(p.dashDir, DASH.speed);
     p.dashT -= DT;
   } else {
-    const speed = hero.speed * (p.charging ? 0.45 : 1);
+    const speed = hero.speed * p.mods.speed * (p.charging ? 0.45 : 1);
     vel = scale(clampLen(input.move, 1), speed);
   }
   p.pos = add(p.pos, scale(vel, DT));
@@ -185,9 +204,7 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
 
   if (input.skill && p.skillCharge >= 1) {
     p.skillCharge = 0;
-    const s = hero.skill;
-    w.domes.push({ id: newId(w), ownerId: p.id, pos: { ...p.pos }, radius: s.radius, t: s.durationMs / 1000, maxT: s.durationMs / 1000 });
-    w.events.push({ type: "skill", id: p.id, x: p.pos.x, y: p.pos.y });
+    spawnDome(w, p);
   }
 
   if (input.grenade && p.grenadeCd <= 0) {
@@ -202,7 +219,7 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     const d = Math.max(16, len(offset));
     w.projectiles.push({
       id: newId(w), owner: "player", ownerId: p.id, kind: "grenade", element: "none", pos: { ...p.pos }, vel: { x: 0, y: 0 },
-      radius: 3, damage: GRENADE.damage * levelMultiplier(p.syncLevel), pierce: 0, bounces: 0, knockback: GRENADE.knockback, life: 99, hitIds: [], gunUid: -1,
+      radius: 3, damage: GRENADE.damage * levelMultiplier(p.syncLevel) * p.mods.damage, pierce: 0, bounces: 0, knockback: GRENADE.knockback, life: 99, hitIds: [], gunUid: -1,
       lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: GRENADE.radius },
     });
     p.grenadeCd = GRENADE.cooldownMs / 1000;
@@ -308,25 +325,38 @@ function updateShooting(w: World, p: Player, input: PlayerInput): void {
   }
 }
 
+/** Overachiever's rocket: slow, homing, and it explodes. */
+const ROCKET = { speed: 190, damage: 30, radius: 24, homing: 5, life: 2.2 };
+
 function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
   const s = gunStats(gun);
+  const effect = gun.legendary ? LEGENDARIES[gun.legendary]?.effect : undefined;
+  gun.count = (gun.count ?? 0) + 1;
+  // Mood Ring changes element every shot.
+  const element = effect === "moodRing" ? MOOD_CYCLE[(gun.count - 1) % MOOD_CYCLE.length]! : gun.element;
   const base = angleOf(aim);
   const muzzle = add(p.pos, fromAngle(base, p.radius + 5));
-  w.events.push({ type: "shot", playerId: p.id, x: muzzle.x, y: muzzle.y, angle: base, archetype: s.archetype, element: gun.element });
+  w.events.push({ type: "shot", playerId: p.id, x: muzzle.x, y: muzzle.y, angle: base, archetype: s.archetype, element });
 
-  const common = {
-    owner: "player" as const, ownerId: p.id, kind: s.archetype, element: gun.element, damage: s.damage * levelMultiplier(p.syncLevel), knockback: s.knockback, hitIds: [] as number[], gunUid: gun.uid,
-  };
+  const damage = s.damage * levelMultiplier(p.syncLevel) * p.mods.damage;
+  const common = { owner: "player" as const, ownerId: p.id, kind: s.archetype, element, damage, knockback: s.knockback, gunUid: gun.uid };
   if (s.lob) {
     const d = clamp(len(aim), 24, s.range);
-    w.projectiles.push({
-      ...common, id: newId(w), pos: { ...muzzle }, vel: { x: 0, y: 0 }, radius: s.projRadius, pierce: 0, bounces: 0, life: 99,
-      lob: { from: muzzle, to: add(p.pos, fromAngle(base, d)), t: 0, dur: d / s.speed, radius: s.lob.radius },
-    });
+    const to = add(p.pos, fromAngle(base, d));
+    for (let i = 0; i < s.pellets; i++) {
+      // Extra shells (Goblin Surplus) land scattered around the aim point.
+      const at = i === 0 ? to : add(to, fromAngle(rand(w) * Math.PI * 2, 10 + rand(w) * 16));
+      const dur = (Math.hypot(at.x - muzzle.x, at.y - muzzle.y) || d) / s.speed;
+      w.projectiles.push({
+        ...common, hitIds: [], id: newId(w), pos: { ...muzzle }, vel: { x: 0, y: 0 }, radius: s.projRadius, pierce: 0, bounces: s.bounces, life: 99,
+        lob: { from: { ...muzzle }, to: at, t: 0, dur, radius: s.lob.radius },
+        ...(effect === "cluster" ? { cluster: 4 } : {}),
+      });
+    }
     return;
   }
 
-  const bounces = (gun.perks.includes("bounce") ? 1 : 0) + (p.boosts.bounce ?? 0);
+  const bounces = s.bounces + (p.boosts.bounce ?? 0);
   const spread = (s.spreadDeg * Math.PI) / 180;
   for (let i = 0; i < s.pellets; i++) {
     let a = base;
@@ -334,10 +364,25 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
     else if (spread > 0) a += (rand(w) - 0.5) * spread;
     // Shotgun pellets vary in speed a little so the cone looks chunky, not like a fan.
     const speed = s.pellets > 1 ? s.speed * (0.9 + rand(w) * 0.2) : s.speed;
+    // Bouncing shots get a little extra range to use their bounce. Boomerangs fly out and all the way back.
+    const life = (s.range / s.speed) * (bounces > 0 ? 1.4 : 1);
+    const pr = {
+      ...common, hitIds: [] as number[], id: newId(w), pos: { ...muzzle }, vel: fromAngle(a, speed), radius: s.projRadius, pierce: s.pierce, bounces,
+      life: effect === "boomerang" ? life * 2 : life,
+    };
     w.projectiles.push({
-      ...common, hitIds: [], id: newId(w), pos: { ...muzzle }, vel: fromAngle(a, speed), radius: s.projRadius, pierce: s.pierce, bounces,
-      // Bouncing shots get a little extra range to use their bounce.
-      life: (s.range / s.speed) * (bounces > 0 ? 1.4 : 1),
+      ...pr,
+      ...(s.homing > 0 ? { homing: s.homing, special: true } : {}),
+      ...(effect === "boomerang" ? { turnT: life, pierce: pr.pierce + 2, special: true } : {}),
+      ...(effect === "ricochet" ? { ricochet: 3, special: true } : {}),
+      ...(effect === "fireLine" ? { fireLine: true } : {}),
+    });
+  }
+
+  if (effect === "rockets" && gun.count % 10 === 0) {
+    w.projectiles.push({
+      ...common, kind: "rocket", hitIds: [], id: newId(w), pos: { ...muzzle }, vel: fromAngle(base, ROCKET.speed), radius: 3, pierce: 0, bounces: 0,
+      damage: ROCKET.damage * levelMultiplier(p.syncLevel) * p.mods.damage, life: ROCKET.life, homing: ROCKET.homing, explode: ROCKET.radius, special: true,
     });
   }
 }
@@ -382,6 +427,9 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       const old = p.guns[p.active]!;
       p.guns[p.active] = pk.gun;
       pk.gun = old;
+      // Everything you pick up comes home with you at the end of the run, except the intro room's loaners.
+      const got = p.guns[p.active]!;
+      if (!got.sid && !got.loaner && !p.haul.some((g) => g.uid === got.uid)) p.haul.push(got);
       p.burstLeft = 0;
       p.charging = false;
       w.events.push({ type: "pickup", id: p.id, gun: p.guns[p.active]! });
@@ -392,8 +440,8 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
     } else if (pk.kind === "chest") {
       pk.used = true;
       w.events.push({ type: "chestOpened", x: pk.pos.x, y: pk.pos.y });
-      dropGun(w, add(pk.pos, { x: -22, y: 26 }), 0.5 + w.run.tier * 0.3, "uncommon");
-      dropGun(w, add(pk.pos, { x: 22, y: 26 }), 0.5 + w.run.tier * 0.3, "uncommon");
+      dropGun(w, add(pk.pos, { x: -22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
+      dropGun(w, add(pk.pos, { x: 22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
     }
   });
 }

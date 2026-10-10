@@ -1,7 +1,7 @@
 // Balance harness: a simple bot plays full runs on many seeds and reports pacing and survival.
 // Run with `npm run balance -w @lostluggage/sim` (optionally `-- 50` for the number of runs).
 // The bot is much worse than a person (no real dodging), so treat deaths as an upper bound on difficulty.
-import { createWorld, EMPTY_INPUT, step, type PlayerInput, type Vec, type World } from "../src";
+import { createWorld, EMPTY_INPUT, runResult, runXp, step, type PlayerInput, type Vec, type World } from "../src";
 
 const runs = Number(process.argv[2] ?? 20);
 const god = process.argv.includes("--god");
@@ -64,6 +64,9 @@ const totals: number[] = [];
 const hurt: number[] = [];
 const downs: number[] = [];
 const minHp: number[] = [];
+const xps: number[] = [];
+const kills: number[] = [];
+const found: number[] = [];
 
 for (let seed = 1; seed <= runs; seed++) {
   const w = createWorld({ seed: seed * 7919 });
@@ -88,6 +91,9 @@ for (let seed = 1; seed <= runs; seed++) {
     if (w.gameOver || w.run.victory) break;
   }
   hurt.push(taken);
+  kills.push(w.run.kills);
+  found.push(w.run.gunsFound);
+  xps.push(runXp(runResult(w, w.players[0]!, { mode: "solo", day: "" }), false).xp);
   downs.push(downed);
   minHp.push(lowest);
   if (w.run.victory) {
@@ -103,4 +109,5 @@ console.log(`${runs} runs${god ? " (god mode)" : ""}: ${wins} victories`);
 roomTimes.forEach((ts, i) => console.log(`  room ${i + 1} ${kinds[i]!.padEnd(8)} avg ${avg(ts).toFixed(0)}s over ${ts.length} clears`));
 if (totals.length) console.log(`  full run avg ${(avg(totals) / 60).toFixed(1)} min`);
 console.log(`  damage taken avg ${avg(hurt).toFixed(0)}, downs avg ${avg(downs).toFixed(2)}, lowest hp avg ${avg(minHp).toFixed(0)}`);
+console.log(`  kills avg ${avg(kills).toFixed(0)}, guns dropped avg ${avg(found).toFixed(1)}, XP avg ${avg(xps).toFixed(0)} (first win of the day x1.5)`);
 console.log(`  deaths by room: ${JSON.stringify(Object.fromEntries(Object.entries(deathsByRoom).map(([k, v]) => [Number(k) + 1, v])))}`);

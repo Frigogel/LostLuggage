@@ -3,9 +3,34 @@
 A casual, mobile-first co-op looter brawler. The full design lives in
 [Co-op Looter Brawler — Game Design Doc.md](Co-op%20Looter%20Brawler%20—%20Game%20Design%20Doc.md).
 
-**Current state: roadmap phase 3, co-op.** The Burning Foundry adventure from phase 2 (hand-made intro room,
-two director-built combat rooms, a breather room with a shrine and a suitcase, the Furnace Foreman mini-boss)
-can now be played solo or with up to 4 friends:
+**Current state: roadmap phase 4, progression.** The Burning Foundry adventure (hand-made intro room, two
+director-built combat rooms, a breather room with a shrine and a suitcase, the Furnace Foreman mini-boss) can be
+played solo or with up to 4 friends, and now gives you reasons to come back tomorrow:
+
+- **Accounts**: a name and password keep your hero, guns and souvenirs on every device. Guests can still play
+  everything, but nothing is saved.
+- **Hero levels** on the design doc's curve (125 XP for level 2, 13,775 to the cap of 30). A solo win is worth
+  about 110 XP, co-op 30% more, and **the first win of the day** half again.
+- **Skill branches**: the Vanguard has three branches of five nodes (Bulkhead, Static, Return to Sender) that change
+  what the dome does rather than adding percentages. One point per level, free respec, and even a maxed hero can't
+  take everything.
+- **Manufacturers**: every dropped gun comes from Dwarfcorp (fewer pips, huge shots), Arcane Electric (always
+  elemental), Goblin Surplus (extra shots in a messy spread), Wizard Labs (bouncing, curving shots) or Mega-Mart
+  (huge ammo bar, slow reload). Sustained damage stays within a narrow band; the feel changes.
+- **Legendaries**: six named guns, each with one rule-breaking effect (The Ex's pellets come back, Overachiever fires
+  a homing rocket every 10th bullet, Hot Take leaves a line of fire, Show-Off ricochets between enemies, Party Favor
+  bursts into bomblets, Mood Ring changes element every shot).
+- **Loot comes home**: every gun you pick up in a run goes to your armory, and the two in your hands become your
+  loadout. Equip, compare (green arrows), scrap for XP, or scrap all commons in one tap. The intro room's
+  try-out guns are loaners and stay behind.
+- **Souvenirs** (permanent boosts) from solo wins: always from the first win of the day, sometimes otherwise. Pick
+  one of three; each rank is about 1% of something, with a hard cap of 15 ranks.
+- **Helping newer players**: in co-op, being at or above the tier's level with someone below it gives +25% XP and
+  an extra gun.
+- **Offline solo**: the installed game opens without a connection; solo results are saved on the phone and synced
+  when it's back online.
+
+From phase 3:
 
 - **Colyseus rooms** with 4-letter **room codes** for friends, **quick match** for public rooms, and **drop-in**
   for runs that have an open slot.
@@ -42,6 +67,26 @@ on, so a phone on the same Wi-Fi can open the `Network:` address. Solo works wit
 To feel the netcode on a bad connection, start the server with simulated latency: `LAG=200 npm run dev:server`
 (round trip in ms).
 
+Accounts live in SQLite through Node's built-in `node:sqlite` (Node 22.13 or newer; no native build on the Pi). The
+database is `packages/server/data/lostluggage.db` unless `DB_PATH` says otherwise. Set `INVITE_CODE=SOMETHING` to
+make new accounts need that code, so only your friends can sign up.
+
+## Accounts and progress
+
+Tap **Sign in** on the main menu to make an account (name, password and, if the server asks, the invite code).
+Then:
+
+- **Skills**: tap the next node in a branch to learn it, or a learned node to give it (and everything after it)
+  back. Respec is free.
+- **Armory**: tap a gun to equip it in either slot or scrap it for XP. Green arrows mark guns with more DPS than your
+  weaker equipped one.
+- **Souvenirs**: unpack the ones you found; each pick is permanent.
+
+Every change is applied on the device first, with the same reducer the server uses (`packages/sim/src/progress.ts`),
+then queued and sent to the server, which applies each action exactly once. Solo runs therefore save offline and
+sync when there's a connection; co-op rewards are saved by the server and sent back at the end of the run. Leaving
+a run early (quit or leave room) still takes home the guns you picked up.
+
 ## Playing together
 
 1. Everyone opens the game and types a name.
@@ -65,14 +110,14 @@ stragglers, or opens right away once everyone who can walk is at the door.
 | Pick up / use item | SWAP / PRAY / OPEN button (appears near an item) | F |
 | Revive a teammate | Stand next to them | Stand next to them |
 | Pause (solo) / menu (co-op) / mute | Background the app | P or Esc / M |
-| Leave a co-op room | Menu, then LEAVE ROOM | Esc, then L |
+| Quit a solo run / leave a co-op room | Pause, then QUIT TO MENU / LEAVE ROOM | Esc, then L |
 
 Walk up to a dropped gun and press the pickup button to swap it for the one in your hands (your old gun stays on
 the floor). The card at the bottom compares its DPS with yours. The same button prays at shrines and opens
 suitcases. Health snacks are still grabbed just by touching them.
 
 In development, `?room=4` jumps straight to a solo room, `?seed=123` replays a solo run, and `?level=25` pretends
-your hero is level 25 (real levels arrive with accounts in phase 4).
+a guest's hero is level 25.
 
 ## Layout
 
@@ -80,16 +125,22 @@ your hero is level 25 (real levels arrive with accounts in phase 4).
 packages/
   sim/      Pure TypeScript game rules: fixed 30 Hz tick, seeded RNG, no rendering code.
             Runs in the browser for solo and on the server for co-op.
-    src/data/   Guns, enemies and heroes as data (the doc's "data-driven definitions")
+    src/data/   Guns, enemies, heroes, manufacturers, legendaries, skill trees and souvenirs as data
     src/director.ts  Encounter director: threat budgets, role templates, pacing curve, party scaling
     src/room.ts      Room layouts, lava vents, waves, exits
-    src/loot.ts      Rarity, elements, perks, shrine boosts
+    src/loot.ts      Rarity, manufacturers, legendaries, elements, perks, shrine boosts
+    src/domes.ts     The Vanguard's dome skills: zaps, shoves, healing, reflections
+    src/progress.ts  Profiles, XP and levels, stash and loadout, souvenirs: one reducer for client and server
     src/net.ts       Co-op wire format: snapshots, events and inputs as small integer arrays
     scripts/balance.ts  Bot-driven balance harness
   server/   Colyseus server. RunRoom is one party: lobby, room code, drop-in, reconnects, and the
-            sim at 30 Hz with snapshots at 15 Hz.
-  client/   Phaser 3 renderer, input, HUD and the menu.
-    src/net.ts  Co-op client: snapshot buffer, clock sync, interpolation, movement and shot prediction
+            sim at 30 Hz with snapshots at 15 Hz. Loads each account's hero and saves its rewards.
+    src/db.ts   Accounts, sessions and profiles in SQLite
+    src/api.ts  Sign up, sign in and profile sync
+  client/   Phaser 3 renderer, input, HUD and the menu (account, skills, armory, souvenirs).
+    src/net.ts      Co-op client: snapshot buffer, clock sync, interpolation, movement and shot prediction
+    src/account.ts  Guest or saved profile, the offline action queue and syncing
+    public/sw.js    Service worker that caches the game for offline solo runs (production builds only)
 ```
 
 All art, the pixel font and the sounds are generated in code as placeholders
@@ -108,7 +159,8 @@ when a snapshot says which inputs the server has applied, it replays the rest on
 Leftover differences fade out over a few frames instead of snapping. Your shots are predicted the same way, so the
 flash, sound and bullets leave your gun the moment you fire; the server still decides every hit. The netcode test
 (`packages/client/test/netcode.test.ts`) drives the real client against the real server: at a 120 ms round trip
-the largest correction is under a pixel, and at 300 ms a few pixels.
+the largest correction is under a pixel, and at 300 ms a few pixels. Shots that curve, return or ricochet (Wizard
+Labs guns, some legendaries, reflected bolts) can't be guessed, so those are drawn from the server's snapshots.
 
 ## Hosting
 

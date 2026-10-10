@@ -8,9 +8,12 @@
 import { ENEMIES } from "./data/enemies";
 import { GUNS } from "./data/guns";
 import { HEROES } from "./data/heroes";
+import { LEGENDARY_IDS } from "./data/legendaries";
+import { MAKER_IDS } from "./data/makers";
 import { BOOSTS, PERKS, RARITIES } from "./loot";
 import { clamp, fromAngle, angleOf, type Vec } from "./math";
 import { EMPTY_INPUT } from "./players";
+import type { Profile, RunReward } from "./progress";
 import { EXIT, LAYOUTS } from "./room";
 import { ARENA } from "./room";
 import type {
@@ -45,7 +48,7 @@ const ELEMENT_IDS: Element[] = ["none", "fire", "shock", "frost", "acid"];
 const STATES: EnemyState[] = ["move", "windup", "attack", "recover", "hidden", "reveal"];
 const ROOM_KINDS: RoomKind[] = ["intro", "combat", "breather", "boss"];
 const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest"];
-const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt"];
+const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket"];
 
 const POS = 4; // quarter pixels
 const T = 100; // centiseconds
@@ -78,18 +81,29 @@ export interface Snapshot {
 
 // ---------------------------------------------------------------- guns
 
-type GunWire = [number, number, number, number, number[], number];
+/** [uid, gun, element, rarity, perks, pips, maker, legendary or -1, loaner]. */
+type GunWire = [number, number, number, number, number[], number, number, number, number];
 
-const encodeGun = (g: Gun): GunWire => [g.uid, idx(GUN_IDS, g.defId), idx(ELEMENT_IDS, g.element), idx(RARITIES, g.rarity), g.perks.map((p) => idx(PERK_IDS, p)), q(g.pips, T)];
+const encodeGun = (g: Gun): GunWire => [
+  g.uid, idx(GUN_IDS, g.defId), idx(ELEMENT_IDS, g.element), idx(RARITIES, g.rarity), g.perks.map((p) => idx(PERK_IDS, p)), q(g.pips, T),
+  idx(MAKER_IDS, g.maker), g.legendary ? LEGENDARY_IDS.indexOf(g.legendary) : -1, b(!!g.loaner),
+];
 
-const decodeGun = (a: GunWire): Gun => ({
-  uid: a[0],
-  defId: GUN_IDS[a[1]] ?? "pistol",
-  element: ELEMENT_IDS[a[2]] ?? "none",
-  rarity: RARITIES[a[3]] ?? "common",
-  perks: a[4].map((i) => PERK_IDS[i]!).filter(Boolean),
-  pips: a[5] / T,
-});
+function decodeGun(a: GunWire): Gun {
+  const g: Gun = {
+    uid: a[0],
+    defId: GUN_IDS[a[1]] ?? "pistol",
+    element: ELEMENT_IDS[a[2]] ?? "none",
+    rarity: RARITIES[a[3]] ?? "common",
+    perks: a[4].map((i) => PERK_IDS[i]!).filter(Boolean),
+    pips: a[5] / T,
+    maker: MAKER_IDS[a[6]] ?? "cruise",
+  };
+  const leg = LEGENDARY_IDS[a[7]];
+  if (leg) g.legendary = leg;
+  if (a[8]) g.loaner = true;
+  return g;
+}
 
 // ---------------------------------------------------------------- players
 
@@ -103,6 +117,8 @@ function encodePlayer(p: Player): unknown[] {
     q(p.dashT, T), q(p.dashCd, T), qa(angleOf(p.dashDir)), q(p.iframes, T), q(p.hurtT, T),
     q(p.skillCharge, 1000), q(p.grenadeCd, T), b(p.downed), p.reviveT === Infinity ? -1 : q(p.reviveT, T),
     q(p.reviveProgress, 1000), p.selfRevives, boosts, q(p.streakT, T),
+    // Souvenir mods the client's movement prediction needs.
+    q(p.mods.speed, 1000), q(p.mods.dashCd, 1000),
   ];
 }
 
@@ -147,6 +163,10 @@ function decodePlayer(a: unknown[]): Player {
     selfRevives: n(30),
     boosts,
     streakT: n(32) / T,
+    skills: [],
+    mods: { damage: 1, speed: n(33) / 1000, dashCd: n(34) / 1000, charge: 1, luck: 0 },
+    haul: [],
+    panicUsed: false,
   };
 }
 
@@ -198,7 +218,7 @@ function decodeEnemy(a: number[]): Enemy {
 
 function encodeProjectile(p: Projectile): number[] {
   const out = [
-    p.id, b(p.owner === "enemy"), p.ownerId, idx(PROJ_KINDS, p.kind), idx(ELEMENT_IDS, p.element),
+    p.id, b(p.owner === "enemy") | (b(!!p.special) << 1), p.ownerId, idx(PROJ_KINDS, p.kind), idx(ELEMENT_IDS, p.element),
     q(p.pos.x, POS), q(p.pos.y, POS), Math.round(p.vel.x), Math.round(p.vel.y), p.radius, p.bounces,
   ];
   const l = p.lob;
@@ -209,7 +229,7 @@ function encodeProjectile(p: Projectile): number[] {
 function decodeProjectile(a: number[]): Projectile {
   const pr: Projectile = {
     id: a[0]!,
-    owner: a[1] ? "enemy" : "player",
+    owner: a[1]! & 1 ? "enemy" : "player",
     ownerId: a[2]!,
     kind: PROJ_KINDS[a[3]!] ?? "pistol",
     element: ELEMENT_IDS[a[4]!] ?? "none",
@@ -224,6 +244,7 @@ function decodeProjectile(a: number[]): Projectile {
     hitIds: [],
     gunUid: -1,
   };
+  if (a[1]! & 2) pr.special = true;
   if (a.length > 11) {
     pr.lob = {
       from: { x: a[11]! / POS, y: a[12]! / POS },
@@ -238,8 +259,8 @@ function decodeProjectile(a: number[]): Projectile {
   return pr;
 }
 
-const encodeDome = (d: Dome): number[] => [d.id, d.ownerId, q(d.pos.x, POS), q(d.pos.y, POS), d.radius, q(d.t, T), q(d.maxT, T)];
-const decodeDome = (a: number[]): Dome => ({ id: a[0]!, ownerId: a[1]!, pos: { x: a[2]! / POS, y: a[3]! / POS }, radius: a[4]!, t: a[5]! / T, maxT: a[6]! / T });
+const encodeDome = (d: Dome): number[] => [d.id, d.ownerId, q(d.pos.x, POS), q(d.pos.y, POS), Math.round(d.radius), q(d.t, T), q(d.maxT, T)];
+const decodeDome = (a: number[]): Dome => ({ id: a[0]!, ownerId: a[1]!, pos: { x: a[2]! / POS, y: a[3]! / POS }, radius: a[4]!, t: a[5]! / T, maxT: a[6]! / T, tickT: 0, bonus: 0 });
 
 const encodeHazard = (h: Hazard): number[] => [h.id, b(h.kind === "fire"), b(h.owner === "enemy"), q(h.pos.x, POS), q(h.pos.y, POS), h.radius, q(h.t, T), q(h.maxT, T)];
 const decodeHazard = (a: number[]): Hazard => ({
@@ -281,6 +302,8 @@ const EVENT_KEYS: EventKeys = {
   shieldUp: ["id"],
   shieldBroken: ["id", "x", "y"],
   blocked: ["x", "y"],
+  domePulse: ["id", "x", "y", "radius"],
+  reflect: ["x", "y"],
   spark: ["x", "y"],
   enemyWindup: ["id", "attack"],
   enemyAttack: ["id", "attack"],
@@ -462,7 +485,18 @@ export interface RoomOptions {
 /** Sent when joining. */
 export interface JoinOptions {
   name?: string;
+  /** Guests only (development): accounts use their saved hero. */
   level?: number;
+  /** Account session token: the server loads your hero, loadout and skills, and saves your rewards. */
+  token?: string;
+}
+
+/** Sent as "reward" to each account when its run ends (or when it leaves a run early). */
+export interface RewardInfo {
+  runId: number;
+  reward: RunReward;
+  /** The account's profile after the reward. */
+  profile: Profile;
 }
 
 export interface SeatInfo {

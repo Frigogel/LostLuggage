@@ -397,7 +397,7 @@ Build the fun on a phone first, then add co-op, then depth. Each phase ends with
 **Still open**
 
 - [ ] Game name: *Dropships & Dragons*, *Loot Goblins* and *Wands & Lasers* are starting ideas
-- [ ] How friends create accounts: invite code, or plain username and password?
+- [x] How friends create accounts: username and password, with an optional server invite code (`INVITE_CODE`)
 - [ ] Phaser 3 or PixiJS for rendering
 
 ## Sources

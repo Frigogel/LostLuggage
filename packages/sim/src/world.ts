@@ -1,5 +1,6 @@
 import { DT } from "./combat";
 import { planRun } from "./director";
+import { updateDomes } from "./domes";
 import { updateEnemies } from "./enemies";
 import { checkWipe, EMPTY_INPUT, makePlayer, MAX_PLAYERS, startPos, updatePickups, updatePlayer, type PlayerOptions } from "./players";
 import { updateHazards, updateProjectiles } from "./projectiles";
@@ -63,8 +64,7 @@ export function step(w: World, inputs: readonly PlayerInput[]): void {
   w.players.forEach((p, i) => updatePlayer(w, p, inputs[i] ?? EMPTY_INPUT));
   updatePickups(w, inputs);
 
-  for (const d of w.domes) d.t -= DT;
-  w.domes = w.domes.filter((d) => d.t > 0);
+  updateDomes(w);
 
   updateEnemies(w);
   updateProjectiles(w);

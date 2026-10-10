@@ -21,6 +21,7 @@ import {
   type LobbyInfo,
   type Player,
   type PlayerInput,
+  type RewardInfo,
   type RoomOptions,
   type SimEvent,
   type Snapshot,
@@ -72,6 +73,11 @@ export class NetSession {
   onLobby?: (l: LobbyInfo) => void;
   /** Connection gone for good (left, kicked, or reconnecting failed). */
   onClosed?: (reason: string) => void;
+  /** Joined with an account: the server saves this player's rewards. */
+  isAccount = false;
+  /** What the server saved to your account for the last run that ended (accounts only). */
+  reward?: RewardInfo;
+  onReward?: (r: RewardInfo) => void;
   /** Round-trip time in ms, refreshed every few seconds. */
   rtt = 0;
   /** How well the netcode is keeping up, for tests and debugging. */
@@ -111,6 +117,10 @@ export class NetSession {
       this.onLobby?.(l);
     });
     room.onMessage("s", (s: Snapshot) => this.onSnapshot(s));
+    room.onMessage("reward", (r: RewardInfo) => {
+      this.reward = r;
+      this.onReward?.(r);
+    });
     room.onLeave((code) => {
       clearInterval(this.pingTimer);
       if (!this.leaving) this.onClosed?.(code === 4000 ? "LEFT THE ROOM" : "CONNECTION LOST");
@@ -128,7 +138,9 @@ export class NetSession {
     };
     // A phone that lost signal mid-handshake shouldn't sit on "connecting" forever.
     const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timed out")), CONNECT_TIMEOUT_MS));
-    return new NetSession(await Promise.race([join(), timeout]));
+    const s = new NetSession(await Promise.race([join(), timeout]));
+    s.isAccount = !!me.token;
+    return s;
   }
 
   get sessionId(): string {

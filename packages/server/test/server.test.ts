@@ -2,7 +2,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import { matchMaker, Server, WebSocketTransport } from "colyseus";
-import { decodeSnapshot, EMPTY_INPUT, encodeInput, type LobbyInfo, type Snapshot, type World } from "@lostluggage/sim";
+import { decodeSnapshot, EMPTY_INPUT, encodeInput, newGun, type Action, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
+import { mountApi } from "../src/api";
+import { Db, setDb } from "../src/db";
 import { cleanName, RunRoom } from "../src/RunRoom";
 
 const PORT = 25670 + Math.floor(Math.random() * 100);
@@ -10,7 +12,9 @@ let server: Server;
 const url = `http://localhost:${PORT}`;
 
 beforeAll(async () => {
-  server = new Server({ transport: new WebSocketTransport(), greet: false });
+  // A fresh in-memory database for every test run.
+  setDb(new Db());
+  server = new Server({ transport: new WebSocketTransport(), greet: false, express: (app) => mountApi(app) });
   server.define("run", RunRoom);
   await server.listen(PORT);
 });
@@ -163,5 +167,95 @@ describe("co-op server", () => {
     expect(back.world.players[0]!.away).toBe(false);
     expect(back.world.players[1]!.away).toBe(true);
     await Promise.all([host.leave(), friend.leave()]);
+  });
+});
+
+interface AuthReply {
+  token: string;
+  username: string;
+  profile: Profile;
+  error?: string;
+}
+
+async function api<T>(path: string, body?: unknown, token?: string): Promise<{ status: number; data: T }> {
+  const res = await fetch(url + path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, data: (await res.json()) as T };
+}
+
+describe("accounts", () => {
+  it("signs up, signs in, and rejects bad names, short passwords, taken names and wrong passwords", async () => {
+    expect((await api<AuthReply>("/api/register", { username: "a", password: "secret1" })).status).toBe(400);
+    expect((await api<AuthReply>("/api/register", { username: "ANA", password: "123" })).status).toBe(400);
+    const made = await api<AuthReply>("/api/register", { username: "ana", password: "secret1" });
+    expect(made.status).toBe(201);
+    expect(made.data.username).toBe("ANA");
+    expect(made.data.profile.heroes.vanguard!.level).toBe(1);
+    expect(made.data.profile.name).toBe("ANA");
+    expect((await api<AuthReply>("/api/register", { username: "Ana", password: "other12" })).status).toBe(409);
+    expect((await api<AuthReply>("/api/login", { username: "ana", password: "nope123" })).status).toBe(401);
+    const back = await api<AuthReply>("/api/login", { username: "ana", password: "secret1" });
+    expect(back.status).toBe(200);
+    expect((await api<{ profile: Profile }>("/api/profile", undefined, back.data.token)).data.profile.name).toBe("ANA");
+    expect((await api("/api/profile", undefined, "garbage")).status).toBe(401);
+    await api("/api/logout", {}, back.data.token);
+    expect((await api("/api/profile", undefined, back.data.token)).status).toBe(401);
+  });
+
+  it("syncs queued actions exactly once", async () => {
+    const { data } = await api<AuthReply>("/api/register", { username: "BOB", password: "secret1" });
+    const run: Action = {
+      type: "run",
+      id: "solo-1",
+      result: { mode: "solo", heroId: "vanguard", tier: 0, victory: true, rooms: 5, kills: 120, guns: [{ id: "g1", defId: "smg", element: "fire", rarity: "rare", perks: [], maker: "goblin" }], hand: ["g1", ""], day: "2026-10-10" },
+    };
+    const equip: Action = { type: "equip", id: "eq-1", slot: 1, gunId: "starter-pistol" };
+    const first = await api<{ profile: Profile; rewards: Record<string, RunReward> }>("/api/sync", { actions: [run, equip] }, data.token);
+    expect(first.data.rewards["solo-1"]!.xp).toBeGreaterThan(100);
+    expect(first.data.profile.loadout).toEqual(["g1", "starter-pistol"]);
+    const xp = first.data.profile.heroes.vanguard!;
+    // The phone never heard back and retries: nothing is applied twice.
+    const again = await api<{ profile: Profile; rewards: Record<string, RunReward> }>("/api/sync", { actions: [run, equip] }, data.token);
+    expect(again.data.rewards).toEqual({});
+    expect(again.data.profile.heroes.vanguard).toEqual(xp);
+    expect(again.data.profile.stash.length).toBe(3);
+  });
+
+  it("co-op runs use the saved hero and save the loot to the account", async () => {
+    const { data } = await api<AuthReply>("/api/register", { username: "CYD", password: "secret1" });
+    await api("/api/sync", { actions: [{ type: "skills", id: "k", heroId: "vanguard", skills: [] }] }, data.token);
+    const host = await new Client(url).create("run", { private: true, name: "ignored", token: data.token });
+    const guest = await new Client(url).joinById(host.roomId, { name: "Guest" });
+    const lobby = await nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats.length === 2);
+    // Accounts play under their account name.
+    expect(lobby.seats.map((s) => s.name)).toEqual(["CYD", "GUEST"]);
+    host.send("start");
+    await nextMessage<LobbyInfo>(host, "lobby", (l) => l.running);
+
+    // Hand the account a gun, then wipe the party.
+    const room = matchMaker.getLocalRoomById(host.roomId) as unknown as { world: World };
+    const me = room.world.players[0]!;
+    const gun = newGun(room.world, "launcher", "epic", "acid", [], "dwarfcorp");
+    me.guns[0] = gun;
+    me.haul.push(gun);
+    const reward = nextMessage<RewardInfo>(host, "reward");
+    let guestReward = false;
+    guest.onMessage("reward", () => (guestReward = true));
+    for (const p of room.world.players) Object.assign(p, { downed: true, reviveT: Infinity, selfRevives: 0 });
+    const r = await reward;
+    expect(r.reward.kept).toBe(1);
+    expect(r.profile.stash.some((g) => g.defId === "launcher" && g.maker === "dwarfcorp")).toBe(true);
+    expect(r.profile.loadout[0]).toBe(r.profile.stash.find((g) => g.defId === "launcher")!.id);
+    await wait(100);
+    expect(guestReward).toBe(false);
+
+    // The next run starts with the launcher in hand.
+    host.send("again");
+    const fresh = decodeSnapshot(await nextMessage<Snapshot>(host, "s", (s) => !decodeSnapshot(s).world.gameOver));
+    expect(fresh.world.players[0]!.guns[0]!.defId).toBe("launcher");
+    await Promise.all([host.leave(), guest.leave()]);
   });
 });

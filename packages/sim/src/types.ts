@@ -46,16 +46,39 @@ export interface GunDef {
   knockback: number;
 }
 
+/** A gun's effective stats once manufacturer, rarity and perks are applied. */
+export interface GunStats extends GunDef {
+  /** Wall ricochets per shot. Lobbed shots bounce along the ground instead. */
+  bounces: number;
+  /** Homing turn rate in radians per second (Wizard Labs). */
+  homing: number;
+}
+
 export type PerkId = "pierce" | "bounce" | "extraPip" | "quickReload" | "bigShots" | "killReload" | "hotStreak" | "volatile";
 
-export interface Gun {
-  /** Unique per drop, so the UI can tell two identical rolls apart. */
-  uid: number;
+export type MakerId = "cruise" | "dwarfcorp" | "arcane" | "goblin" | "wizard" | "megamart";
+
+/** What makes a gun that gun: everything a stash saves. */
+export interface GunData {
   defId: string;
   element: Element;
   rarity: Rarity;
   perks: PerkId[];
+  maker: MakerId;
+  /** Named legendary id: one rule-breaking effect. */
+  legendary?: string;
+}
+
+export interface Gun extends GunData {
+  /** Unique per drop, so the UI can tell two identical rolls apart. */
+  uid: number;
   pips: number;
+  /** Stash id when the gun came from the player's saved loadout. Never sent over the wire. */
+  sid?: string;
+  /** Shots fired, for legendaries that count (every 10th bullet, cycling elements). */
+  count?: number;
+  /** The intro room's try-before-you-buy guns: property of the cruise line, they don't come home. */
+  loaner?: boolean;
 }
 
 // ---------------------------------------------------------------- heroes
@@ -206,6 +229,18 @@ export interface PlayerInput {
 
 export type BoostId = "bounce" | "burnSpread" | "vampire" | "quickPips" | "dashBurst";
 
+/** Permanent multipliers from souvenirs (small and hard-capped). 1 = no change. */
+export interface PlayerMods {
+  damage: number;
+  speed: number;
+  /** Dash cooldown multiplier: below 1 is faster. */
+  dashCd: number;
+  /** Action skill charge rate. */
+  charge: number;
+  /** Extra loot luck. 0 = none. */
+  luck: number;
+}
+
 export interface Player {
   id: number;
   heroId: string;
@@ -249,6 +284,13 @@ export interface Player {
   boosts: Partial<Record<BoostId, number>>;
   /** hotStreak perk: kills in a row speed up reload for a moment. */
   streakT: number;
+  /** Learned skill node ids (see data/skills). */
+  skills: string[];
+  mods: PlayerMods;
+  /** Every gun that passed through this player's hands this run: it all comes home at the end. */
+  haul: Gun[];
+  /** Panic Room skill: the free dome is used up until the next room. */
+  panicUsed: boolean;
 }
 
 export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";
@@ -325,6 +367,20 @@ export interface Projectile {
   /** The gun that fired it, for on-kill perks. */
   gunUid: number;
   lob?: Lob;
+  /** Turn rate toward the nearest enemy, radians per second. */
+  homing?: number;
+  /** Boomerang: seconds until it turns around. */
+  turnT?: number;
+  /** Hits that jump to another enemy instead of stopping. */
+  ricochet?: number;
+  /** Explodes on impact with this radius (rockets). */
+  explode?: number;
+  /** Lobbed shots that burst into this many bomblets. */
+  cluster?: number;
+  /** Leaves burning ground along its path. */
+  fireLine?: boolean;
+  /** Flies in a way co-op clients don't predict (curves, returns, reflections), so it's always drawn from the server. */
+  special?: boolean;
 }
 
 export interface Dome {
@@ -334,6 +390,10 @@ export interface Dome {
   radius: number;
   t: number;
   maxT: number;
+  /** Counts down to the dome's next once-a-second skill effects (zaps, shoves, healing). */
+  tickT: number;
+  /** Capacitor skill: extra zap damage from blocked shots. */
+  bonus: number;
 }
 
 /** Ground effects that hurt whoever stands in them. */
@@ -346,6 +406,9 @@ export interface Hazard {
   t: number;
   maxT: number;
   damage: number;
+  /** Player hazards: who gets the credit, and when what's standing in it burns next. */
+  ownerId?: number;
+  tickT?: number;
 }
 
 /** Burning Foundry terrain rule: vents erupt on a timer, hurting players and enemies alike. */
@@ -440,6 +503,10 @@ export type SimEvent =
   | { type: "shieldUp"; id: number }
   | { type: "shieldBroken"; id: number; x: number; y: number }
   | { type: "blocked"; x: number; y: number }
+  /** A dome skill went off around the dome: zap, shove or heal. */
+  | { type: "domePulse"; id: number; x: number; y: number; radius: number }
+  /** An enemy shot got sent back. */
+  | { type: "reflect"; x: number; y: number }
   | { type: "spark"; x: number; y: number }
   | { type: "enemyWindup"; id: number; attack: AttackType }
   | { type: "enemyAttack"; id: number; attack: AttackType }

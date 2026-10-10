@@ -6,6 +6,8 @@ import {
   ENEMIES,
   GRENADE,
   HEROES,
+  LEGENDARIES,
+  MAKERS,
   PERKS,
   gunDps,
   gunName,
@@ -14,6 +16,7 @@ import {
   type Gun,
   type Pickup,
   type Player,
+  type RunReward,
   type SimEvent,
   type World,
 } from "@lostluggage/sim";
@@ -72,6 +75,9 @@ export class UIScene extends Phaser.Scene {
   /** Names of everyone seen this run, so "X left" still has a name after they're gone. */
   private names = new Map<number, string>();
   private secondWind = false;
+  /** Reward lines on the end panel, filled in when the co-op server's reward arrives. */
+  private rewardText: Text[] = [];
+  private rewardShown = false;
   private statusShown = false;
   private seen = loadSeen();
 
@@ -90,6 +96,8 @@ export class UIScene extends Phaser.Scene {
     this.names.clear();
     this.secondWind = false;
     this.statusShown = false;
+    this.rewardText = [];
+    this.rewardShown = false;
   }
 
   private get game_(): GameScene {
@@ -125,7 +133,7 @@ export class UIScene extends Phaser.Scene {
 
     this.banner = this.text(SCREEN.w / 2, 92, "", 16).setOrigin(0.5).setAlpha(0);
     this.subBanner = this.text(SCREEN.w / 2, 112, "", 8).setOrigin(0.5).setAlpha(0).setTint(0xffe08a);
-    this.card = [0, 1, 2, 3, 4].map((i) => this.text(SCREEN.w / 2, SCREEN.h - 70 + i * 11, "").setOrigin(0.5, 0));
+    this.card = [0, 1, 2, 3, 4, 5, 6].map((i) => this.text(SCREEN.w / 2, SCREEN.h - 70 + i * 11, "").setOrigin(0.5, 0));
     this.help = this.text(SCREEN.w / 2, SCREEN.h - 4, DESKTOP_HELP, 8).setOrigin(0.5, 1).setCenterAlign().setTint(0xc9cfd6);
     this.tweens.add({ targets: this.help, alpha: 0, delay: 12000, duration: 1500 });
     this.exitLabel = this.text(0, 0, "EXIT", 8).setOrigin(0.5).setTint(0x5fd36a);
@@ -143,8 +151,7 @@ export class UIScene extends Phaser.Scene {
       const btn = this.panelButtons.find((b) => ptr.x >= b.x && ptr.x <= b.x + b.w && ptr.y >= b.y && ptr.y <= b.y + b.h);
       if (btn && (this.pausePanel || this.panel?.getData("ready"))) btn.action();
       else if (this.game_.paused) this.unpause();
-      else if ((w.gameOver || w.run.victory) && this.panel?.getData("ready") && !this.game_.net) this.restart();
-      // Fullscreen needs a user gesture; on iPhone it only works once installed to the home screen.
+        // Fullscreen needs a user gesture; on iPhone it only works once installed to the home screen.
       if (this.controls.touchMode && !this.scale.isFullscreen && this.sys.game.device.os.android) {
         try {
           this.scale.startFullscreen();
@@ -158,7 +165,7 @@ export class UIScene extends Phaser.Scene {
       if (this.panel?.getData("ready")) this.restart();
     });
     this.input.keyboard!.on("keydown-L", () => {
-      if (this.game_.net && (this.pausePanel || this.panel)) this.leave();
+      if (this.pausePanel || this.panel) this.leave();
     });
     this.input.keyboard!.on("keydown-ESC", () => (this.game_.paused ? this.unpause() : this.pause()));
   }
@@ -170,13 +177,14 @@ export class UIScene extends Phaser.Scene {
       if (net.isHost) net.again();
       return;
     }
+    // Solo: the menu starts a fresh run with your updated loadout.
     this.controls.reset();
-    this.game_.scene.restart();
-    this.scene.restart();
+    this.game.events.emit("soloAgain");
   }
 
-  /** Back to the menu. */
+  /** Back to the menu. Quitting a solo run early still takes your loot home. */
   private leave(): void {
+    this.game_.reportRun();
     this.game.events.emit("leave");
   }
 
@@ -326,23 +334,29 @@ export class UIScene extends Phaser.Scene {
   private showEndPanel(world: World, won: boolean): void {
     const run = world.run;
     const c = this.add.container(SCREEN.w / 2, SCREEN.h / 2);
-    const bg = this.add.rectangle(0, 0, 300, 130, 0x1b1020, 0.92).setStrokeStyle(2, won ? 0x5fd36a : 0xf2c14e);
+    const bg = this.add.rectangle(0, 0, 330, 176, 0x1b1020, 0.92).setStrokeStyle(2, won ? 0x5fd36a : 0xf2c14e);
     const t = (y: number, s: string, size: number, tint = 0xffffff) => this.add.bitmapText(0, y, "pixel", s, size).setOrigin(0.5).setLetterSpacing(-1).setTint(tint);
     const mins = Math.floor(run.time / 60);
     const secs = String(Math.floor(run.time % 60)).padStart(2, "0");
     c.add([
       bg,
-      t(-44, won ? "LUGGAGE RECOVERED!" : "LUGGAGE LOST", 16, won ? 0x5fd36a : 0xe0533d),
-      t(-18, won ? "THE FOREMAN HAS BEEN ESCALATED." : `REACHED ROOM ${run.room.index + 1}/${run.plans.length}`, 8),
-      t(-2, `${mins}:${secs}   ${run.kills} KILLS   ${run.gunsFound} GUNS FOUND`, 8, 0xc9cfd6),
-      t(14, won ? "PLEASE RATE YOUR CRUISE." : "THE CRUISE LINE IS NOT LIABLE.", 8, 0xc9cfd6),
+      t(-70, won ? "LUGGAGE RECOVERED!" : "LUGGAGE LOST", 16, won ? 0x5fd36a : 0xe0533d),
+      t(-50, won ? "THE FOREMAN HAS BEEN ESCALATED." : `REACHED ROOM ${run.room.index + 1}/${run.plans.length}. THE CRUISE LINE IS NOT LIABLE.`, 8),
+      t(-38, `${mins}:${secs}   ${run.kills} KILLS   ${run.gunsFound} GUNS FOUND`, 8, 0xc9cfd6),
     ]);
+    this.rewardText = [-20, -8, 4, 16, 28].map((y) => t(y, "", 8));
+    c.add(this.rewardText);
+    this.rewardShown = false;
     const net = this.game_.net;
-    if (!net) c.add(t(42, this.controls.touchMode ? "TAP FOR ANOTHER RUN" : "CLICK OR ENTER FOR ANOTHER RUN", 8, 0xf2c14e));
-    else {
-      if (net.isHost) this.panelButton(c, -50, 42, "ANOTHER RUN", 0xf2c14e, () => this.restart());
-      else c.add(t(30, "WAITING FOR THE HOST...", 8, 0xc9cfd6));
-      this.panelButton(c, net.isHost ? 50 : 0, 42, "LEAVE", 0xc9cfd6, () => this.leave());
+    if (!net) {
+      this.showReward(this.game_.reportRun());
+      this.panelButton(c, -55, 60, this.controls.touchMode ? "ANOTHER RUN" : "ANOTHER RUN (ENTER)", 0xf2c14e, () => this.restart());
+      this.panelButton(c, 70, 60, this.controls.touchMode ? "MENU" : "MENU (L)", 0xc9cfd6, () => this.leave());
+    } else {
+      this.rewardText[0]!.setText(net.lobby?.seats.length ? "SAVING YOUR LOOT..." : "").setTint(0xc9cfd6);
+      if (net.isHost) this.panelButton(c, -50, 60, "ANOTHER RUN", 0xf2c14e, () => this.restart());
+      else c.add(t(46, "WAITING FOR THE HOST...", 8, 0xc9cfd6));
+      this.panelButton(c, net.isHost ? 50 : 0, 60, "LEAVE", 0xc9cfd6, () => this.leave());
     }
     c.setScale(0.6).setAlpha(0);
     this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 350, ease: "Back.out", delay: won ? 0 : 500 });
@@ -351,10 +365,37 @@ export class UIScene extends Phaser.Scene {
     this.panel = c;
   }
 
+  /** XP, levels and loot on the end panel. Guests see what they would have kept. */
+  private showReward(r: RunReward | undefined, guest = false): void {
+    const lines = this.rewardText;
+    if (lines.length === 0) return;
+    this.rewardShown = true;
+    if (!r) {
+      lines[0]!.setText(guest ? "PLAYING AS A GUEST: NOTHING IS SAVED." : "").setTint(0xc9cfd6);
+      lines[1]!.setText(guest ? "SIGN IN FROM THE MENU TO KEEP XP AND LOOT." : "").setTint(0xc9cfd6);
+      return;
+    }
+    const up = r.levelAfter > r.levelBefore;
+    lines[0]!.setText(`+${r.xp} XP${up ? `   LEVEL UP! LV ${r.levelAfter}` : ""}`).setTint(up ? 0xf2c14e : 0x5fd3e8);
+    lines[1]!.setText(r.bonuses.join("  ")).setTint(0xc9cfd6);
+    const loot = r.kept === 0 ? "NO NEW GUNS THIS TIME" : `${r.kept} GUN${r.kept === 1 ? "" : "S"} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}`;
+    lines[2]!.setText(loot + (r.scrapped ? ` (${r.scrapped} SCRAPPED: STASH FULL)` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
+    lines[3]!.setText(r.souvenir ? "SOUVENIR FOUND! UNPACK IT IN THE MENU" : up ? "NEW SKILL POINTS: SPEND THEM IN THE MENU" : "").setTint(0xf2c14e);
+    if (r.souvenir && up) lines[4]!.setText("NEW SKILL POINTS TOO").setTint(0xf2c14e);
+    if (up || r.souvenir || r.legendaries) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
+  }
+
   update(): void {
     const game = this.game_;
     const world = game?.world;
     if (!world) return;
+    // Co-op: the server's reward for this run arrives a moment after the end.
+    const net = game.net;
+    if (net && this.panel && !this.rewardShown) {
+      const r = net.reward;
+      if (r && r.runId === net.lobby?.runId) this.showReward(r.reward);
+      else if (!net.isAccount && this.rewardText.length) this.showReward(undefined, true);
+    }
     const p = game.me;
     const g = this.gfx;
     g.clear();
@@ -371,6 +412,9 @@ export class UIScene extends Phaser.Scene {
         // The party keeps going while this is open.
         c.add(this.add.bitmapText(0, 14, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
         this.panelButton(c, 0, 36, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
+      } else {
+        c.add(this.add.bitmapText(0, 14, "pixel", "QUITTING KEEPS THE GUNS YOU PICKED UP", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        this.panelButton(c, 0, 36, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
       }
       this.pausePanel = c;
     }
@@ -421,7 +465,6 @@ export class UIScene extends Phaser.Scene {
     } else if (this.statusShown) this.subBanner.setAlpha(0).setTint(0xffe08a);
     this.statusShown = !!status;
 
-    const net = game.net;
     this.netText.setVisible(!!net).setText(net ? `ROOM ${net.lobby?.code ?? ""}  ${Math.round(net.rtt)}MS` : "");
   }
 
@@ -574,8 +617,12 @@ export class UIScene extends Phaser.Scene {
       const st = gunStats(gun);
       lines.push([gunName(gun).toUpperCase(), RARITY_COLORS[gun.rarity]]);
       const elem = gun.element !== "none" ? `  ${ELEMENT_INFO[gun.element].adjective}: ${ELEMENT_INFO[gun.element].text}` : "";
-      lines.push([`${gun.rarity} ${st.archetype}${elem}`.toUpperCase(), gun.element !== "none" ? ELEMENT_COLORS[gun.element] : 0xc9cfd6]);
+      lines.push([`${gun.rarity} ${st.archetype} BY ${MAKERS[gun.maker].short}${elem}`.toUpperCase(), gun.element !== "none" ? ELEMENT_COLORS[gun.element] : 0xc9cfd6]);
+      const leg = gun.legendary ? LEGENDARIES[gun.legendary] : undefined;
+      if (leg) lines.push([leg.text.toUpperCase(), 0xff9a2a]);
+      else if (gun.maker !== "cruise") lines.push([MAKERS[gun.maker].quirk.toUpperCase(), 0xc9cfd6]);
       for (const perk of gun.perks) lines.push([`+ ${PERKS[perk].text}`.toUpperCase(), 0xffffff]);
+      if (gun.loaner) lines.push(["LOANER: PROPERTY OF THE CRUISE LINE. STAYS HERE.", 0xc9cfd6]);
       const dps = Math.round(gunDps(gun));
       const diff = dps - Math.round(gunDps(current));
       lines.push([`DPS ${dps} (${diff >= 0 ? "+" : ""}${diff} VS YOURS)  ${press("SWAP")}`, diff >= 0 ? 0x5fd36a : 0xe0533d]);

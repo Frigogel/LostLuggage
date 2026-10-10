@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createWorld, EMPTY_INPUT, ENEMIES, gunStats, planRun, planWave, rollGun, step, type PlayerInput, type World } from "../src";
+import { createWorld, EMPTY_INPUT, ENEMIES, GUNS, gunDps, gunName, gunStats, LEGENDARIES, MAKER_IDS, planRun, planWave, rollGun, step, type PlayerInput, type World } from "../src";
 import { damageEnemy, spawnEnemy } from "../src/combat";
 import { newGun } from "../src/loot";
 
@@ -179,12 +179,48 @@ describe("loot", () => {
     const w = quiet();
     for (let i = 0; i < 200; i++) {
       const g = rollGun(w, 2);
-      const base = newGun(w, g.defId);
+      // Same gun from the same maker, as a plain common: rarity alone may add at most 10%.
+      const base = newGun(w, g.defId, "common", "none", [], g.maker);
       expect(gunStats({ ...g, element: "none" }).damage / gunStats(base).damage).toBeLessThanOrEqual(1.1 + 1e-9);
     }
-    const legendary = rollGun(w, 0, "legendary");
-    expect(legendary.perks.length).toBe(3);
-    expect(legendary.element).not.toBe("none");
+  });
+
+  it("every legendary is a named gun with its own effect", () => {
+    const w = quiet();
+    const names = new Set<string>();
+    for (let i = 0; i < 60; i++) {
+      const g = rollGun(w, 0, "legendary");
+      const def = LEGENDARIES[g.legendary!]!;
+      expect(def).toBeDefined();
+      expect(g.defId).toBe(def.defId);
+      expect(g.maker).toBe(def.maker);
+      expect(g.perks.length).toBe(2);
+      names.add(gunName(g));
+    }
+    expect(names.size).toBe(Object.keys(LEGENDARIES).length);
+  });
+
+  it("manufacturers change the feel, not the power: sustained DPS stays within a narrow band", () => {
+    const w = quiet();
+    for (const defId of Object.keys(GUNS)) {
+      const cruise = gunDps(newGun(w, defId));
+      for (const maker of MAKER_IDS) {
+        const ratio = gunDps(newGun(w, defId, "common", "none", [], maker)) / cruise;
+        expect(ratio, `${maker} ${defId}`).toBeGreaterThan(0.8);
+        expect(ratio, `${maker} ${defId}`).toBeLessThan(1.25);
+      }
+    }
+    // And each has its quirk.
+    expect(gunStats(newGun(w, "pistol", "common", "none", [], "dwarfcorp")).pips).toBe(2);
+    expect(gunStats(newGun(w, "pistol", "common", "none", [], "megamart")).pips).toBe(6);
+    expect(gunStats(newGun(w, "pistol", "common", "none", [], "goblin")).pellets).toBe(3);
+    expect(gunStats(newGun(w, "pistol", "common", "none", [], "wizard")).homing).toBeGreaterThan(0);
+    for (let i = 0; i < 100; i++) {
+      const g = rollGun(w, 1);
+      // (Mood Ring is the exception: it cycles through every element.)
+      if (g.maker === "arcane" && !g.legendary) expect(g.element).not.toBe("none");
+      expect(g.maker).not.toBe("cruise");
+    }
   });
 
   it("suitcases open with the pickup button and drop two guns", () => {

@@ -15,6 +15,7 @@ import {
   REVIVE,
   step as simStep,
   sub,
+  unpredictable,
   ventState,
   type Enemy,
   type Pickup,
@@ -22,6 +23,7 @@ import {
   type PlayerInput,
   type PlayerOptions,
   type Projectile,
+  type RunReward,
   type SimEvent,
   type Vec,
   type World,
@@ -36,6 +38,8 @@ import type { UIScene } from "./UIScene";
 export interface GameData {
   net?: NetSession;
   profile?: PlayerOptions;
+  /** Solo: saves the run (XP, loot) and says what it earned. Co-op rewards come from the server instead. */
+  onRunEnd?: (w: World, me: Player) => RunReward | undefined;
 }
 
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
@@ -103,6 +107,10 @@ export class GameScene extends Phaser.Scene {
   myId = -1;
 
   private profile: PlayerOptions = {};
+  private onRunEnd?: GameData["onRunEnd"];
+  /** Solo: what this run earned, once it has been saved. */
+  reward?: RunReward;
+  private reported = false;
   private acc = 0;
   private alpha = 0;
   private hitStop = 0;
@@ -139,6 +147,9 @@ export class GameScene extends Phaser.Scene {
     // Scene instances are reused on restart, so reset all per-run state here.
     this.net = data.net;
     this.profile = data.profile ?? {};
+    this.onRunEnd = data.onRunEnd;
+    this.reward = undefined;
+    this.reported = false;
     this.myId = -1;
     this.acc = 0;
     this.alpha = 0;
@@ -294,6 +305,14 @@ export class GameScene extends Phaser.Scene {
     if (!this.net) return;
     this.net.setAway(false);
     sfx.unlock();
+  }
+
+  /** Solo: saves the run once, at the end or when quitting early (you keep what you picked up). */
+  reportRun(): RunReward | undefined {
+    if (this.net || this.reported || !this.onRunEnd) return this.reward;
+    this.reported = true;
+    this.reward = this.onRunEnd(this.world, this.me);
+    return this.reward;
   }
 
   resume(): void {
@@ -459,7 +478,8 @@ export class GameScene extends Phaser.Scene {
     const s = gunStats(shot.gun);
     const me = this.me;
     this.shotFx(me.id, shot.x, shot.y, s.archetype, shot.gun.element, true);
-    if (s.lob) return; // Lobbed shots are slow arcs; the server's version shows up in time.
+    // Lobbed shots are slow arcs, and curving or returning shots can't be guessed: the server's version shows up in time.
+    if (s.lob || unpredictable(shot.gun)) return;
     const bounces = (shot.gun.perks.includes("bounce") ? 1 : 0) + (me.boosts.bounce ?? 0);
     const spread = (s.spreadDeg * Math.PI) / 180;
     for (let i = 0; i < s.pellets; i++) {
@@ -682,6 +702,15 @@ export class GameScene extends Phaser.Scene {
       case "blocked":
         this.flash(ev.x, ev.y, 0x5fd3e8, 30, 200);
         this.ringFx(ev.x, ev.y, 14, 0x9ff3ff, 200);
+        sfx.play("blocked");
+        break;
+      case "domePulse":
+        this.ringFx(ev.x, ev.y, ev.radius, 0x9ff3ff, 280);
+        sfx.play("zap");
+        break;
+      case "reflect":
+        this.flash(ev.x, ev.y, 0x9ff3ff, 40, 200);
+        this.ringFx(ev.x, ev.y, 12, 0xffffff, 200);
         sfx.play("blocked");
         break;
       case "spark":
@@ -916,6 +945,13 @@ export class GameScene extends Phaser.Scene {
       const k = Math.min(1, h.t / 0.6); // fade out at the end
       const grow = Math.min(1, (h.maxT - h.t) / 0.25); // and pop in at the start
       const r = h.radius * grow;
+      if (h.kind === "fire") {
+        // Burning ground from Hot Take: flickering orange, with a flame now and then.
+        g.fillStyle(0xff7a1a, 0.35 * k).fillEllipse(h.pos.x, h.pos.y, r * 2, r * 1.4);
+        g.fillStyle(0xffe08a, (0.2 + 0.15 * Math.sin(t * 0.02 + h.id)) * k).fillEllipse(h.pos.x, h.pos.y, r, r * 0.7);
+        if (Math.random() < 0.08 * k) this.flames.explode(1, h.pos.x + (Math.random() - 0.5) * r, h.pos.y);
+        continue;
+      }
       g.fillStyle(0x4fa63a, 0.45 * k).fillEllipse(h.pos.x, h.pos.y, r * 2, r * 1.5);
       g.fillStyle(0x7ee05a, 0.35 * k).fillEllipse(h.pos.x - 1, h.pos.y - 1, r * 1.4, r);
       // Bubbles.
@@ -1225,7 +1261,7 @@ export class GameScene extends Phaser.Scene {
     const seen = new Set<number>();
     for (const pr of w.projectiles) {
       // Co-op draws your own straight shots from prediction (renderLocalBullets), not from the server.
-      if (this.net && pr.owner === "player" && pr.ownerId === this.myId && !pr.lob) continue;
+      if (this.net && pr.owner === "player" && pr.ownerId === this.myId && !pr.lob && !pr.special) continue;
       seen.add(pr.id);
       let v = this.projViews.get(pr.id);
       if (!v) {
@@ -1268,6 +1304,10 @@ export class GameScene extends Phaser.Scene {
       if (pr.kind === "acid") img.setTint(0x7ee05a);
       glow.setTint(pr.owner === "enemy" ? (pr.kind === "acid" ? 0x7ee05a : 0xff6a3c) : pr.element === "none" ? 0xffd27a : elem).setScale(0.5).setAlpha(0.6);
       return { img, glow, shadow: this.take("shadow-s").setDepth(D.ground + 1) };
+    }
+    if (pr.kind === "rocket") {
+      glow.setTint(0xff7a1a).setScale(0.6).setAlpha(0.9);
+      return { img: this.take("shell").setTint(0xffe08a), glow };
     }
     if (pr.owner === "enemy") {
       // Wizard bolts: slow, big, purple and readable.

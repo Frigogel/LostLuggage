@@ -29,5 +29,10 @@ game.events.once("booted", () => {
   else menu.show();
 });
 
+// Cache the game for offline solo runs. Only in builds: in development it would get in the way of hot reload.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  addEventListener("load", () => void navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
+
 // Handy for poking at the sim from the browser console while developing.
 if (import.meta.env.DEV) Object.assign(window, { game, menu });

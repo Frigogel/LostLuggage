@@ -1,6 +1,13 @@
 import { Room, type Client } from "colyseus";
 import {
   addPlayer,
+  cleanName,
+  helpedNewer,
+  localDay,
+  playerOptions,
+  randomId,
+  rollGun,
+  runResult,
   createWorld,
   decodeInput,
   DT,
@@ -13,10 +20,15 @@ import {
   step,
   TIER_LEVELS,
   type PlayerInput,
+  type PlayerOptions,
+  type RewardInfo,
   type SimEvent,
   type World,
 } from "@lostluggage/sim";
 import type { JoinOptions, LobbyInfo, RoomOptions } from "@lostluggage/sim";
+import { getDb } from "./db";
+
+export { cleanName };
 
 /** Inputs a client may queue ahead of the sim before the oldest are folded together. */
 const MAX_QUEUE = 4;
@@ -40,21 +52,16 @@ function newCode(): string {
   }
 }
 
-/** Names are drawn with the pixel font, which has capitals, digits and a few symbols. */
-export function cleanName(raw: unknown, fallback: string): string {
-  const name = String(raw ?? "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9 .!?-]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 10);
-  return name || fallback;
-}
-
 interface Seat {
   sessionId: string;
   name: string;
   level: number;
+  /** Signed-in players: rewards are saved to this account. Guests have none and keep nothing. */
+  accountId?: number;
+  /** Guests: what they asked for when joining. Accounts reload their saved hero at every run start. */
+  guest: PlayerOptions;
+  /** The run this seat was last paid for, so nobody is rewarded twice. */
+  awardedRun: number;
   /** The sim player this client drives, or -1 before the run starts. */
   playerId: number;
   queue: { seq: number; input: PlayerInput }[];
@@ -117,10 +124,16 @@ export class RunRoom extends Room {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
+    const account = getDb().accountForToken(options.token);
+    const name = cleanName(options.name, `PLAYER ${this.seats.size + 1}`);
+    const level = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(options.level) || 1)));
     const seat: Seat = {
       sessionId: client.sessionId,
-      name: cleanName(options.name, `PLAYER ${this.seats.size + 1}`),
-      level: Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(options.level) || 1))),
+      name,
+      level,
+      accountId: account?.id,
+      guest: { name, level },
+      awardedRun: -1,
       playerId: -1,
       queue: [],
       lastSeq: -1,
@@ -129,11 +142,12 @@ export class RunRoom extends Room {
       backgrounded: false,
       connected: true,
     };
+    this.refresh(seat);
     this.seats.set(client.sessionId, seat);
     this.order.push(client.sessionId);
     // Drop-in: a run in progress gets a new hero next to the party.
     if (this.world) {
-      const p = addPlayer(this.world, { name: seat.name, level: seat.level });
+      const p = addPlayer(this.world, this.optionsFor(seat));
       if (p) seat.playerId = p.id;
     }
     this.broadcastLobby();
@@ -166,6 +180,8 @@ export class RunRoom extends Room {
   onLeave(client: Client): void {
     const seat = this.seats.get(client.sessionId);
     if (!seat) return;
+    // Leaving early still takes your loot home.
+    if (this.world) this.award(seat, this.world, undefined);
     this.seats.delete(client.sessionId);
     this.order = this.order.filter((id) => id !== client.sessionId);
     if (this.world && seat.playerId >= 0) removePlayer(this.world, seat.playerId);
@@ -185,13 +201,43 @@ export class RunRoom extends Room {
     if (p) p.away = seat.backgrounded || !seat.connected;
   }
 
+  /** Reloads a signed-in seat's saved hero: the loadout may have changed since the last run. */
+  private refresh(seat: Seat): void {
+    if (seat.accountId === undefined) return;
+    const profile = getDb().profile(seat.accountId);
+    seat.name = cleanName(profile.name, seat.name);
+    seat.level = playerOptions(profile).level ?? 1;
+  }
+
+  private optionsFor(seat: Seat): PlayerOptions {
+    if (seat.accountId === undefined) return seat.guest;
+    return { ...playerOptions(getDb().profile(seat.accountId)), name: seat.name };
+  }
+
+  /** Saves a seat's run to its account and tells the client what it earned. */
+  private award(seat: Seat, w: World, client: Client | undefined): void {
+    if (seat.accountId === undefined || seat.awardedRun === this.runId) return;
+    const p = w.players.find((pl) => pl.id === seat.playerId);
+    if (!p) return;
+    seat.awardedRun = this.runId;
+    const helped = helpedNewer(w, p);
+    const result = runResult(w, p, { mode: "coop", day: localDay(), helped });
+    // The doc's extra loot roll for helping someone below the dungeon tier.
+    if (helped && w.run.victory) result.guns.push({ ...rollGun(w, 0.6, "rare"), id: randomId(), new: true });
+    const actionId = `coop-${randomId()}`;
+    const { profile, rewards } = getDb().apply(seat.accountId, [{ type: "run", id: actionId, result }]);
+    const reward = rewards[actionId];
+    if (client && reward) client.send("reward", { runId: this.runId, reward, profile } satisfies RewardInfo);
+  }
+
   private startRun(): void {
     const seats = this.order.map((id) => this.seats.get(id)!);
+    seats.forEach((s) => this.refresh(s));
     this.world = createWorld({
       seed: (Math.random() * 2 ** 31) | 0,
       coop: true,
       tier: this.tier,
-      players: seats.map((s) => ({ name: s.name, level: s.level })),
+      players: seats.map((s) => this.optionsFor(s)),
     });
     seats.forEach((s, i) => {
       s.playerId = this.world!.players[i]!.id;
@@ -261,6 +307,9 @@ export class RunRoom extends Room {
 
     step(w, inputs);
     for (const ev of w.events) this.pending.push(ev);
+    if (w.events.some((ev) => ev.type === "victory" || ev.type === "gameOver")) {
+      for (const seat of this.seats.values()) this.award(seat, w, this.clients.find((c) => c.sessionId === seat.sessionId));
+    }
 
     if (w.tick % SNAPSHOT_EVERY === 0 || w.gameOver) {
       const acks = new Map<number, number>();
