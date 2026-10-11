@@ -1,5 +1,6 @@
 import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, spawnEnemy, submerged, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
+import { MYTHIC } from "./data/mythics";
 import { isBlackHole } from "./domes";
 import { eliteHaste, eliteSpeed, updateElite } from "./elites";
 import { hurtGadget, hurtGadgetsIn, tauntOf, tauntSlow, TURRET } from "./gadgets";
@@ -118,7 +119,13 @@ function updateEnemy(w: World, e: Enemy): void {
   if (e.hp <= 0) return;
   if (e.spawnT > 0) {
     e.spawnT -= DT;
-    if (e.spawnT <= 0) w.events.push({ type: "enemySpawn", id: e.id });
+    if (e.spawnT > 0) return;
+    if (e.lost) {
+      // Lost & Found: it turns up again where it was misplaced, not quite sure what happened.
+      e.lost = false;
+      e.stunT = Math.max(e.stunT, MYTHIC.foundDazeS);
+      w.events.push({ type: "found", id: e.id });
+    } else w.events.push({ type: "enemySpawn", id: e.id });
     return;
   }
   e.hitFlash = Math.max(0, e.hitFlash - DT);
@@ -126,6 +133,7 @@ function updateEnemy(w: World, e: Enemy): void {
   // Statuses.
   const s = e.status;
   s.acidT = Math.max(0, s.acidT - DT);
+  e.dutyT = Math.max(0, e.dutyT - DT);
   s.frost = Math.max(0, s.frost - 0.8 * DT);
   e.slowT = Math.max(0, e.slowT - DT);
   if (e.slowT <= 0) e.slow = 0;

@@ -108,6 +108,30 @@ export const GRENADES: Record<string, GrenadeDef> = {
     knockback: 60,
     mythic: "rewind",
   },
+  lost_and_found: {
+    id: "lost_and_found",
+    name: "Lost & Found",
+    flavor: "We'll call you when it turns up. Don't hold your breath.",
+    text: "Enemies in the blast are misplaced for 6s, then turn up dazed. Bosses only stagger",
+    element: "none",
+    damage: 0.3,
+    radius: 1.3,
+    cooldown: 1.4,
+    knockback: 0,
+    mythic: "misplace",
+  },
+  duty_free: {
+    id: "duty_free",
+    name: "Duty Free",
+    flavor: "Tax-free, and the savings are passed on to you.",
+    text: "Enemies in the blast that die within 5s drop an extra gun",
+    element: "none",
+    damage: 0.7,
+    radius: 1.3,
+    cooldown: 1.2,
+    knockback: 90,
+    mythic: "dutyfree",
+  },
 };
 
 /** Every grenade kind, mythics included: what saves and the wire know. */

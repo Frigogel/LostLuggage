@@ -295,7 +295,10 @@ export class GameScene extends Phaser.Scene {
         const at = this.world.players[0]!.pos;
         ids.forEach((id, i) => {
           const m = mythicItem(this.world, id);
-          const pos = { x: at.x + (i - (ids.length - 1) / 2) * 44, y: at.y - 40 };
+          const row = Math.floor(i / 5);
+          const inRow = Math.min(5, ids.length - row * 5);
+          // One row above you, the rest below, so none hide under the HUD.
+          const pos = { x: at.x + ((i % 5) - (inRow - 1) / 2) * 44, y: at.y + (row === 0 ? -34 : 26) };
           this.world.pickups.push({ id: this.world.nextId++, kind: "gun" in m ? "gun" : "grenade", pos, ...m, used: false });
         });
       }
@@ -1169,6 +1172,11 @@ export class GameScene extends Phaser.Scene {
         if (ev.gone) {
           this.smoke.explode(6, ev.x, ev.y);
           sfx.play("gadgetGone");
+        } else if (ev.kind === "ghost") {
+          // Excess Baggage: the enemy rises again, pale and on your side.
+          this.flash(ev.x, ev.y, 0x9ff3ff, 60, 400);
+          this.ringFx(ev.x, ev.y, 18, 0x9ff3ff, 350);
+          sfx.play("ghost");
         } else {
           this.flash(ev.x, ev.y, ev.kind === "drone" ? 0x5fd36a : 0xffb238, 50, 300);
           this.smoke.explode(4, ev.x, ev.y + 4);
@@ -1215,6 +1223,33 @@ export class GameScene extends Phaser.Scene {
         const e = this.enemyById(ev.id);
         if (e) this.floatText(e.pos.x, e.pos.y - e.radius * 2 - 4, "Z", 0x7ff0ff, 8, 900);
         sfx.play("snooze");
+        break;
+      }
+      case "misplaced":
+        // Lost & Found: a puff, and it's gone.
+        this.smoke.explode(8, ev.x, ev.y);
+        this.flash(ev.x, ev.y, 0xe8b04a, 40, 300);
+        this.floatText(ev.x, ev.y - 14, "MISPLACED", 0xe8b04a, 8, 800);
+        sfx.play("misplace");
+        break;
+      case "found": {
+        const e = this.enemyById(ev.id);
+        if (e) {
+          this.smoke.explode(6, e.pos.x, e.pos.y);
+          this.floatText(e.pos.x, e.pos.y - e.radius * 2 - 4, "FOUND?", 0xe8b04a, 8, 800);
+        }
+        sfx.play("found");
+        break;
+      }
+      case "swapped": {
+        // Boarding Pass: a streak of light between the two seats, and a flash at each end.
+        for (const [x, y] of [[ev.x1, ev.y1], [ev.x2, ev.y2]] as const) {
+          this.flash(x, y, 0x5ff2ff, 50, 350);
+          this.ringFx(x, y, 16, 0xffd34d, 300);
+        }
+        const steps = 8;
+        for (let i = 1; i < steps; i++) this.flash(ev.x1 + ((ev.x2 - ev.x1) * i) / steps, ev.y1 + ((ev.y2 - ev.y1) * i) / steps, 0x5ff2ff, 14, 300);
+        sfx.play("chime");
         break;
       }
       case "rewound": {
@@ -1695,6 +1730,21 @@ export class GameScene extends Phaser.Scene {
       }
       const pos = this.lerpPos(e.id, e.pos, alpha);
 
+      if (e.spawnT > 0 && e.lost) {
+        // Lost & Found: gone, but a luggage tag marks where it'll turn up, swinging and filling as the time runs out.
+        const swing = Math.sin(t * 0.006 + e.id) * 2;
+        const fill = 1 - Math.min(1, e.spawnT / 6);
+        const tx = Math.round(pos.x + swing);
+        const ty = Math.round(pos.y - 6);
+        g.lineStyle(1, 0xd9dde3, 0.6).lineBetween(pos.x, pos.y - 14, tx, ty - 4);
+        g.fillStyle(0x1b1020, 0.8).fillRect(tx - 4, ty - 4, 9, 8);
+        g.fillStyle(0xe8b04a, 0.9).fillRect(tx - 3, ty - 3, 7, 6);
+        g.fillStyle(0xffd34d, 0.9).fillRect(tx - 3, ty + 3 - Math.round(6 * fill), 7, Math.round(6 * fill));
+        g.fillStyle(0x3b2a6e, 1).fillRect(tx - 1, ty - 2, 3, 1).fillRect(tx + 1, ty - 1, 1, 1).fillRect(tx, ty, 1, 1).fillRect(tx, ty + 2, 1, 1);
+        v.body.setVisible(false);
+        v.shadow.setVisible(false);
+        continue;
+      }
       if (e.spawnT > 0) {
         // Arrival telegraph: a portal ring that closes in, so spawns are never unfair.
         const k = Math.min(1, e.spawnT / 0.8);
@@ -1861,6 +1911,16 @@ export class GameScene extends Phaser.Scene {
         const ang = a + (i * Math.PI) / 2;
         o.lineBetween(pos.x + Math.cos(ang) * (r - 3), cy + Math.sin(ang) * (r - 3), pos.x + Math.cos(ang) * (r + 3), cy + Math.sin(ang) * (r + 3));
       }
+    }
+    if (e.dutyT > 0) {
+      // Duty Free: a gold price tag bobbing over its head. Kill it before it runs out for an extra gun.
+      const bob = Math.round(Math.sin(t * 0.008 + e.id) * 1.5);
+      const tx = Math.round(pos.x - e.radius - 4);
+      const ty = Math.round(pos.y - e.radius * 2 - 6 + bob);
+      const blink = e.dutyT < 1 && Math.floor(t / 100) % 2 === 0 ? 0.4 : 1;
+      o.fillStyle(0x1b1020, blink).fillRect(tx - 1, ty - 1, 7, 9);
+      o.fillStyle(0xffd34d, blink).fillRect(tx, ty, 5, 7);
+      o.fillStyle(0x7a3fc4, blink).fillRect(tx + 1, ty + 1, 3, 1).fillRect(tx + 1, ty + 2, 1, 1).fillRect(tx + 1, ty + 3, 3, 1).fillRect(tx + 3, ty + 4, 1, 1).fillRect(tx + 1, ty + 5, 3, 1);
     }
     if (e.sleepT > 0) {
       // Asleep (Snooze Button): little z's drifting up off its head.
@@ -2122,7 +2182,7 @@ export class GameScene extends Phaser.Scene {
       if (!v) {
         v = {
           shadow: this.add.image(0, 0, "shadow-s").setDepth(D.ground + 1),
-          body: this.add.image(0, 0, g.kind === "turret" ? "turret" : "owl").setOrigin(0.5, 1),
+          body: this.add.image(0, 0, g.kind === "turret" ? "turret" : g.kind === "ghost" ? (g.defId ?? "cone_rat") : "owl").setOrigin(0.5, 1),
           light: this.add.image(0, 0, "glow").setBlendMode(Phaser.BlendModes.ADD).setDepth(D.light),
         };
         this.gadgetViews.set(g.id, v);
@@ -2155,6 +2215,17 @@ export class GameScene extends Phaser.Scene {
         this.over.fillStyle(0x1b1020).fillRect(Math.round(g.pos.x - bw / 2) - 1, Math.round(g.pos.y - 14) - 1, bw + 2, 3);
         this.over.fillStyle(0xf2c14e).fillRect(Math.round(g.pos.x - bw / 2), Math.round(g.pos.y - 14), Math.max(1, Math.round((bw * g.hp) / g.maxHp)), 1);
       }
+      return;
+    }
+    if (g.kind === "ghost") {
+      // Excess Baggage: the enemy as a pale, flickering ghost, floating a little, glowing your color underneath.
+      const prey = this.world.enemies.reduce<Enemy | undefined>((best, e) => (e.spawnT > 0 || e.state === "hidden" ? best : !best || Math.hypot(e.pos.x - g.pos.x, e.pos.y - g.pos.y) < Math.hypot(best.pos.x - g.pos.x, best.pos.y - g.pos.y) ? e : best), undefined);
+      const hover = Math.sin(t * 0.01 + g.id) * 1.5;
+      const flicker = 0.55 + 0.15 * Math.sin(t * 0.03 + g.id);
+      v.body.setPosition(g.pos.x, g.pos.y + 5 + hover - 2).setTint(0x9ff3ff).setAlpha(ending ? 0.3 : flicker).setFlipX(!!prey && prey.pos.x < g.pos.x).setDepth(g.pos.y);
+      v.shadow.setPosition(g.pos.x, g.pos.y + 4).setAlpha(0.3);
+      v.light.setPosition(g.pos.x, g.pos.y - 4).setTint(0x9ff3ff).setScale(0.8).setAlpha(0.35);
+      this.ground.lineStyle(1, color, 0.5).strokeEllipse(g.pos.x, g.pos.y + 4, 14, 5);
       return;
     }
     // The owl bobs, and its healing reach shows as a soft green circle on the floor.

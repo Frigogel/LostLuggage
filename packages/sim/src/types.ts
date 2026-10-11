@@ -104,7 +104,7 @@ export interface GrenadeDef {
   /** Bursts into this many bomblets. */
   cluster?: number;
   /** Mythic grenades only: the ability that breaks the rules. They never come from the regular grenade roll. */
-  mythic?: "snooze" | "rewind";
+  mythic?: "snooze" | "rewind" | "misplace" | "dutyfree";
 }
 
 /** What makes a grenade that grenade: everything a stash saves. */
@@ -512,6 +512,10 @@ export interface Enemy {
   stunT: number;
   /** Asleep (Snooze Button): like a stun, but any damage wakes it up. */
   sleepT: number;
+  /** Misplaced by Lost & Found: its `spawnT` is the time until it turns up again, dazed. */
+  lost: boolean;
+  /** Tagged by Duty Free: dying before this runs out drops an extra gun. */
+  dutyT: number;
   /** Slowed by a Warden's drone: the fraction of speed taken away, refreshed while it's close. */
   slowT: number;
   slow: number;
@@ -542,7 +546,8 @@ export interface Enemy {
 /** Something a hero put on the field: a Tinker's turret or a Warden's drone. */
 export interface Gadget {
   id: number;
-  kind: "turret" | "drone";
+  /** A ghost is an enemy Excess Baggage killed, back for a few seconds to fight on your side. */
+  kind: "turret" | "drone" | "ghost";
   ownerId: number;
   pos: Vec;
   t: number;
@@ -559,6 +564,8 @@ export interface Gadget {
   mini: boolean;
   /** Guardian Owl already caught someone this time. */
   saved: boolean;
+  /** Ghosts: which enemy it was. */
+  defId?: string;
 }
 
 export interface Lob {
@@ -612,6 +619,10 @@ export interface Projectile {
   swat?: boolean;
   /** Customs Officer: hits take away an elite's modifier and any shield bar. */
   confiscate?: boolean;
+  /** In-Flight Service: passes through allies, healing them. */
+  service?: boolean;
+  /** Boarding Pass: swaps its shooter with the first teammate or (non-boss) enemy it hits. */
+  swap?: boolean;
 }
 
 export interface Dome {
@@ -874,6 +885,11 @@ export type SimEvent =
   /** Snooze Button put an enemy to sleep, or a Black Box rewound someone (`by` is who threw it). */
   | { type: "asleep"; id: number }
   | { type: "rewound"; id: number; by: number }
+  /** Lost & Found: an enemy vanished, or turned up again. */
+  | { type: "misplaced"; id: number; x: number; y: number }
+  | { type: "found"; id: number }
+  /** Boarding Pass: a player swapped places with someone (`other` is a player or enemy id). */
+  | { type: "swapped"; id: number; other: number; x1: number; y1: number; x2: number; y2: number }
   /** A shielded elite's front shield stopped a shot. */
   | { type: "deflect"; x: number; y: number }
   | { type: "playerDowned"; id: number; canRevive: boolean }

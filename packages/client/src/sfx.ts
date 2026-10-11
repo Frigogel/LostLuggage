@@ -234,6 +234,20 @@ class Sfx {
       case "snooze":
         if (this.ok(name, 300)) [880, 740, 587, 440].forEach((f, i) => this.tone(f, f * 0.98, 0.22, "sine", 0.18, i * 0.12));
         break;
+      case "chime":
+        // The airport PA: ding-dong.
+        if (this.ok(name, 200)) { this.tone(784, 784, 0.35, "sine", 0.22); this.tone(622, 622, 0.5, "sine", 0.22, 0.28); }
+        break;
+      case "ghost":
+        // A spooky slide down, then back up.
+        if (this.ok(name, 150)) { this.tone(900, 300, 0.35, "sine", 0.16); this.tone(300, 700, 0.3, "sine", 0.12, 0.3); }
+        break;
+      case "misplace":
+        if (this.ok(name, 150)) { this.noise(0.18, 0.3, 3000, 600); this.tone(700, 200, 0.2, "triangle", 0.16); }
+        break;
+      case "found":
+        if (this.ok(name, 120)) { this.tone(400, 900, 0.12, "triangle", 0.18); this.tone(900, 700, 0.1, "triangle", 0.12, 0.12); }
+        break;
       case "rewind":
         // Tape spooling backwards.
         if (this.ok(name, 200)) { this.tone(1800, 300, 0.45, "sawtooth", 0.1); this.tone(300, 1200, 0.35, "sine", 0.25, 0.4); this.noise(0.4, 0.12, 5000, 2000); }

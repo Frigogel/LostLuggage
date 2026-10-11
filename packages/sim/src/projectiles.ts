@@ -1,4 +1,4 @@
-import { damageEnemy, domeAt, DT, hurtPlayer, insideArenaSolid, nearestEnemy, newId, playerExplosion, targetable } from "./combat";
+import { confine, damageEnemy, domeAt, DT, healPlayer, hurtPlayer, insideArenaSolid, nearestEnemy, newId, playerExplosion, targetable } from "./combat";
 import { domeBlocked, reflect } from "./domes";
 import { confiscate, shieldBlocks } from "./elites";
 import { hurtGadget, hurtGadgetsIn, magnetize } from "./gadgets";
@@ -7,10 +7,11 @@ import { levelMultiplier } from "./data/heroes";
 import { MYTHIC } from "./data/mythics";
 import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub, type Vec } from "./math";
 import { ENEMIES } from "./data/enemies";
+import { gunStats } from "./loot";
 import { returnCharge } from "./enemies";
 import { dashedWithin, hasSkill, revive } from "./players";
 import { GRENADES } from "./data/grenades";
-import type { Element, Hazard, Player, Projectile, World } from "./types";
+import type { Element, Enemy, Hazard, Player, Projectile, World } from "./types";
 
 const HAZARD_ELEMENT: Record<Hazard["kind"], Element> = { fire: "fire", acid: "acid", ice: "frost", wave: "none", rewind: "none" };
 
@@ -75,6 +76,8 @@ function updateLob(w: World, pr: Projectile): boolean {
     const nade = pr.grenade ? GRENADES[pr.grenade] : undefined;
     if (nade?.mythic === "snooze") snooze(w, lob.to, lob.radius);
     if (nade?.mythic === "rewind") blackBox(w, lob.to, lob.radius, pr.ownerId);
+    if (nade?.mythic === "misplace") misplace(w, lob.to, lob.radius);
+    if (nade?.mythic === "dutyfree") dutyFree(w, lob.to, lob.radius);
     // Grenades that leave something behind: burning floor, frost, acid.
     const hz = nade?.hazard;
     if (hz) {
@@ -194,6 +197,19 @@ function updateStraight(w: World, pr: Projectile): boolean {
       const dmg = FIRE_LINE.damage * (owner ? levelMultiplier(owner.syncLevel) * owner.mods.damage : 1);
       w.hazards.push({ id: newId(w), kind: "fire", owner: "player", ownerId: pr.ownerId, pos: { ...pr.pos }, radius: FIRE_LINE.radius, t: FIRE_LINE.seconds, maxT: FIRE_LINE.seconds, damage: dmg, tickT: 0.5 });
     }
+    // In-Flight Service heals the allies it passes through; Boarding Pass swaps you with the first one it reaches.
+    if (pr.service || pr.swap) {
+      const shooter = w.players.find((p) => p.id === pr.ownerId);
+      for (const o of w.players) {
+        if (o.id === pr.ownerId || o.downed || o.away || pr.hitIds.includes(-o.id) || distToSegment(o.pos, from, pr.pos) > pr.radius + o.radius) continue;
+        if (pr.swap && shooter) {
+          swapPlaces(w, shooter, o, pr);
+          return false;
+        }
+        pr.hitIds.push(-o.id);
+        healPlayer(w, o, MYTHIC.serviceHeal, shooter);
+      }
+    }
     for (const e of [...w.enemies]) {
       if (!targetable(e) || pr.hitIds.includes(e.id)) continue;
       if (distToSegment(e.pos, from, pr.pos) > pr.radius + e.radius) continue;
@@ -213,6 +229,12 @@ function updateStraight(w: World, pr: Projectile): boolean {
       pr.hitIds.push(e.id);
       // Return to Sender: a charge caught mid-run gets sent back the way it came.
       if (pr.swat && e.hp > 0) returnCharge(w, e);
+      // Boarding Pass: you take its seat, it takes yours. Bosses don't trade.
+      if (pr.swap && !ENEMIES[e.defId]!.boss) {
+        const shooter = w.players.find((p) => p.id === pr.ownerId);
+        if (shooter && !shooter.downed) swapPlaces(w, shooter, e, pr);
+        return false;
+      }
       // Trick Shot: a hit on a mark bounces on to another mark.
       if (marked && pr.seekMarks) {
         const owner = w.players.find((pl) => pl.id === pr.ownerId);
@@ -275,6 +297,59 @@ function updateStraight(w: World, pr: Projectile): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Boarding Pass: the shooter and whoever the shot reached trade places, and the shot comes back. Turbulence goes off
+ * where it does the most good: under the enemy as it lands in your old spot (among whatever was chasing you), or
+ * around you as you arrive at a teammate's side (among whatever had them cornered). The enemy lands jet-lagged;
+ * the teammate gets a shield.
+ */
+function swapPlaces(w: World, p: Player, other: Player | Enemy, pr: Projectile): void {
+  const was = { ...p.pos };
+  const s = MYTHIC.swap;
+  p.pos = { ...other.pos };
+  other.pos = was;
+  p.knock = { x: 0, y: 0 };
+  other.knock = { x: 0, y: 0 };
+  p.iframes = Math.max(p.iframes, MYTHIC.swapIframes);
+  w.events.push({ type: "swapped", id: p.id, other: other.id, x1: was.x, y1: was.y, x2: p.pos.x, y2: p.pos.y });
+  if ("heroId" in other) {
+    other.iframes = Math.max(other.iframes, MYTHIC.swapIframes);
+    other.shield = Math.max(other.shield, s.shield);
+    playerExplosion(w, p.pos, s.radius, pr.damage * s.blast, s.knockback, p.id, pr.element, false, pr.gunUid);
+  } else {
+    confine(w, other.pos, other.radius);
+    if (other.hp > 0) other.stunT = Math.max(other.stunT, s.stunS);
+    playerExplosion(w, other.pos, s.radius, pr.damage * s.blast, s.knockback, p.id, pr.element, false, pr.gunUid);
+  }
+  // Priority boarding: the shot that got you there comes back.
+  const gun = p.guns.find((g) => g.uid === pr.gunUid);
+  if (gun) gun.pips = Math.min(gunStats(gun).pips, gun.pips + 1);
+}
+
+/** Lost & Found: everything in the blast vanishes for a while, then turns up again where it was. Bosses stagger. */
+function misplace(w: World, at: Vec, radius: number): void {
+  for (const e of w.enemies) {
+    if (!targetable(e) || dist(at, e.pos) > radius + e.radius) continue;
+    if (ENEMIES[e.defId]!.boss) {
+      e.stunT = Math.max(e.stunT, MYTHIC.bossStaggerS);
+      continue;
+    }
+    e.lost = true;
+    e.spawnT = MYTHIC.lostS;
+    e.state = "move";
+    e.stateT = 0;
+    e.burst = 0;
+    e.vel = { x: 0, y: 0 };
+    e.knock = { x: 0, y: 0 };
+    w.events.push({ type: "misplaced", id: e.id, x: e.pos.x, y: e.pos.y });
+  }
+}
+
+/** Duty Free: everything in the blast is tagged; dying while tagged drops an extra gun (see combat onKill). */
+function dutyFree(w: World, at: Vec, radius: number): void {
+  for (const e of w.enemies) if (targetable(e) && dist(at, e.pos) <= radius + e.radius) e.dutyT = MYTHIC.dutyS;
 }
 
 /** Snooze Button: everything in the blast falls asleep until something hits it. Bosses only nod off. */

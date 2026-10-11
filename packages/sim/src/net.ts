@@ -226,10 +226,10 @@ function encodeEnemy(e: Enemy): (number | number[])[] {
 
 /** Elites, marks, stuns, sleep, slows and split copies, or just 0 for the plain enemies that make up most of a room. */
 function encodeExtras(e: Enemy): number[] | 0 {
-  if (!e.elite && e.size === 1 && e.stunT <= 0 && e.sleepT <= 0 && e.markT <= 0 && e.slow <= 0) return 0;
+  if (!e.elite && e.size === 1 && e.stunT <= 0 && e.sleepT <= 0 && !e.lost && e.dutyT <= 0 && e.markT <= 0 && e.slow <= 0) return 0;
   return [
     e.elite ? ELITE_IDS.indexOf(e.elite) + 1 : 0, q(e.size, 100), q(e.stunT, T), q(e.markT, T), e.markBy, qa(angleOf(e.facing)),
-    e.link, q(e.linkT, T), e.blinkTo ? q(e.blinkTo.x, POS) : -1, e.blinkTo ? q(e.blinkTo.y, POS) : -1, q(e.slow, 100), q(e.guard, 1), q(e.sleepT, T),
+    e.link, q(e.linkT, T), e.blinkTo ? q(e.blinkTo.x, POS) : -1, e.blinkTo ? q(e.blinkTo.y, POS) : -1, q(e.slow, 100), q(e.guard, 1), q(e.sleepT, T), b(e.lost), q(e.dutyT, T),
   ];
 }
 
@@ -237,7 +237,7 @@ function encodeExtras(e: Enemy): number[] | 0 {
 const ENEMY_POINTS = 21;
 
 function decodeEnemy(raw: (number | number[])[]): Enemy {
-  const x = (Array.isArray(raw[20]) ? raw[20] : [0, 100, 0, 0, 0, 0, 0, 0, -1, -1, 0, 0, 0]) as number[];
+  const x = (Array.isArray(raw[20]) ? raw[20] : [0, 100, 0, 0, 0, 0, 0, 0, -1, -1, 0, 0, 0, 0, 0]) as number[];
   const a = raw.map((v) => (Array.isArray(v) ? 0 : v));
   const defId = ENEMY_IDS[a[1]!] ?? "cone_rat";
   const points: Vec[] = [];
@@ -272,6 +272,8 @@ function decodeEnemy(raw: (number | number[])[]): Enemy {
     noLoot: false,
     stunT: x[2]! / T,
     sleepT: (x[12] ?? 0) / T,
+    lost: x[13] === 1,
+    dutyT: (x[14] ?? 0) / T,
     slowT: x[10]! > 0 ? 0.1 : 0,
     slow: x[10]! / 100,
     markT: x[3]! / T,
@@ -291,13 +293,22 @@ function decodeEnemy(raw: (number | number[])[]): Enemy {
   return e;
 }
 
+const GADGET_KINDS: Gadget["kind"][] = ["turret", "drone", "ghost"];
+
+/** [id, kind, owner, x, y, t, maxT, hp, maxHp, element, mini, ghost's enemy or -1]. */
 const encodeGadget = (g: Gadget): number[] => [
-  g.id, b(g.kind === "drone"), g.ownerId, q(g.pos.x, POS), q(g.pos.y, POS), q(g.t, T), q(g.maxT, T), Math.max(0, Math.round(g.hp)), Math.round(g.maxHp), idx(ELEMENT_IDS, g.element), b(g.mini),
+  g.id, idx(GADGET_KINDS, g.kind), g.ownerId, q(g.pos.x, POS), q(g.pos.y, POS), q(g.t, T), q(g.maxT, T), Math.max(0, Math.round(g.hp)), Math.round(g.maxHp), idx(ELEMENT_IDS, g.element), b(g.mini),
+  g.defId ? ENEMY_IDS.indexOf(g.defId) : -1,
 ];
-const decodeGadget = (a: number[]): Gadget => ({
-  id: a[0]!, kind: a[1] ? "drone" : "turret", ownerId: a[2]!, pos: { x: a[3]! / POS, y: a[4]! / POS }, t: a[5]! / T, maxT: a[6]! / T, hp: a[7]!, maxHp: a[8]!,
-  element: ELEMENT_IDS[a[9]!] ?? "none", fireCd: 0, tickT: 0, mini: a[10] === 1, saved: false,
-});
+function decodeGadget(a: number[]): Gadget {
+  const g: Gadget = {
+    id: a[0]!, kind: GADGET_KINDS[a[1]!] ?? "turret", ownerId: a[2]!, pos: { x: a[3]! / POS, y: a[4]! / POS }, t: a[5]! / T, maxT: a[6]! / T, hp: a[7]!, maxHp: a[8]!,
+    element: ELEMENT_IDS[a[9]!] ?? "none", fireCd: 0, tickT: 0, mini: a[10] === 1, saved: false,
+  };
+  const defId = ENEMY_IDS[a[11] ?? -1];
+  if (defId) g.defId = defId;
+  return g;
+}
 
 // ---------------------------------------------------------------- projectiles, domes, hazards, vents, pickups
 
@@ -428,6 +439,9 @@ const EVENT_KEYS: EventKeys = {
   confiscate: ["id", "x", "y"],
   asleep: ["id"],
   rewound: ["id", "by"],
+  misplaced: ["id", "x", "y"],
+  found: ["id"],
+  swapped: ["id", "other", "x1", "y1", "x2", "y2"],
   playerDowned: ["id", "canRevive"],
   secondWind: ["id"],
   playerRevived: ["id", "by"],

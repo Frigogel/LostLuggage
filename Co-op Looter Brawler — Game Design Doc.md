@@ -164,6 +164,11 @@ Loot is the Borderlands heart of the game: every gun is archetype + manufacturer
 | Customs Officer | Pistol | Hits confiscate an elite's modifier and strip shield bars |
 | Snooze Button | Grenade | Enemies in the blast sleep until something hits them; bosses only nod off |
 | Black Box | Grenade | 4s later, allies it caught get back the health they had, even if they went down, and the wipe waits for it |
+| In-Flight Service | SMG | Shots pass through allies and heal them; kills sometimes drop a snack |
+| Excess Baggage | Launcher | Enemies it kills (not bosses) get back up as ghosts and fight for you for 8s, three at most |
+| Boarding Pass | Sniper | A shot swaps your place with the first teammate or enemy it hits (not bosses), in a blast: the enemy lands stunned among whatever was chasing you, or you land beside a cornered teammate and give them a shield. The shot comes back |
+| Lost & Found | Grenade | Enemies in the blast are misplaced for 6s, then turn up dazed; bosses only stagger |
+| Duty Free | Grenade | Enemies in the blast that die within 5s drop an extra gun |
 
 They drop from bosses (and, ten times more rarely, elites) in solo and co-op: about 0.3% per boss on Normal, up to 2.5x on Nightmare, doubled in co-op when someone below the tier's level is along. Luck doesn't touch the roll. Bad-luck protection: every boss beaten since your last mythic adds 1% of the base chance.
 

@@ -547,6 +547,8 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
       ...(effect === "fireLine" ? { fireLine: true } : {}),
       ...(mythic === "swat" ? { swat: true } : {}),
       ...(mythic === "confiscate" ? { confiscate: true } : {}),
+      ...(mythic === "service" ? { service: true } : {}),
+      ...(mythic === "swap" ? { swap: true } : {}),
     });
   }
 

@@ -26,6 +26,7 @@ import {
   rollMythic,
   step,
   type PlayerInput,
+  type Player,
   type RunResult,
   type SimEvent,
   type World,
@@ -254,6 +255,134 @@ describe("mythics: the abilities", () => {
     expect(events.some((e) => e.type === "rewound")).toBe(true);
   });
 
+  it("In-Flight Service heals the allies its shots pass through, and keeps going", () => {
+    const w = createWorld({ seed: 4, coop: true, players: [{ name: "Ana" }, { name: "Bo" }] });
+    w.run.room.waves = [];
+    w.enemies = [];
+    const [a, b] = w.players as [Player, Player];
+    a.guns[0] = mythicGun(w, "in_flight_service");
+    b.pos = { x: a.pos.x + 40, y: a.pos.y };
+    b.hp = 20;
+    for (let i = 0; i < 20; i++) step(w, [input({ fire: true, aim: { x: 40, y: 0 } }), EMPTY_INPUT]);
+    expect(b.hp).toBeGreaterThan(20);
+  });
+
+  it("In-Flight Service kills sometimes drop a snack", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.guns[0] = mythicGun(w, "in_flight_service");
+    for (let i = 0; i < 40; i++) {
+      const e = spawnEnemy(w, "cone_rat", { x: 200, y: 150 }, 0);
+      damageEnemy(w, e, 99999, { dir: { x: 1, y: 0 }, knockback: 0, sourcePlayerId: p.id, element: "none", gunUid: p.guns[0]!.uid });
+    }
+    expect(w.pickups.filter((k) => k.kind === "heal" && k.heal === MYTHIC.snackHeal).length).toBeGreaterThan(3);
+  });
+
+  it("Excess Baggage raises its kills as ghosts that bite enemies (never bosses, at most three)", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.guns[0] = mythicGun(w, "excess_baggage");
+    const kill = (defId: string) => {
+      const e = spawnEnemy(w, defId, { x: p.pos.x + 80, y: p.pos.y }, 0);
+      damageEnemy(w, e, 999999, { dir: { x: 1, y: 0 }, knockback: 0, sourcePlayerId: p.id, element: "none", gunUid: p.guns[0]!.uid });
+    };
+    kill("jet_boar");
+    expect(w.gadgets.filter((g) => g.kind === "ghost").map((g) => g.defId)).toEqual(["jet_boar"]);
+    for (let i = 0; i < 4; i++) kill("cone_rat");
+    step(w, [EMPTY_INPUT]);
+    expect(w.gadgets.filter((g) => g.kind === "ghost").length).toBe(MYTHIC.ghost.max);
+    kill("furnace_foreman");
+    step(w, [EMPTY_INPUT]);
+    expect(w.gadgets.some((g) => g.defId === "furnace_foreman")).toBe(false);
+    const prey = spawnEnemy(w, "slag_golem", { x: p.pos.x + 120, y: p.pos.y }, 0);
+    prey.cooldowns = prey.cooldowns.map(() => 99);
+    run(w, 60);
+    expect(prey.hp).toBeLessThan(prey.maxHp);
+  });
+
+  it("Boarding Pass swaps you with the teammate it reaches", () => {
+    const w = createWorld({ seed: 5, coop: true, players: [{ name: "Ana" }, { name: "Bo" }] });
+    w.run.room.waves = [];
+    w.enemies = [];
+    const [a, b] = w.players as [Player, Player];
+    a.guns[0] = mythicGun(w, "boarding_pass");
+    b.pos = { x: a.pos.x + 90, y: a.pos.y };
+    const was = { ...a.pos };
+    const there = { ...b.pos };
+    // Something has Bo cornered: Ana arrives in a blast that hits it.
+    const bully = spawnEnemy(w, "slag_golem", { x: b.pos.x + 25, y: b.pos.y }, 0);
+    bully.hp = bully.maxHp = 99999;
+    bully.cooldowns = bully.cooldowns.map(() => 99);
+    for (let i = 0; i < 30; i++) step(w, [input({ fire: i === 0, aim: { x: 90, y: 0 } }), EMPTY_INPUT]);
+    expect(a.pos.x).toBeCloseTo(there.x, 0);
+    expect(b.pos.x).toBeCloseTo(was.x, 0);
+    expect(b.shield).toBeGreaterThan(0);
+    expect(bully.hp).toBeLessThan(bully.maxHp);
+  });
+
+  it("Boarding Pass swaps you with an enemy, but not a boss", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.guns[0] = mythicGun(w, "boarding_pass");
+    const e = spawnEnemy(w, "slag_golem", { x: p.pos.x + 90, y: p.pos.y }, 0);
+    e.hp = e.maxHp = 99999;
+    e.cooldowns = e.cooldowns.map(() => 99);
+    const was = { ...p.pos };
+    run(w, 1, input({ fire: true, aim: { x: 90, y: 0 } }));
+    let swap: SimEvent | undefined;
+    for (let i = 0; i < 30 && !swap; i++) swap = run(w, 1).find((ev) => ev.type === "swapped");
+    // The moment it lands: you're where the golem stood (it had been walking at you), and it's where you stood.
+    expect(swap).toMatchObject({ id: p.id, other: e.id, x1: was.x, y1: was.y });
+    expect(p.pos.x).toBeGreaterThan(was.x + 30);
+    expect(Math.abs(e.pos.x - was.x)).toBeLessThan(3);
+    // Jet-lagged, caught in the blast, and the shot came back.
+    expect(e.stunT).toBeGreaterThan(MYTHIC.swap.stunS - 0.2);
+    expect(e.maxHp - e.hp).toBeGreaterThan(gunStats(p.guns[0]!).damage * 1.3);
+    expect(p.guns[0]!.pips).toBeCloseTo(gunStats(p.guns[0]!).pips, 0);
+
+    const v = quiet();
+    const q = v.players[0]!;
+    q.guns[0] = mythicGun(v, "boarding_pass");
+    const boss = spawnEnemy(v, "furnace_foreman", { x: q.pos.x + 90, y: q.pos.y }, 0);
+    boss.cooldowns = boss.cooldowns.map(() => 99);
+    const at = { ...q.pos };
+    expect(run(v, 30, input({ fire: true, aim: { x: 90, y: 0 } })).some((ev) => ev.type === "swapped")).toBe(false);
+    expect(q.pos).toEqual(at);
+  });
+
+  it("Lost & Found misplaces enemies, then they turn up dazed; bosses only stagger", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.grenade = { defId: "lost_and_found", rarity: "mythic" };
+    const e = spawnEnemy(w, "jet_boar", { x: p.pos.x + 70, y: p.pos.y }, 0);
+    const boss = spawnEnemy(w, "furnace_foreman", { x: p.pos.x + 80, y: p.pos.y + 10 }, 0);
+    run(w, 1, input({ grenade: true, grenadeAim: { x: 72, y: 0 } }));
+    run(w, 30);
+    expect(e.lost).toBe(true);
+    expect(boss.lost).toBe(false);
+    // Gone: nothing can hit it.
+    damageEnemy(w, e, 5, { dir: { x: 1, y: 0 }, knockback: 0, sourcePlayerId: p.id, element: "none" });
+    const events = run(w, MYTHIC.lostS * 30);
+    expect(e.lost).toBe(false);
+    expect(events.some((ev) => ev.type === "found" && ev.id === e.id)).toBe(true);
+    expect(e.stunT).toBeGreaterThan(0);
+  });
+
+  it("Duty Free: tagged enemies that die drop an extra gun", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.grenade = { defId: "duty_free", rarity: "mythic" };
+    const tagged = spawnEnemy(w, "slag_golem", { x: p.pos.x + 70, y: p.pos.y }, 0);
+    tagged.hp = tagged.maxHp = 99999;
+    tagged.cooldowns = tagged.cooldowns.map(() => 99);
+    run(w, 1, input({ grenade: true, grenadeAim: { x: 72, y: 0 } }));
+    run(w, 30);
+    expect(tagged.dutyT).toBeGreaterThan(0);
+    const before = w.pickups.filter((k) => k.kind === "gun").length;
+    damageEnemy(w, tagged, 999999, { dir: { x: 1, y: 0 }, knockback: 0, sourcePlayerId: p.id, element: "none" });
+    expect(w.pickups.filter((k) => k.kind === "gun").length).toBeGreaterThan(before);
+  });
+
   it("go over the wire: guns, grenades, sleep and the new events", () => {
     const w = createWorld({ seed: 3, coop: true, players: [{ name: "Ana" }, { name: "Bo" }] });
     w.players[0]!.guns[0] = mythicGun(w, "customs_officer");
@@ -264,7 +393,21 @@ describe("mythics: the abilities", () => {
     expect(d.players[0]!.guns[0]).toMatchObject({ rarity: "mythic", mythic: "customs_officer" });
     expect(d.players[1]!.grenade).toEqual({ defId: "black_box", rarity: "mythic" });
     expect(d.enemies.find((q) => q.id === e.id)!.sleepT).toBeCloseTo(5, 1);
-    for (const ev of [{ type: "confiscate", id: 4, x: 10, y: 20 }, { type: "asleep", id: 4 }, { type: "rewound", id: 2, by: 1 }] as const) {
+    e.lost = true;
+    e.dutyT = 3;
+    w.gadgets.push({ id: 777, kind: "ghost", ownerId: w.players[0]!.id, pos: { x: 100, y: 100 }, t: 5, maxT: 8, hp: 1, maxHp: 1, element: "none", fireCd: 0, tickT: 0, mini: false, saved: false, defId: "jet_boar" });
+    const d2 = decodeSnapshot(JSON.parse(JSON.stringify(encodeSnapshot(w, [], new Map())))).world;
+    expect(d2.enemies.find((q) => q.id === e.id)).toMatchObject({ lost: true });
+    expect(d2.enemies.find((q) => q.id === e.id)!.dutyT).toBeCloseTo(3, 1);
+    expect(d2.gadgets.find((g) => g.id === 777)).toMatchObject({ kind: "ghost", defId: "jet_boar" });
+    for (const ev of [
+      { type: "confiscate", id: 4, x: 10, y: 20 },
+      { type: "asleep", id: 4 },
+      { type: "rewound", id: 2, by: 1 },
+      { type: "misplaced", id: 4, x: 10, y: 20 },
+      { type: "found", id: 4 },
+      { type: "swapped", id: 2, other: 4, x1: 1, y1: 2, x2: 3, y2: 4 },
+    ] as const) {
       expect(decodeEvent(JSON.parse(JSON.stringify(encodeEvent(ev))))).toEqual(ev);
     }
   });

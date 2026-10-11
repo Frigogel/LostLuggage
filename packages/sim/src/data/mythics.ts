@@ -7,7 +7,7 @@ import type { Element, MakerId } from "../types";
 // Guns are a base gun plus an ability, like legendaries. Grenades are their own kinds in data/grenades, flagged
 // `mythic`, and never come from the regular grenade roll.
 
-export type MythicGunEffect = "swat" | "confiscate";
+export type MythicGunEffect = "swat" | "confiscate" | "service" | "baggage" | "swap";
 
 export interface MythicGunDef {
   id: string;
@@ -41,11 +41,38 @@ export const MYTHIC_GUNS: Record<string, MythicGunDef> = {
     maker: "cruise",
     effect: "confiscate",
   },
+  in_flight_service: {
+    id: "in_flight_service",
+    name: "In-Flight Service",
+    flavor: "Something to drink? It's going in either way.",
+    text: "Shots pass through allies and heal them. Kills sometimes drop a snack",
+    defId: "smg",
+    maker: "megamart",
+    effect: "service",
+  },
+  excess_baggage: {
+    id: "excess_baggage",
+    name: "Excess Baggage",
+    flavor: "Over the weight limit. Now it works for you.",
+    text: "Enemies it kills get back up as ghosts and fight for you for 8s (not bosses)",
+    defId: "launcher",
+    maker: "dwarfcorp",
+    effect: "baggage",
+  },
+  boarding_pass: {
+    id: "boarding_pass",
+    name: "Boarding Pass",
+    flavor: "Seat change requested. Request granted.",
+    text: "Shots swap your place with the first teammate or enemy they hit, in a blast. Enemies are stunned, teammates shielded, and the shot comes back",
+    defId: "sniper",
+    maker: "cruise",
+    effect: "swap",
+  },
 };
 
 export const MYTHIC_GUN_IDS = Object.keys(MYTHIC_GUNS);
 /** The mythic grenade kinds (their defs live in GRENADES). */
-export const MYTHIC_GRENADE_IDS = ["snooze_button", "black_box"];
+export const MYTHIC_GRENADE_IDS = ["snooze_button", "black_box", "lost_and_found", "duty_free"];
 
 /** How rare they are, and how their abilities are tuned. */
 export const MYTHIC = {
@@ -68,4 +95,23 @@ export const MYTHIC = {
   rewindS: 4,
   /** Return to Sender: how far past a pellet's own size it reaches for enemy shots. */
   swatReach: 5,
+  /** In-Flight Service: health per bullet that passes through an ally, and the snack its kills sometimes drop. */
+  serviceHeal: 3,
+  snackChance: 0.25,
+  snackHeal: 10,
+  /** Excess Baggage: ghosts last this long, at most this many at once, biting this hard this often. */
+  ghost: { seconds: 8, max: 3, bite: 10, biteS: 0.5, speed: 1.3 },
+  /**
+   * Boarding Pass: a moment of safety after a swap; the Turbulence blast (a share of the shot's damage) where the
+   * enemy lands or where you arrive at a teammate's side; the enemy's jet lag; the teammate's shield.
+   */
+  swapIframes: 0.6,
+  swap: { blast: 1, radius: 45, knockback: 200, stunS: 2, shield: 25 },
+  /** Lost & Found: how long enemies stay misplaced, how dazed they turn up, and how long a boss staggers. */
+  lostS: 6,
+  foundDazeS: 1.5,
+  bossStaggerS: 0.8,
+  /** Duty Free: how long the tag lasts, and how much luckier its extra gun is. */
+  dutyS: 5,
+  dutyLuck: 0.6,
 };

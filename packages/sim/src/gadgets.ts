@@ -3,12 +3,15 @@
 import { confine, damageEnemy, DT, healPlayer, nearestEnemy, newId, playerExplosion, skillDamage, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
 import { HEROES, REVIVE } from "./data/heroes";
+import { MYTHIC } from "./data/mythics";
 import { add, angleOf, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
 import { canAct, hasSkill, revive } from "./players";
 import type { Enemy, Gadget, HeroSkill, Player, World } from "./types";
 
 /** Projectiles fired by turrets carry this gun uid, so kills can be credited to the turret. */
 export const TURRET_GUN = -3;
+/** Ghost bites carry this gun uid, so a ghost's kills don't raise more ghosts. */
+export const GHOST_GUN = -4;
 
 export const TURRET = {
   /** How far in front of you the turret lands. */
@@ -352,6 +355,37 @@ export function ambulanceNear(w: World, p: Player): Player | undefined {
   return undefined;
 }
 
+// ---------------------------------------------------------------- ghosts (Excess Baggage)
+
+/** An enemy Excess Baggage killed gets back up on your side. The oldest goes when there are too many. */
+export function raiseGhost(w: World, p: Player, e: Enemy): void {
+  const mine = w.gadgets.filter((g) => g.kind === "ghost" && g.ownerId === p.id && g.t > 0).sort((a, b) => a.t - b.t);
+  for (const g of mine.slice(0, Math.max(0, mine.length - MYTHIC.ghost.max + 1))) g.t = 0;
+  const g = makeGadget(w, "ghost", p, e.pos, MYTHIC.ghost.seconds, 1);
+  g.defId = e.defId;
+  g.fireCd = 0.4;
+}
+
+/** A ghost runs at the nearest enemy and bites it. Enemies pay it no attention. */
+function updateGhost(w: World, g: Gadget, owner: Player | undefined): void {
+  if (!owner) return;
+  const def = ENEMIES[g.defId ?? ""];
+  const radius = def?.radius ?? 6;
+  const prey = nearestEnemy(w, g.pos, 400);
+  if (!prey) return;
+  const reach = radius + prey.radius + 2;
+  const d = dist(prey.pos, g.pos);
+  if (d > reach) {
+    const speed = Math.max(60, (def?.speed ?? 60) * MYTHIC.ghost.speed);
+    g.pos = add(g.pos, scale(norm(sub(prey.pos, g.pos)), Math.min(d - reach, speed * DT)));
+    confine(w, g.pos, radius);
+  }
+  g.fireCd -= DT;
+  if (g.fireCd > 0 || d > reach + 3) return;
+  g.fireCd = MYTHIC.ghost.biteS;
+  damageEnemy(w, prey, skillDamage(owner, MYTHIC.ghost.bite), { dir: sub(prey.pos, g.pos), knockback: 60, sourcePlayerId: owner.id, element: "none", gunUid: GHOST_GUN, noCharge: true });
+}
+
 // ---------------------------------------------------------------- all gadgets
 
 export function updateGadgets(w: World): void {
@@ -362,6 +396,7 @@ export function updateGadgets(w: World): void {
     const owner = ownerOf(w, g);
     g.t -= DT;
     if (g.kind === "turret") updateTurret(w, g, owner);
+    else if (g.kind === "ghost") updateGhost(w, g, owner);
     else {
       const mine = drones.get(g.ownerId) ?? [g];
       updateDrone(w, g, owner, mine.indexOf(g), mine.length);
@@ -374,7 +409,7 @@ export function updateGadgets(w: World): void {
     if (g.t > 0 && g.hp > 0) continue;
     w.events.push({ type: "gadget", id: g.id, kind: g.kind, x: g.pos.x, y: g.pos.y, gone: true });
     if (g.kind === "turret") endTurret(w, g, owner);
-    else endDrone(w, g, owner);
+    else if (g.kind === "drone") endDrone(w, g, owner);
   }
   w.gadgets = w.gadgets.filter((g) => g.t > 0 && g.hp > 0);
 }

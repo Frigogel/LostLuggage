@@ -2,7 +2,8 @@ import { actDamage, actHp } from "./director";
 import { ENEMIES } from "./data/enemies";
 import { HEROES, levelMultiplier } from "./data/heroes";
 import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
-import { onTurretKill, TURRET_GUN } from "./gadgets";
+import { onTurretKill, raiseGhost, TURRET_GUN } from "./gadgets";
+import { MYTHIC, MYTHIC_GUNS } from "./data/mythics";
 import { gunStats, mythicChance, rollGrenade, rollGun, rollMythic } from "./loot";
 import { markBonus, onMarkedDeath } from "./marks";
 import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
@@ -235,6 +236,8 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
     if (def.boss || rand(w) < def.dropChance * 0.5 * (e.elite ? 2 : 1) * rush) dropGrenade(w, add(e.pos, { x: 0, y: drops > 0 ? 16 : 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
     if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
     if ((def.boss || e.elite) && rand(w) < partyMythicChance(w, !!def.boss)) dropMythic(w, add(e.pos, { x: 0, y: -18 }));
+    // Duty Free: a tagged enemy leaves an extra (luckier) gun behind.
+    if (e.dutyT > 0) dropGun(w, add(e.pos, { x: 0, y: 14 }), luck + MYTHIC.dutyLuck, "uncommon");
   }
 
   if (!p) return;
@@ -243,6 +246,11 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
   if (gun?.perks.includes("killReload")) gun.pips = Math.min(gunStats(gun).pips, gun.pips + 1);
   if (gun?.perks.includes("hotStreak")) p.streakT = 3;
   if (gun?.perks.includes("volatile")) playerExplosion(w, e.pos, 22, 10, 80, p.id, gun.element, true);
+  const mythic = gun?.mythic ? MYTHIC_GUNS[gun.mythic]?.effect : undefined;
+  // Excess Baggage: the enemy gets back up on your side for a while.
+  if (mythic === "baggage" && !def.boss) raiseGhost(w, p, e);
+  // In-Flight Service: sometimes a snack, for whoever needs it.
+  if (mythic === "service" && rand(w) < MYTHIC.snackChance) dropHeal(w, e.pos, MYTHIC.snackHeal);
   if (p.boosts.vampire) p.hp = Math.min(p.maxHp, p.hp + 2 * p.boosts.vampire);
   if (p.boosts.souvenirs) playerExplosion(w, e.pos, 30, 15 * p.boosts.souvenirs * levelMultiplier(p.syncLevel), 100, p.id, "none", true);
   if (p.boosts.refill) {
@@ -339,6 +347,8 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
     noLoot: false,
     stunT: 0,
     sleepT: 0,
+    lost: false,
+    dutyT: 0,
     slowT: 0,
     slow: 0,
     markT: 0,
