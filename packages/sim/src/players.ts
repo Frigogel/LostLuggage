@@ -420,6 +420,11 @@ function updateShooting(w: World, p: Player, input: PlayerInput): void {
 
   if (p.burstLeft > 0) {
     p.burstT -= DT;
+    // The rest of a burst follows your aim as it moves.
+    if (p.burstT <= 0) {
+      p.shotAim = resolveAim(w, p, input, s.range);
+      p.facing = norm(p.shotAim);
+    }
     while (p.burstT <= 0 && p.burstLeft > 0) {
       fireGun(w, p, gun, p.shotAim);
       p.burstLeft--;

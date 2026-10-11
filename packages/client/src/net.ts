@@ -107,7 +107,8 @@ export class NetSession {
   private smooth: Vec = { x: 0, y: 0 };
   private shotCd = 0;
   private busyT = 0;
-  private scheduled: { t: number; aim: Vec }[] = [];
+  /** Shots still to come: a charged shot keeps its aim, the rest of a burst follows the current one. */
+  private scheduled: { t: number; aim: Vec; burst?: boolean }[] = [];
   private shots: LocalShot[] = [];
   private pingTimer?: ReturnType<typeof setInterval>;
   private leaving = false;
@@ -360,14 +361,19 @@ export class NetSession {
     const s = gunStats(gun);
     this.shotCd = Math.max(0, this.shotCd - DT);
     this.busyT = Math.max(0, this.busyT - DT);
+    const aimNow = (): Vec => (!input.autoAim && len(input.aim) > 1 ? input.aim : (resolveAim(p.pos, s.range * 1.15) ?? { x: p.facing.x * s.range * 0.75, y: p.facing.y * s.range * 0.75 }));
     for (const sh of this.scheduled) {
       sh.t -= DT;
-      if (sh.t <= 0) this.emit(p, gun, sh.aim);
+      if (sh.t > 0) continue;
+      const aim = sh.burst ? aimNow() : sh.aim;
+      const l = len(aim) || 1;
+      if (sh.burst) p.facing = { x: aim.x / l, y: aim.y / l };
+      this.emit(p, gun, aim);
     }
     this.scheduled = this.scheduled.filter((sh) => sh.t > 0);
 
     if (!input.fire || this.shotCd > 0 || this.busyT > 0 || gun.pips < 1) return;
-    const aim = !input.autoAim && len(input.aim) > 1 ? input.aim : (resolveAim(p.pos, s.range * 1.15) ?? { x: p.facing.x * s.range * 0.75, y: p.facing.y * s.range * 0.75 });
+    const aim = aimNow();
     gun.pips -= 1;
     entry.firedGun = gun.uid;
     this.shotCd = s.fireDelayMs / 1000;
@@ -379,7 +385,7 @@ export class NetSession {
       return;
     }
     this.emit(p, gun, aim);
-    for (let i = 1; i < s.shotsPerPip; i++) this.scheduled.push({ t: (i * s.shotIntervalMs) / 1000, aim });
+    for (let i = 1; i < s.shotsPerPip; i++) this.scheduled.push({ t: (i * s.shotIntervalMs) / 1000, aim, burst: true });
     this.busyT = ((s.shotsPerPip - 1) * s.shotIntervalMs) / 1000;
   }
 

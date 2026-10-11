@@ -98,6 +98,26 @@ describe("core", () => {
     expect(w.gameOver).toBe(true);
   });
 
+  it("the rest of an SMG burst follows the aim as it moves", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.guns[0] = newGun(w, "smg");
+    const angles: number[] = [];
+    const shots = () => {
+      for (const ev of w.events) if (ev.type === "shot" && ev.playerId === p.id) angles.push(ev.angle);
+    };
+    step(w, [input({ fire: true, aim: { x: 100, y: 0 } })]);
+    shots();
+    // Swing the aim straight down mid-burst.
+    for (let i = 0; i < 10; i++) {
+      step(w, [input({ aim: { x: 0, y: 100 } })]);
+      shots();
+    }
+    expect(angles.length).toBe(gunStats(p.guns[0]!).shotsPerPip);
+    expect(angles[0]).toBeCloseTo(0);
+    for (const a of angles.slice(1)) expect(a).toBeCloseTo(Math.PI / 2);
+  });
+
   it("sniper pierces through a line of enemies", () => {
     const w = quiet(7);
     const p = w.players[0]!;
