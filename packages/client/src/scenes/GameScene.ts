@@ -1749,7 +1749,6 @@ export class GameScene extends Phaser.Scene {
       return { img: this.take("px").setTint(0xf0d8ff).setScale(1.5), glow };
     }
     const img = this.take(pr.kind === "sniper" ? "streak" : "px").setTint(pr.element === "none" ? 0xfff6c8 : elem);
-    if (pr.kind === "smg") img.setScale(0.75);
     if (pr.radius >= 3 && pr.kind !== "sniper") img.setScale(1.5);
     glow.setTint(pr.element !== "none" ? elem : pr.kind === "sniper" ? 0x9ff3ff : 0xffb238).setScale(pr.kind === "sniper" ? 0.5 : 0.3).setAlpha(0.8);
     return { img, glow };
