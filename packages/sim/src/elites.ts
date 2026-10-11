@@ -57,7 +57,8 @@ export function canBeElite(def: EnemyDef, id: EliteId): boolean {
     case "splitting":
       return !still && !def.onDeath?.split;
     case "teleporting":
-      return !still && def.movement.type !== "ambush";
+      // A grabber blinking away would take whoever it's holding with it.
+      return !still && def.movement.type !== "ambush" && def.role !== "grabber";
     case "linked":
     case "vengeful":
     case "hasted":

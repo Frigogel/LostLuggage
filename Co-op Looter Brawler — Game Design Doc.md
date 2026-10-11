@@ -270,8 +270,8 @@ Any enemy can roll modifiers that change behavior, not just stats:
 
 ### Co-op enemies
 
-- **Grabbers** pin a player until a teammate frees them (in solo: mash to escape)
-- **Far-aggro enemies** target whoever is farthest from the group
+- **Grabbers** pin a player until a teammate frees them (in solo: mash to escape). One per biome, in fights from act 2 on
+- **Far-aggro enemies** target whoever is farthest from the group (the Crypt's Banshee Tour Guide)
 - **Twin bosses** must be fought in separate spots at once
 
 ### Data-driven definitions
@@ -309,14 +309,15 @@ Each biome brings an enemy family and a terrain rule, and its enemies are design
 | --- | --- | --- | --- |
 | Frozen Caverns | Icy floors make you slide; dash goes farther | Pushing you into spike walls | Armor, Frost-immune |
 | Burning Foundry | Lava vents erupt on a timer | Fire-immune enemies luring you near vents | Shields, Fire-immune |
-| Drowned Crypt | Vision limited to a radius around each player | Ambushers striking from the dark | Flesh |
+| Drowned Crypt (always the final act) | Dark: you see what your glow, the owl and candles light. Shoot a candle to light it; enemies in candlelight take more damage | Ambushers striking from the dark, stone gargoyles that shrug off hits until lit, a bell ringer that blows the candles out | Flesh |
 | Storm Peaks | Wind gusts push players and projectiles | Artillery firing with the wind | Shields |
 | Bilge Sewers | Deep water slows you and its current carries you; sludge pipes blast a lane on a timer | Swimming through the channels at full speed while you wade | Flesh |
 | Orbital Deck | Laser fences switch on and off; teleporter pads link two spots | Cornering you against fences (the robots can't use the pads, so you can) | Shields |
 
 Each biome's boss has one signature attack built around that biome: the Foreman's Slag Cross (lines of burning
-slag), the Dragon's frost breath, the Gator's Submerge (dives under and surfaces beneath you) and the Autopilot's
-Laser Sweep (turning beams that crates block).
+slag), the Dragon's frost breath, the Gator's Submerge (dives under and surfaces beneath you), the Autopilot's
+Laser Sweep (turning beams that crates block) and the Night Auditor's Lights Out Audit (every candle goes out while
+glowing pages rain down in the dark).
 
 The MVP needs only one biome; the Burning Foundry is the simplest to build (timed hazards, no new physics).
 

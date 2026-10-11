@@ -67,6 +67,22 @@ export const ENEMY_COLORS: Record<string, number[]> = {
   space_blob: [0xb46cff, 0x7a3ac8, 0x5fd36a],
   blob_spawn: [0xb46cff, 0x5fd36a],
   autopilot: [0xc9cfd6, 0x5fd3e8, 0xe0533d],
+  claw_machine: [0xe05a9a, 0xf2c14e, 0x5fd3e8],
+  polar_hugger: [0xffffff, 0xcfd8e3, 0xe0533d],
+  ubend_lurker: [0x4e8a6a, 0xa7b0bb, 0xf2c14e],
+  cargo_loader: [0xf2c14e, 0xc9cfd6, 0x5fd3e8],
+  mummy_chaperone: [0xe8dcc0, 0xb8a88a, 0x7ee05a],
+  souvenir_hunter: [0xe8e4d8, 0xa8a498, 0xa7b0bb],
+  zombie_porter: [0x7aa06a, 0xa8323a, 0xf2c14e],
+  gargoyle_bellhop: [0x8a8a96, 0xb0b0bc, 0x5e5e6a],
+  banshee_guide: [0xbfe8e0, 0x7fbfb8, 0xffffff],
+  ecto_slime: [0x7ef0b0, 0x3ea878, 0xd8ffe8],
+  bell_ringer: [0x9ab08a, 0x4a3a5a, 0xf2c14e],
+  crypt_urn: [0x6a7a8a, 0xc8a050, 0x7ef0b0],
+  ecto_wisp: [0x9ff3c8, 0x4ec898],
+  coffin_mimic: [0x7a4a2a, 0xc8a050, 0xf4ecd8],
+  haunted_hatbox: [0xd29bff, 0x8c5ad1, 0xf4ecd8],
+  night_auditor: [0x3a2a5a, 0x5fd36a, 0xf4ecd8],
 };
 
 /** Elite auras and tags: each modifier has its own color, so a glance tells you what you're dealing with. */

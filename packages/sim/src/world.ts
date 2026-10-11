@@ -6,7 +6,7 @@ import { updateGadgets } from "./gadgets";
 import { checkWipe, EMPTY_INPUT, makePlayer, MAX_PLAYERS, startPos, updatePickups, updatePlayer, type PlayerOptions } from "./players";
 import { updateHazards, updateProjectiles } from "./projectiles";
 import { ARENA, enterRoom, START, updateRoom } from "./room";
-import { BIOMES } from "./data/enemies";
+import { ADVENTURE_IDS } from "./data/enemies";
 import type { Biome, PlayerInput, World } from "./types";
 
 export interface WorldOptions {
@@ -19,7 +19,7 @@ export interface WorldOptions {
   tier?: number;
   /** Co-op run: level sync and waiting for the party at the exit. A co-op room with one player is still co-op. */
   coop?: boolean;
-  /** Which adventure starts the run (default the Burning Foundry). The others follow. */
+  /** Which adventure starts the run (default the Burning Foundry). The others follow, then the Drowned Crypt. */
   biome?: Biome;
 }
 
@@ -38,11 +38,11 @@ export function createWorld(opts: WorldOptions): World {
     hazards: [],
     pickups: [],
     run: {
-      biome: opts.biome && BIOMES[opts.biome] ? opts.biome : "foundry",
+      biome: opts.biome && ADVENTURE_IDS.includes(opts.biome) ? opts.biome : "foundry",
       order: [],
       plans: [],
       // Replaced by enterRoom below.
-      room: { index: 0, kind: "intro", biome: "foundry", twist: "", doors: [], holdT: 0, twistT: 0, waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exitT: -1, vents: [] },
+      room: { index: 0, kind: "intro", biome: "foundry", twist: "", doors: [], holdT: 0, twistT: 0, waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exitT: -1, vents: [], candles: [], blackoutT: 0 },
       tier: opts.tier ?? 0,
       coop: opts.coop ?? false,
       kills: 0,

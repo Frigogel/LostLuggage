@@ -3,23 +3,27 @@
 A casual, mobile-first co-op looter brawler. The full design lives in
 [Co-op Looter Brawler — Game Design Doc.md](Co-op%20Looter%20Brawler%20—%20Game%20Design%20Doc.md).
 
-**Current state: roadmap phase 5, content (first pass), plus long runs.** Four biomes, the Burning Foundry, the
-Frozen Caverns, the Bilge Sewers and the Orbital Deck, playable solo or with up to 4 friends, with four heroes to
-choose from.
+**Current state: roadmap phase 5, content (first pass), plus long runs.** Four adventures, the Burning Foundry, the
+Frozen Caverns, the Bilge Sewers and the Orbital Deck, that all end in a fifth biome, the Drowned Crypt, playable solo
+or with up to 4 friends, with four heroes to choose from.
 
 **Runs** are long and meant to be lost a few times before they're won:
 
-- **Five acts.** Act 1 is the adventure you picked, acts 2 to 4 are the other three biomes in an order the run's seed
-  picks, and act 5 mixes them all (rooms from any biome, enemies from every family) and ends with two bosses at once:
-  that room's own and one other. Each act is an arrival room, five rooms you choose, and a boss. Enemies get tougher,
-  hit harder and attack faster every act; the curve is spread over the five acts, so the finale is as hard as it was
-  when runs had three.
+- **Five acts.** Act 1 is the adventure you picked, acts 2 to 4 are the other three in an order the run's seed picks,
+  and act 5 is always the **Drowned Crypt**, ending with the Night Auditor. Each act is an arrival room, five rooms you
+  choose, and a boss. Enemies get tougher, hit harder and attack faster every act; the curve is spread over the five
+  acts, so the finale is as hard as it was when runs had three.
+- **Grabbers, from act 2 on.** Every biome has one (Claw Machine, Polar Hugger, U-Bend Lurker, Cargo Loader, Mummy
+  Chaperone), and from act 2 most fights can bring one along. It winds up with its arms out, lunges, and holds whoever
+  it catches: no moving, shooting or throwing, and a squeeze now and then. A teammate standing next to you pulls you
+  free in under a second; on your own, mash dash (five presses). A third of its health in damage breaks its grip too,
+  and a grabber that loses its grip is dazed. Nobody helps in time and you get thrown.
 - **Branching doors.** A cleared room opens two or three doors along the top wall, labelled with what's behind them:
   Fight, Elite Fight (harder, a rare gun each), Event (a fight with a twist), Shrine (two boosts each), Rest Stop
   (half your health back and a suitcase). Stand in a door to vote. Most votes wins, the host breaks ties, and
   stragglers get a few seconds.
-- **Events (twists):** Rush Hour (waves don't wait, double loot), Lights Out (dark except around the heroes), Hold the
-  Line (survive the timer), Baggage Claim (conveyor belts), Overbooked (every family at once), Elite Convention,
+- **Events (twists):** Rush Hour (waves don't wait, double loot), Lights Out (dark except around the heroes; never in
+  the Crypt, which is dark already), Hold the Line (survive the timer), Baggage Claim (conveyor belts), Overbooked (every family at once), Elite Convention,
   Falling Luggage (telegraphed suitcases rain down) and Ambush (spawns in a ring around you). From act 2 on, some
   plain fights get a twist too.
 - **Run boosts, per player.** After most rooms each player gets their own three offers (gems only they can see) and
@@ -33,15 +37,16 @@ choose from.
   sweep the whole arena (dash through them, or be inside a dome), rings of bolts, and rain that covers the floor.
   Each boss also has one attack nobody else has: the Foreman's **Slag Cross** (lines of slag marching out from him,
   one aimed at you, that burn for a moment; six arms past half health), the Dragon's **frost breath**, the Gator's
-  **Submerge** (it dives out of reach, swims after you and bursts up under you) and the Autopilot's **Laser Sweep**
-  (beams that turn across the room; step over them or dash through, and crates block them).
-- **Endless.** Beat the final boss and choose: fly home with the win, or keep going. Each endless act is harder, and
-  every boss after that offers the way home again. Going down in endless still counts as a win.
+  **Submerge** (it dives out of reach, swims after you and bursts up under you), the Autopilot's **Laser Sweep**
+  (beams that turn across the room; step over them or dash through, and crates block them) and the Night Auditor's
+  **Lights Out Audit** (every candle goes out and the room goes nearly black while glowing pages rain down).
+- **Endless.** Beat the final boss and choose: fly home with the win, or keep going. Endless goes round the five biomes
+  again in the same order, each act harder, and every boss after that offers the way home again. Going down in endless still counts as a win.
 - **Rewards** count rooms, kills and bosses, so a lost run still pays. The first boss of the day gives the daily bonus
   and the guaranteed souvenir; first-clear hats need the full win.
 - Dev shortcuts (solo, dev builds): `?seed=123`, `?biome=sewers` (or `foundry`, `caverns`, `orbital`), `?room=boss`
-  (or `combat`, `elite`, `event`, `shrine`, `rest`), `&act=4` (a later act, in that act's biome), `&twist=dark`, `?mythics`
-  (every mythic on the floor of the first room).
+  (or `combat`, `elite`, `event`, `shrine`, `rest`), `&act=4` (a later act, in that act's biome; act 4 is the Drowned
+  Crypt), `&twist=dark`, `?mythics` (every mythic on the floor of the first room).
 
 Everything else from phase 5:
 
@@ -82,6 +87,15 @@ Everything else from phase 5:
   Holo-Concierges, Drone Docks, Cryo Pod mimics and Space Blobs. Lots of shields, so bring Shock. The boss is **The
   Autopilot**: EMP stomp, orbital strikes, thruster charges, roombas, plasma rings, a shockwave and Laser Sweep
   (a third beam past half health).
+- **The Drowned Crypt** (always the final act, never picked in the lobby): it's dark, and you only see what your glow,
+  a Warden's owl or a candle lights. Candles stand around every room, half of them burning when you walk in; shoot one
+  (or blast near it) and it burns for 18 seconds. Enemies standing in candlelight take 15% more from everything. The
+  family: Souvenir Hunters (skeletons with metal detectors), Zombie Porters, Gargoyle Bellhops (stone in the dark: they
+  take a fifth of the damage until you bring the light to them), Banshee Tour Guides (they charge whoever strays
+  furthest from the group), Ecto Slimes, Bell Ringer Ghouls (their toll shields friends and blows out nearby candles),
+  Crypt Keeper's Urns (ecto wisps), Coffin mimics, Haunted Hatboxes and Mummy Chaperones. Mostly flesh, so bring Fire.
+  The boss is **The Night Auditor**: tax forms, rubber stamps, audit charges, souvenir hunters, receipts in every
+  direction, a ledger slam and Lights Out Audit.
 - **Signature powers**: rare co-op drops (30% of co-op wins on Normal, more on harder tiers) that change a hero's
   action skill. Sidegrades, each with a catch: Black Hole Dome and Revolving Door (Vanguard), Six Shooter and Dead
   or Alive (Gunslinger), Turret With Legs and Patio Heater (Tinker), Owl Parliament and Rescue Owl (Warden). Equip
@@ -240,6 +254,8 @@ packages/
     src/marks.ts     The Gunslinger's marks: seeking shots, crits, marks that spread
     src/gadgets.ts   The Tinker's turrets and the Warden's owl drone
     src/elites.ts    Elite modifiers: shields, splits, blinks, death blasts, links, haste
+    src/grabs.ts     Grabbers: catching, holding, squeezing, getting freed or thrown
+    src/crypt.ts     The Drowned Crypt's candles, light and the Night Auditor's blackout
     src/progress.ts  Profiles, XP and levels, stash and loadout, souvenirs: one reducer for client and server
     src/net.ts       Co-op wire format: snapshots, events and inputs as small integer arrays
     scripts/balance.ts  Bot-driven balance harness

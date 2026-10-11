@@ -53,6 +53,7 @@ const BOSS_PHASES: Record<string, string[]> = {
   complaint_dragon: ["IT'S CC'ING YOUR MANAGER", "IT WANTS COMPENSATION. IN GOLD.", "IT'S WRITING A ONE-STAR REVIEW"],
   lost_found_gator: ["IT FOUND YOUR PASSPORT. IT ATE IT.", "IT'S CLAIMING YOUR LUGGAGE", "NOBODY CLAIMS IT BACK"],
   autopilot: ["RECALCULATING ROUTE", "DESTINATION: THE SUN", "ALL PASSENGERS ARE NOW CARGO"],
+  night_auditor: ["IT FOUND A DISCREPANCY", "IT'S AUDITING YOUR AUDIT", "YOU OWE BACK TAXES. IN BLOOD."],
 };
 /** What the big boss attacks want from you, said out loud the first few times. */
 const BOSS_CALLS: Record<string, [string, string]> = {
@@ -61,21 +62,24 @@ const BOSS_CALLS: Record<string, [string, string]> = {
   lobbedProjectile: ["IT'S RAINING!", "KEEP MOVING. WATCH THE CIRCLES"],
   submerge: ["IT WENT UNDER!", "KEEP MOVING. IT COMES UP UNDER YOU"],
   sweep: ["LASER SWEEP!", "STEP OVER THE BEAM, OR DASH THROUGH IT"],
+  blackout: ["LIGHTS OUT AUDIT!", "WATCH THE GLOWING CIRCLES. RELIGHT THE CANDLES AFTER"],
 };
 /** First time in a biome: what's different about it. */
 const BIOME_HINTS: Partial<Record<Biome, [string, string, number]>> = {
   caverns: ["MIND THE ICE", "YOU SLIDE. YOUR DASH GOES FURTHER. SPIKES HURT.", 0x9ff3ff],
   sewers: ["MIND THE WATER", "WADING IS SLOW AND THE CURRENT CARRIES YOU. PIPES BLAST THEIR LANE.", 0x8ab86a],
   orbital: ["MIND THE LASERS", "FENCES SWITCH ON AND OFF: DASH THROUGH. PADS TELEPORT YOU.", 0x9ff3ff],
+  crypt: ["MIND THE DARK", "SHOOT CANDLES TO LIGHT THEM. ENEMIES IN CANDLELIGHT TAKE MORE.", 0xffd27a],
 };
 const BOSS_WINS: Record<string, string> = {
   furnace_foreman: "THE FOREMAN HAS BEEN ESCALATED.",
   complaint_dragon: "THE COMPLAINT HAS BEEN FILED. AND IGNORED.",
   lost_found_gator: "THE GATOR HAS BEEN RETURNED TO SENDER.",
   autopilot: "THE AUTOPILOT HAS BEEN TURNED OFF AND ON AGAIN.",
+  night_auditor: "THE NIGHT AUDITOR HAS BEEN WRITTEN OFF.",
 };
 /** Who splits into what, for introducing the pieces. */
-const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball", sewers: "fatberglet", orbital: "blob_spawn" };
+const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball", sewers: "fatberglet", orbital: "blob_spawn", crypt: "ecto_wisp" };
 /** What the pickup button says for each kind of item. */
 const PICKUP_VERBS = { gun: "SWAP", grenade: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
 const ROOM_ICONS: Record<RoomKind, number> = { intro: 0xc9cfd6, combat: 0xe0533d, elite: 0xff9a2a, event: 0xb46cff, shrine: 0xf2c14e, rest: 0x5fd36a, boss: 0xff3030 };
@@ -442,11 +446,11 @@ export class UIScene extends Phaser.Scene {
           const room = world.run.room;
           const plan = world.run.plans[ev.index];
           const prev = world.run.plans[ev.index - 1];
-          const hint = plan && !plan.mix ? BIOME_HINTS[room.biome] : undefined;
+          const hint = plan ? BIOME_HINTS[room.biome] : undefined;
           if (plan && prev && plan.act > prev.act) {
             // A new act: say where we are, and the first time in a biome, what's different about it.
             const name = plan.act > FINAL_ACT ? `ENDLESS ${plan.act - FINAL_ACT}` : `ACT ${plan.act + 1}`;
-            this.showBanner(name, plan.act === FINAL_ACT ? "A BIT OF EVERYTHING" : BIOMES[room.biome].name.toUpperCase(), 0xf2c14e, 2600);
+            this.showBanner(plan.act === FINAL_ACT ? "FINAL ACT" : name, BIOMES[room.biome].name.toUpperCase(), 0xf2c14e, 2600);
             if (hint) this.toastOnce(`biome:${room.biome}`, ...hint);
           } else if (room.twist) this.showBanner(TWISTS[room.twist].name.toUpperCase(), TWISTS[room.twist].text.toUpperCase(), 0xb46cff, 2600);
           else if (ev.kind === "boss") this.showBanner(BIOMES[room.biome].bossRoom.toUpperCase(), "", 0xff9a2a);
@@ -460,6 +464,8 @@ export class UIScene extends Phaser.Scene {
           this.introduce(e.defId);
           // Each kind of elite gets explained once.
           if (e.elite) this.toastOnce(`elite:${e.elite}`, `ELITE: ${ELITES[e.elite].name.toUpperCase()}`, ELITES[e.elite].hint.toUpperCase(), 0xff9a2a);
+          // Grabbers get explained once, whichever biome you meet the first one in.
+          if (ENEMIES[e.defId]!.role === "grabber") this.toastOnce("grabber", "GRABBERS HOLD ON", "A FRIEND NEXT TO YOU FREES YOU. ALONE? MASH DASH.", 0xff9a2a);
           break;
         }
         case "reveal": {
@@ -480,6 +486,16 @@ export class UIScene extends Phaser.Scene {
           if (ev.id !== myId) break;
           this.hurtOverlay.setAlpha(0.25);
           this.tweens.add({ targets: this.hurtOverlay, alpha: 0, duration: 250 });
+          break;
+        case "grabbed":
+          if (ev.id === myId) {
+            const friends = world.players.some((p) => p.id !== myId && !p.downed && !p.away);
+            this.showBanner("GRABBED!", friends ? "MASH DASH, OR WAIT FOR A FRIEND" : "MASH DASH TO BREAK FREE", 0xff9a2a, 1600);
+          } else this.partyNews(`${this.nameOf(ev.id)} IS GRABBED! STAND NEXT TO THEM`, 0xff9a2a);
+          break;
+        case "freed":
+          if (ev.by === myId) this.partyNews(`YOU FREED ${this.nameOf(ev.id)}!`, 0xffe08a);
+          else if (ev.id === myId && ev.by >= 0) this.showBanner("FREED!", `THANKS, ${this.nameOf(ev.by)}`, 0xffe08a, 1400);
           break;
         case "playerDowned":
           if (ev.id === myId) {

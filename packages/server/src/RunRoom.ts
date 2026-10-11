@@ -10,7 +10,7 @@ import {
   runResult,
   signatureChance,
   signatureDrop,
-  BIOMES,
+  ADVENTURE_IDS,
   cleanOutfit,
   HEROES,
   isStarter,
@@ -109,7 +109,7 @@ export class RunRoom extends Room {
   onCreate(options: RoomOptions = {}): void {
     this.roomId = newCode();
     this.tier = Math.max(0, Math.min(TIER_LEVELS.length - 1, Math.round(Number(options.tier) || 0)));
-    if (options.biome && options.biome in BIOMES) this.biome = options.biome;
+    if (options.biome && ADVENTURE_IDS.includes(options.biome)) this.biome = options.biome;
     // Code rooms are for friends; only quick-match rooms show up in matchmaking.
     if (options.private) void this.setPrivate(true);
     void this.setMetadata({ phase: "lobby" });
@@ -138,7 +138,7 @@ export class RunRoom extends Room {
     });
     // The host picks the adventure from the lobby, between runs.
     this.onMessage("biome", (client, biome: unknown) => {
-      if (!this.isHost(client) || this.world || typeof biome !== "string" || !(biome in BIOMES)) return;
+      if (!this.isHost(client) || this.world || typeof biome !== "string" || !ADVENTURE_IDS.includes(biome as Biome)) return;
       this.biome = biome as Biome;
       this.broadcastLobby();
     });

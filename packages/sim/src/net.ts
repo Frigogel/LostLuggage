@@ -64,7 +64,7 @@ const ROOM_KINDS: RoomKind[] = ["intro", "combat", "elite", "event", "shrine", "
 const DOOR_KINDS: DoorKind[] = [...ROOM_KINDS, "home"];
 const TWISTS: TwistId[] = ["", ...TWIST_IDS];
 const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost", "grenade"];
-const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush"];
+const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush", "page"];
 const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave", "rewind"];
 const TRAP_KINDS: TrapKind[] = ["vent", "pipe", "laser"];
 
@@ -86,9 +86,11 @@ export interface Snapshot {
   r: number[];
   /** Rooms so far: [kind, layout, act, step, biome, twist] each. */
   pl: number[];
-  /** Doors out of the room: [x, kind, twist, biome, mix, act, step] each. */
+  /** Doors out of the room: [x, kind, twist, biome, act, step] each. */
   dr: number[][];
   v: number[][];
+  /** Drowned Crypt candles: [x, y, seconds left burning] each. */
+  c: number[][];
   p: unknown[][];
   /** Enemies: plain numbers, with one nested array (or 0) for elite and status extras. */
   e: (number | number[])[][];
@@ -153,7 +155,7 @@ function encodePlayer(p: Player): unknown[] {
     // Souvenir mods the client's movement prediction needs.
     q(p.mods.speed, 1000), q(p.mods.dashCd, 1000),
     SIGNATURE_IDS.indexOf(p.signature), q(p.shield, 10), Math.round(p.knock.x), Math.round(p.knock.y), q(p.slowT, T),
-    encodeGrenade(p.grenade),
+    encodeGrenade(p.grenade), p.pinnedBy, q(p.freeProgress, 100),
   ];
 }
 
@@ -208,6 +210,8 @@ function decodePlayer(a: unknown[]): Player {
     slowT: n(39) / T,
     holsterCd: 0,
     markHits: 0,
+    pinnedBy: (a[41] as number | undefined) ?? 0,
+    freeProgress: ((a[42] as number | undefined) ?? 0) / 100,
   };
 }
 
@@ -436,6 +440,10 @@ const EVENT_KEYS: EventKeys = {
   blink: ["id", "x", "y", "done"],
   relink: ["id"],
   deflect: ["x", "y"],
+  grabbed: ["id", "by"],
+  freed: ["id", "by"],
+  candleLit: ["x", "y"],
+  blackout: ["id"],
   confiscate: ["id", "x", "y"],
   asleep: ["id"],
   rewound: ["id", "by"],
@@ -508,11 +516,12 @@ export function encodeSnapshot(w: World, events: readonly SimEvent[], acks: Read
     r: [
       room.index, idx(ROOM_KINDS, room.kind), room.waveIdx, room.waves.length, b(room.cleared), room.exitT < 0 ? -1 : q(room.exitT, 10),
       b(run.victory), b(w.gameOver), run.kills, run.gunsFound, q(run.time, 10), run.tier, b(run.coop), idx(BIOME_IDS, run.biome),
-      b(run.finale), run.bosses, idx(BIOME_IDS, room.biome), idx(TWISTS, room.twist), q(room.holdT, 10),
+      b(run.finale), run.bosses, idx(BIOME_IDS, room.biome), idx(TWISTS, room.twist), q(room.holdT, 10), q(room.blackoutT, 10),
     ],
     pl: run.plans.flatMap((p) => [idx(ROOM_KINDS, p.kind), p.layout, p.act, p.step, idx(BIOME_IDS, p.biome), idx(TWISTS, p.twist)]),
-    dr: room.doors.map((d) => [d.x, idx(DOOR_KINDS, d.kind), idx(TWISTS, d.twist), idx(BIOME_IDS, d.biome), b(d.mix), d.act, d.step]),
+    dr: room.doors.map((d) => [d.x, idx(DOOR_KINDS, d.kind), idx(TWISTS, d.twist), idx(BIOME_IDS, d.biome), d.act, d.step]),
     v: room.vents.map(encodeVent),
+    c: room.candles.map((c) => [c.pos.x, c.pos.y, q(c.litT, 10)]),
     p: w.players.map(encodePlayer),
     e: w.enemies.map(encodeEnemy),
     j: w.projectiles.map(encodeProjectile),
@@ -531,13 +540,13 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
   for (let i = 0; i + 5 < s.pl.length; i += 6) {
     plans.push({
       kind: ROOM_KINDS[s.pl[i]!] ?? "combat", layout: s.pl[i + 1]!, act: s.pl[i + 2]!, step: s.pl[i + 3]!, biome: BIOME_IDS[s.pl[i + 4]!] ?? "foundry",
-      twist: TWISTS[s.pl[i + 5]!] ?? "", mix: false, waves: [], party: 0,
+      twist: TWISTS[s.pl[i + 5]!] ?? "", waves: [], party: 0,
     });
   }
   const index = r[0]!;
   const twist = TWISTS[r[17]!] ?? "";
   const doors: Door[] = (s.dr ?? []).map((d) => ({
-    x: d[0]!, kind: DOOR_KINDS[d[1]!] ?? "combat", twist: TWISTS[d[2]!] ?? "", biome: BIOME_IDS[d[3]!] ?? "foundry", mix: d[4] === 1, act: d[5]!, step: d[6]!,
+    x: d[0]!, kind: DOOR_KINDS[d[1]!] ?? "combat", twist: TWISTS[d[2]!] ?? "", biome: BIOME_IDS[d[3]!] ?? "foundry", act: d[4]!, step: d[5]!,
   }));
   const world: World = {
     tick: s.t,
@@ -570,6 +579,8 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
         cleared: r[4] === 1,
         exitT: r[5]! < 0 ? -1 : r[5]! / 10,
         vents: s.v.map(decodeVent),
+        candles: (s.c ?? []).map((c) => ({ pos: { x: c[0]!, y: c[1]! }, litT: c[2]! / 10 })),
+        blackoutT: (r[19] ?? 0) / 10,
       },
       tier: r[11]!,
       coop: r[12] === 1,

@@ -93,7 +93,7 @@ export function isStarter(id: string): boolean {
 export function unlockText(c: CosmeticDef): string {
   const u = c.unlock;
   const tiers = ["Normal", "Hard", "Nightmare"];
-  const biomes: Record<Biome, string> = { foundry: "the Burning Foundry", caverns: "the Frozen Caverns", sewers: "the Bilge Sewers", orbital: "the Orbital Deck" };
+  const biomes: Record<Biome, string> = { foundry: "the Burning Foundry", caverns: "the Frozen Caverns", sewers: "the Bilge Sewers", orbital: "the Orbital Deck", crypt: "the Drowned Crypt" };
   switch (u.kind) {
     case "starter":
       return "Everyone has this one.";

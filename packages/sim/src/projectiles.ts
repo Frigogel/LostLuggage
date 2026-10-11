@@ -11,6 +11,7 @@ import { gunStats } from "./loot";
 import { returnCharge } from "./enemies";
 import { dashedWithin, hasSkill, revive } from "./players";
 import { GRENADES } from "./data/grenades";
+import { lightCandles } from "./crypt";
 import type { Element, Enemy, Hazard, Player, Projectile, World } from "./types";
 
 const HAZARD_ELEMENT: Record<Hazard["kind"], Element> = { fire: "fire", acid: "acid", ice: "frost", wave: "none", rewind: "none" };
@@ -192,6 +193,8 @@ function updateStraight(w: World, pr: Projectile): boolean {
   }
 
   if (pr.owner === "player") {
+    // Drowned Crypt: a shot passing a candle lights it.
+    lightCandles(w, pr.pos, pr.radius);
     if (pr.fireLine && w.hazards.length < FIRE_LINE.maxHazards) {
       const owner = w.players.find((p) => p.id === pr.ownerId);
       const dmg = FIRE_LINE.damage * (owner ? levelMultiplier(owner.syncLevel) * owner.mods.damage : 1);

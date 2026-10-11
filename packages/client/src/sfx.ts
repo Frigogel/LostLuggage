@@ -238,6 +238,20 @@ class Sfx {
         // The airport PA: ding-dong.
         if (this.ok(name, 200)) { this.tone(784, 784, 0.35, "sine", 0.22); this.tone(622, 622, 0.5, "sine", 0.22, 0.28); }
         break;
+      // Grabbers: a heavy grab, and a pop when you get loose.
+      case "grab":
+        if (this.ok(name, 150)) { this.tone(140, 60, 0.25, "sawtooth", 0.35); this.noise(0.15, 0.35, 900, 150); }
+        break;
+      case "freed":
+        if (this.ok(name, 150)) { this.tone(300, 900, 0.14, "square", 0.22); this.noise(0.1, 0.2, 3000, 800); }
+        break;
+      // Drowned Crypt: a candle catching, and every light going out at once.
+      case "candle":
+        if (this.ok(name, 80)) { this.noise(0.12, 0.15, 2500, 600); this.tone(1320, 1760, 0.12, "sine", 0.1, 0.03); }
+        break;
+      case "blackout":
+        if (this.ok(name, 400)) { this.noise(0.6, 0.4, 2000, 80); this.tone(330, 55, 0.9, "sawtooth", 0.3); }
+        break;
       case "ghost":
         // A spooky slide down, then back up.
         if (this.ok(name, 150)) { this.tone(900, 300, 0.35, "sine", 0.16); this.tone(300, 700, 0.3, "sine", 0.12, 0.3); }

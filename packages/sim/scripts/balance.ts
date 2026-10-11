@@ -102,6 +102,8 @@ function botInput(w: World): PlayerInput {
       move = { x: -move.y || 1, y: move.x || 0.3 };
       if (p.dashCd <= 0) inp.dash = true;
     }
+    // Grabbed: mash dash, about as fast as a thumb can.
+    if (p.pinnedBy) inp.dash = bot.tick % 4 === 0;
     if (p.skillCharge >= 1 && es.length > 2) inp.skill = true;
     if (p.grenadeCd <= 0 && es.length >= 3) inp.grenade = true;
     // Swap to the fuller gun when the current one runs dry.

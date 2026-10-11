@@ -299,7 +299,8 @@ export class NetSession {
     if (this.pending.length > TICK_HZ * 2) this.pending.shift();
 
     const p = this.predicted;
-    if (!p || !canAct(p)) return none;
+    // Held by a grabber: the server decides where you are (dash presses still go out, to struggle).
+    if (!p || !canAct(p) || p.pinnedBy) return none;
     this.predPrev = { ...p.pos };
     const dashed = this.applyMovement(p, input);
     this.shots = [];
@@ -331,7 +332,7 @@ export class NetSession {
     }
     const old = this.predicted?.pos;
     const p: Player = { ...me, pos: { ...me.pos }, guns: me.guns.map((g) => ({ ...g })) };
-    if (canAct(p)) for (const e of this.pending) this.applyMovement(p, e.input);
+    if (canAct(p) && !p.pinnedBy) for (const e of this.pending) this.applyMovement(p, e.input);
     // Ammo already spent on shots the server hasn't seen yet.
     for (const e of this.pending) {
       const g = p.guns.find((gg) => gg.uid === e.firedGun);

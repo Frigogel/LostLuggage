@@ -7,6 +7,8 @@ import {
   BIOME_ART,
   drawCargoPod,
   drawCrate,
+  drawCryptFloor,
+  drawTombBlock,
   drawDoor,
   drawFloor,
   drawFont,
@@ -67,6 +69,8 @@ export class BootScene extends Phaser.Scene {
     add("floor-sewers", drawSewerFloor(ARENA.w, ARENA.h, FLOOR_PAD));
     add("sea-orbital", drawLava(64, BIOME_ART.orbital.sea));
     add("floor-orbital", drawOrbitalFloor(ARENA.w, ARENA.h, FLOOR_PAD));
+    add("sea-crypt", drawLava(64, BIOME_ART.crypt.sea));
+    add("floor-crypt", drawCryptFloor(ARENA.w, ARENA.h, FLOOR_PAD));
     add("pad", drawPad(PAD.radius + 2));
     add("vent", drawVent(18));
     add("door-closed", drawDoor(DOOR.w, DOOR.h, false));
@@ -93,6 +97,7 @@ export class BootScene extends Phaser.Scene {
       add(`ice-${size[0]}x${size[1]}`, drawIceBlock(size[0], size[1]));
       add(`stone-${size[0]}x${size[1]}`, drawStoneBlock(size[0], size[1]));
       add(`pod-${size[0]}x${size[1]}`, drawCargoPod(size[0], size[1]));
+      add(`tomb-${size[0]}x${size[1]}`, drawTombBlock(size[0], size[1]));
     }
 
     this.cache.bitmapFont.add(

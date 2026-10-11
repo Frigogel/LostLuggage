@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACT_ROOMS,
+  actBiome,
   actHp,
   BIOMES,
   BIOME_IDS,
@@ -404,40 +405,40 @@ describe("director and run", () => {
     }
   });
 
-  it("ends each act with a boss, visits every biome, and brings two bosses at the end", () => {
+  it("ends each act with a boss, visits every adventure, and ends in the Drowned Crypt", () => {
     const w = createWorld({ seed: 5 });
     // The last room of an act only leads to its boss.
     enterRoom(w, roomSpec(w, "combat", { step: ACT_ROOMS - 1 }));
     w.run.room.cleared = true;
     expect(planDoors(w).map((d) => d.kind)).toEqual(["boss"]);
-    // The adventure visits every biome once, starting with the picked one, before the mixed final act.
+    // The adventure visits every biome once, starting with the picked one and ending in the Crypt.
     expect(w.run.order[0]).toBe("foundry");
     expect([...w.run.order].sort()).toEqual([...BIOME_IDS].sort());
-    expect(FINAL_ACT).toBe(BIOME_IDS.length);
+    expect(w.run.order[FINAL_ACT]).toBe("crypt");
+    expect(FINAL_ACT).toBe(BIOME_IDS.length - 1);
     // After the first boss, the next act is in the next biome.
     enterRoom(w, roomSpec(w, "boss"));
     expect(w.run.plans.at(-1)!.waves).toEqual([[BIOMES.foundry.boss]]);
     w.run.room.cleared = true;
     const next = planDoors(w);
     expect(next.map((d) => [d.kind, d.act, d.biome])).toEqual([["combat", 1, w.run.order[1]]]);
-    // A different seed can visit them in a different order.
-    const orders = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => createWorld({ seed }).run.order.join()));
-    expect(orders.size).toBeGreaterThan(1);
-    // The final act's boss room brings its own boss and one other, and its doors lead home or on into endless.
-    enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, biome: "caverns", mix: true }));
-    const duo = w.run.plans.at(-1)!.waves[0]!.map((id) => id.split("@")[0]);
-    expect(duo).toHaveLength(2);
-    expect(duo[0]).toBe(BIOMES.caverns.boss);
-    expect(BIOME_IDS.filter((b) => b !== "caverns").map((b) => BIOMES[b].boss)).toContain(duo[1]);
+    // A different seed can visit them in a different order, but the Crypt is always last, and never a start.
+    const orders = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => createWorld({ seed }).run.order);
+    expect(new Set(orders.map((o) => o.join())).size).toBeGreaterThan(1);
+    expect(orders.every((o) => o.at(-1) === "crypt")).toBe(true);
+    expect(createWorld({ seed: 1, biome: "crypt" }).run.biome).toBe("foundry");
+    // The final act's boss room brings the Night Auditor alone, and its doors lead home or on into endless.
+    enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, biome: actBiome(w, FINAL_ACT) }));
+    expect(w.run.plans.at(-1)!.waves).toEqual([["night_auditor"]]);
     w.run.room.cleared = true;
-    expect(planDoors(w).map((d) => [d.kind, d.act])).toEqual([["home", FINAL_ACT + 1], ["combat", FINAL_ACT + 1]]);
+    expect(planDoors(w).map((d) => [d.kind, d.act, d.biome])).toEqual([["home", FINAL_ACT + 1, "foundry"], ["combat", FINAL_ACT + 1, "foundry"]]);
   });
 
-  it("mixed rooms draw enemies from every family", () => {
+  it("Overbooked rooms draw enemies from every family", () => {
     const w = createWorld({ seed: 3 });
     const biomes = new Set<string>();
     for (let i = 0; i < 20; i++) {
-      const plan = planRoom(w, roomSpec(w, "combat", { act: FINAL_ACT, mix: true, step: 3 }), 0, 1);
+      const plan = planRoom(w, roomSpec(w, "combat", { act: 2, twist: "overbooked", step: 3 }), 0, 1);
       for (const id of plan.waves.flat()) {
         const def = ENEMIES[id.replace("!", "").split("@")[0]!]!;
         if (def.biomes.length === 1) biomes.add(def.biomes[0]!);

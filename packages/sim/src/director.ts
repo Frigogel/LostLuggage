@@ -1,4 +1,4 @@
-import { BIOME_IDS, BIOMES, ENEMIES } from "./data/enemies";
+import { ADVENTURE_IDS, BIOME_IDS, BIOMES, ENEMIES, FINALE_BIOME } from "./data/enemies";
 import { canBeElite, ELITE_IDS } from "./elites";
 import { pick, rand } from "./math";
 import type { Biome, Door, DoorKind, EliteId, EnemyDef, Role, RoomKind, RoomPlan, RoomSpec, TwistId, World } from "./types";
@@ -8,9 +8,11 @@ export const MAX_ENEMIES = 40;
 // ---------------------------------------------------------------- run shape
 //
 // A run is five acts, each a string of rooms picked at the doors and a boss at the end (design doc: Run structure).
-// Act one is the adventure you picked, acts two to four the other biomes in an order the run's seed picks, and act
-// five a mix of everything, ending with two of the bosses at once. Beat that and you can fly home with the win, or keep
-// going in endless, where every act is harder than the last.
+// Act one is the adventure you picked, acts two to four the other adventures in an order the run's seed picks, and
+// act five is always the Drowned Crypt, ending with the Night Auditor. Beat that and you can fly home with the win, or
+// keep going in endless, where every act is harder than the last.
+//
+// From act two on, every biome's fights can bring a grabber (see grabs).
 
 /** Rooms in an act before its boss: the arrival (step 0), then the rooms picked at the doors. */
 export const ACT_ROOMS = 6;
@@ -30,23 +32,30 @@ export const TWISTS: Record<Exclude<TwistId, "">, { name: string; text: string }
 };
 export const TWIST_IDS = Object.keys(TWISTS) as Exclude<TwistId, "">[];
 
-/** The order a run visits the biomes in: the picked one first, then the others, shuffled by the run's seed. */
+/**
+ * The order a run visits the biomes in: the picked one first, then the other adventures, shuffled by the run's seed,
+ * and the Drowned Crypt last.
+ */
 export function actOrder(start: Biome, seed: number): Biome[] {
-  const rest = BIOME_IDS.filter((b) => b !== start);
+  const rest = ADVENTURE_IDS.filter((b) => b !== start);
   let s = seed >>> 0;
   for (let i = rest.length - 1; i > 0; i--) {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     const j = s % (i + 1);
     [rest[i], rest[j]] = [rest[j]!, rest[i]!];
   }
-  return [start, ...rest];
+  return [start, ...rest, FINALE_BIOME];
 }
 
-/** The act's home biome. The final act (and every third endless act) mixes them all, room by room. */
-export function actBiome(w: World, act: number): { biome: Biome; mix: boolean } {
-  if (act === FINAL_ACT || (act > FINAL_ACT && (act - FINAL_ACT) % 3 === 0)) return { biome: pick(w, BIOME_IDS), mix: true };
+/** The act's biome. Endless goes round them all again, the Crypt included. */
+export function actBiome(w: World, act: number): Biome {
   const order = w.run.order.length > 0 ? w.run.order : actOrder(w.run.biome, 0);
-  return { biome: order[act % order.length]!, mix: false };
+  return order[act % order.length]!;
+}
+
+/** Grabbers turn up from act two on, more often the deeper you go. */
+export function grabberChance(act: number): number {
+  return act < 1 ? 0 : Math.min(0.8, 0.35 + 0.1 * act);
 }
 
 /**
@@ -117,7 +126,7 @@ const TEMPLATES: Role[][] = [
 ];
 
 /** Per-wave caps that stop dull or unfair mixes (three artillery alone, two healers, …). */
-const ROLE_CAP: Partial<Record<Role, number>> = { artillery: 3, support: 1, summoner: 1, ambusher: 2, bruiser: 3, charger: 3 };
+const ROLE_CAP: Partial<Record<Role, number>> = { artillery: 3, support: 1, summoner: 1, ambusher: 2, bruiser: 3, charger: 3, grabber: 1 };
 
 /** Pacing curve for a combat room's waves: tense fight, breather, tense again, spike. */
 const PACING = [1.0, 0.7, 1.2, 1.5];
@@ -128,6 +137,7 @@ export const BIOME_LAYOUTS: Record<Biome, { intro: number; combat: number[]; res
   caverns: { intro: 5, combat: [6, 7, 13, 14, 15], rest: 8, boss: 9 },
   sewers: { intro: 16, combat: [17, 18, 19, 20], rest: 21, boss: 22 },
   orbital: { intro: 23, combat: [24, 25, 26, 27], rest: 28, boss: 29 },
+  crypt: { intro: 30, combat: [31, 32, 33, 34], rest: 35, boss: 36 },
 };
 
 function family(biomes: readonly string[], role: Role): EnemyDef[] {
@@ -160,8 +170,9 @@ export interface WavePlan {
 /**
  * One wave's enemies. `elites` is the share of the budget spent on elite modifiers; `convention` makes every enemy
  * an elite instead (Elite Convention): no swarmers or hidden ambushers, and each enemy pays for its modifier up front.
+ * `grabber` is the chance the wave brings a grabber along with its template.
  */
-export function planWave(w: World, budget: number, biomes: readonly string[] = ["foundry"], avoidTemplate = -1, elites = 0, convention = false): WavePlan & { template: number } {
+export function planWave(w: World, budget: number, biomes: readonly string[] = ["foundry"], avoidTemplate = -1, elites = 0, convention = false, grabber = 0): WavePlan & { template: number } {
   let t = Math.floor(rand(w) * TEMPLATES.length);
   if (t === avoidTemplate) t = (t + 1) % TEMPLATES.length;
   // Swarmers can't be elite and ambushers wait as props, so a convention leaves them at home.
@@ -195,6 +206,7 @@ export function planWave(w: World, budget: number, biomes: readonly string[] = [
   };
 
   for (const role of template) add(role);
+  if (grabber > 0 && rand(w) < grabber) add("grabber");
   let i = 0;
   let stuck = 0;
   while (left >= 1 && out.length + props.length < MAX_ENEMIES && stuck < template.length * 2) {
@@ -243,8 +255,8 @@ function makeElites(w: World, out: string[], budget: number): void {
   }
 }
 
-/** Every biome's family in a mixed room; just the room's own otherwise. */
-const biomesFor = (spec: Pick<RoomSpec, "biome" | "mix" | "twist">): string[] => (spec.mix || spec.twist === "overbooked" ? [...BIOME_IDS] : [spec.biome]);
+/** Every biome's family when the room is Overbooked; just the room's own otherwise. */
+const biomesFor = (spec: Pick<RoomSpec, "biome" | "twist">): string[] => (spec.twist === "overbooked" ? [...BIOME_IDS] : [spec.biome]);
 
 /** Waves for a director-built fight. Rooms are re-planned on entry when players dropped in or left. */
 export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySize: number): string[][] {
@@ -266,7 +278,7 @@ export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySiz
   pacing.forEach((p, i) => {
     // The very first wave of the run stays plain, so elites show up once you have your feet.
     const share = depth <= 1 && i === 0 ? 0 : elites;
-    const plan = planWave(w, budget * p, biomesFor(spec), last, share, spec.twist === "convention");
+    const plan = planWave(w, budget * p, biomesFor(spec), last, share, spec.twist === "convention", grabberChance(spec.act));
     last = plan.template;
     // Props are marked with a leading "!" so the room can place them hidden at entry.
     waves.push([...plan.enemies, ...plan.props.map((id) => "!" + id)]);
@@ -274,13 +286,8 @@ export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySiz
   return waves;
 }
 
-/** The boss (or bosses) at the end of an act. The final act brings two at once: this room's and one other. */
-export function bossWaves(w: World, spec: RoomSpec): string[][] {
-  const duo = spec.act === FINAL_ACT || (spec.act > FINAL_ACT && spec.mix);
-  if (duo) {
-    const other = pick(w, BIOME_IDS.filter((b) => b !== spec.biome));
-    return [[spec.biome, other].map((b) => BIOMES[b].boss + "@duo")];
-  }
+/** The boss at the end of an act: the biome's own. */
+export function bossWaves(spec: RoomSpec): string[][] {
   return [[BIOMES[spec.biome].boss]];
 }
 
@@ -299,7 +306,7 @@ export function planRoom(w: World, spec: RoomSpec, tier: number, partySize: numb
     case "shrine":
       return { ...base, layout: lay.rest, waves: [] };
     case "boss":
-      return { ...base, layout: lay.boss, waves: bossWaves(w, spec) };
+      return { ...base, layout: lay.boss, waves: bossWaves(spec) };
     default:
       return { ...base, layout: pick(w, lay.combat), waves: planCombatWaves(w, spec, tier, partySize) };
   }
@@ -307,7 +314,7 @@ export function planRoom(w: World, spec: RoomSpec, tier: number, partySize: numb
 
 /** The first room of a run. */
 export function firstRoom(w: World): RoomSpec {
-  return { kind: "intro", biome: w.run.biome, twist: "", mix: false, act: 0, step: 0 };
+  return { kind: "intro", biome: w.run.biome, twist: "", act: 0, step: 0 };
 }
 
 // ---------------------------------------------------------------- doors
@@ -326,19 +333,20 @@ export function planDoors(w: World): Door[] {
 
   if (here.kind === "boss") {
     const next = here.act + 1;
-    const { biome, mix } = actBiome(w, next);
-    const onward: Omit<Door, "x"> = { kind: "combat", biome, mix, twist: "", act: next, step: 0 };
+    const onward: Omit<Door, "x"> = { kind: "combat", biome: actBiome(w, next), twist: "", act: next, step: 0 };
     // From the final boss on, every boss is a chance to fly home with the win.
     return place(here.act >= FINAL_ACT ? [{ ...onward, kind: "home" }, onward] : [onward]);
   }
   const step = here.step + 1;
   const act = here.act;
   const spec = (kind: DoorKind): Omit<Door, "x"> => {
-    const { biome, mix } = act === FINAL_ACT || mix0(w, act) ? actBiome(w, act) : { biome: here.biome, mix: here.mix };
+    const biome = here.biome;
     let twist: TwistId = "";
     const twistChance = Math.min(ENDLESS.twistCap, 0.2 + ENDLESS.twistStep * endlessActs(act));
-    if (kind === "event" || (kind === "combat" && act >= 1 && rand(w) < twistChance)) twist = pick(w, TWIST_IDS);
-    return { kind, biome, mix, twist, act, step };
+    // The Crypt is already dark: Lights Out would change nothing there.
+    const twists = biome === "crypt" ? TWIST_IDS.filter((t) => t !== "dark") : TWIST_IDS;
+    if (kind === "event" || (kind === "combat" && act >= 1 && rand(w) < twistChance)) twist = pick(w, twists);
+    return { kind, biome, twist, act, step };
   };
   if (step >= ACT_ROOMS) return place([spec("boss")]);
 
@@ -373,5 +381,3 @@ export function planDoors(w: World): Door[] {
   return place(kinds.map(spec));
 }
 
-/** Mixed endless acts pick a biome per room, like the final act. */
-const mix0 = (w: World, act: number): boolean => act > FINAL_ACT && actBiome(w, act).mix;

@@ -12,6 +12,7 @@ import { GRENADES } from "./data/grenades";
 import { gunFromData, gunStats, heldGrenade, heldStats, newGun, RARITIES, rollGun, STARTER_GRENADE } from "./loot";
 import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
 import { rewindPending } from "./projectiles";
+import { updatePinned } from "./grabs";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
 import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
 import { beltAt, padAt, waterAt } from "./room";
@@ -102,6 +103,8 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     slowT: 0,
     holsterCd: 0,
     markHits: 0,
+    pinnedBy: 0,
+    freeProgress: 0,
   };
   if (opts.mythicPity) p.mythicPity = Math.max(0, Math.floor(opts.mythicPity));
   // Second Opinion: one more Second Wind.
@@ -168,6 +171,11 @@ export const EMPTY_INPUT: PlayerInput = {
 export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerInput): boolean {
   const hero = HEROES[p.heroId]!;
   p.dashCd = Math.max(0, p.dashCd - DT);
+  // Held by a grabber: going nowhere (the grabber keeps you where it wants you).
+  if (p.pinnedBy) {
+    p.vel = { x: 0, y: 0 };
+    return false;
+  }
   let dashed = false;
   if (input.dash && p.dashCd <= 0 && p.dashT <= 0) {
     p.dashDir = len(input.move) > 0.1 ? norm(input.move) : { ...p.facing };
@@ -285,6 +293,14 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     p.vel = { x: 0, y: 0 };
     return;
   }
+  if (p.pinnedBy) {
+    // Grabbed: no moving, shooting or throwing until you're loose (see grabs).
+    updatePinned(w, p, input);
+    if (p.pinnedBy) {
+      p.vel = { x: 0, y: 0 };
+      return;
+    }
+  }
 
   updateFacing(p, input);
 
@@ -385,7 +401,7 @@ function updateDowned(w: World, p: Player): void {
     if (p.reviveT <= 0) revive(w, p, -1, 0.5);
     return;
   }
-  const helpers = w.players.filter((o) => o !== p && canAct(o) && dist(o.pos, p.pos) < REVIVE.reach + o.radius);
+  const helpers = w.players.filter((o) => o !== p && canAct(o) && !o.pinnedBy && dist(o.pos, p.pos) < REVIVE.reach + o.radius);
   // Owl Ambulance: a Warden's owl counts as a helper.
   const owl = ambulanceNear(w, p);
   if (helpers.length > 0 || owl) {

@@ -6,7 +6,9 @@ import { eliteHaste, eliteSpeed, updateElite } from "./elites";
 import { hurtGadget, hurtGadgetsIn, tauntOf, tauntSlow, TURRET } from "./gadgets";
 import { MARK, tickMark } from "./marks";
 import { add, clamp, dist, distToSegment, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
-import type { Arena, AttackDef, Enemy, EnemyDef, Player, World } from "./types";
+import type { Arena, AttackDef, Enemy, EnemyDef, Player, Puddle, World } from "./types";
+import { snuffCandles } from "./crypt";
+import { tryGrab, updateGrab } from "./grabs";
 import { beltAt, trapPoint, ventState, waterAt } from "./room";
 import { WATER } from "./players";
 import { actHaste } from "./director";
@@ -96,6 +98,11 @@ function targetOf(w: World, e: Enemy): Target | undefined {
   if (t) return { pos: t.pos, vel: { x: 0, y: 0 }, radius: TURRET.radius };
   const up = w.players.filter((p) => !p.downed && !p.away);
   if (up.length <= 1) return up[0] ?? nearestPlayer(w, e.pos);
+  if (ENEMIES[e.defId]!.farAggro) {
+    // Far-aggro: whoever has strayed furthest from the rest of the party.
+    const c = scale(up.reduce((acc, p) => add(acc, p.pos), { x: 0, y: 0 }), 1 / up.length);
+    return up.reduce((a, b) => (dist(b.pos, c) > dist(a.pos, c) ? b : a));
+  }
   let best: Player | undefined;
   let bestScore = Infinity;
   for (const p of up) {
@@ -208,7 +215,7 @@ function updateEnemy(w: World, e: Enemy): void {
       // Melee and charges keep turning toward you for the first part of the windup: stepping aside early doesn't
       // work, dodging at the last moment does.
       const total = atk.windupMs / 1000 / h;
-      if (target && (atk.type === "melee" || atk.type === "dash") && e.stateT > total * 0.4) {
+      if (target && (atk.type === "melee" || atk.type === "dash" || atk.type === "grab") && e.stateT > total * 0.4) {
         const want = norm(sub(atk.type === "dash" ? lead(target, 0.2) : target.pos, e.pos));
         e.attackDir = norm(add(scale(e.attackDir, 0.82), scale(want, 0.18)));
       }
@@ -229,6 +236,10 @@ function updateEnemy(w: World, e: Enemy): void {
       }
       if (atk.type === "sweep") {
         updateSweep(w, e, atk);
+        break;
+      }
+      if (atk.type === "grab") {
+        updateGrab(w, e, atk);
         break;
       }
       if (atk.type !== "dash") break;
@@ -368,7 +379,7 @@ function dropTrail(w: World, e: Enemy, def: EnemyDef): void {
 }
 
 function attackRange(def: EnemyDef): number {
-  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" || a.type === "nova" || a.type === "shockwave" || a.type === "submerge" || a.type === "sweep" ? m : Math.min(m, a.range)), Infinity);
+  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" || a.type === "nova" || a.type === "shockwave" || a.type === "submerge" || a.type === "sweep" || a.type === "blackout" ? m : Math.min(m, a.range)), Infinity);
 }
 
 function childrenAlive(w: World, e: Enemy): number {
@@ -378,7 +389,10 @@ function childrenAlive(w: World, e: Enemy): number {
 function canUse(w: World, e: Enemy, atk: AttackDef, d: number): boolean {
   switch (atk.type) {
     case "shieldAllies":
-      return w.enemies.some((o) => o !== e && targetable(o) && o.shield < atk.amount * 0.5 && dist(o.pos, e.pos) < atk.radius);
+      return (
+        w.enemies.some((o) => o !== e && targetable(o) && o.shield < atk.amount * 0.5 && dist(o.pos, e.pos) < atk.radius) ||
+        (!!atk.snuff && w.run.room.candles.some((c) => c.litT > 0 && dist(c.pos, e.pos) < atk.snuff!))
+      );
     case "summon":
       return childrenAlive(w, e) < atk.maxAlive;
     default:
@@ -387,7 +401,7 @@ function canUse(w: World, e: Enemy, atk: AttackDef, d: number): boolean {
 }
 
 /** Boss attacks big enough to get their own call-out on screen. */
-const BIG = new Set(["nova", "shockwave", "submerge", "sweep"]);
+const BIG = new Set(["nova", "shockwave", "submerge", "sweep", "blackout"]);
 
 function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void {
   const d = dist(e.pos, target.pos) - target.radius - e.radius;
@@ -428,6 +442,12 @@ function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void
         e.attackPoints.push(clampToArena(w, add(target.pos, fromAngle(a, randRange(w, 20, atk.scatter ?? 40))), 8));
       }
     }
+  }
+  if (atk.type === "blackout") {
+    // Pages rain all over the room in the dark, one on every player. They glow, so you can still see them coming.
+    e.attackPoints = [];
+    for (const p of w.players) if (!p.downed && !p.away) e.attackPoints.push(clampToArena(w, lead(p, atk.flightMs / 1000, 0.4), 8));
+    while (e.attackPoints.length < atk.count) e.attackPoints.push({ x: randRange(w, 30, w.arena.w - 30), y: randRange(w, 40, w.arena.h - 30) });
   }
   // Sweeps turn whichever way the target isn't already running. The direction rides along in attackPoints[0].x so
   // co-op clients can draw the beams too.
@@ -477,17 +497,23 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       break;
     }
     case "lobbedProjectile": {
-      for (const to of e.attackPoints) {
-        const d = dist(e.pos, to);
-        const pd = atk.puddle;
-        w.projectiles.push({
-          id: newId(w), owner: "enemy", ownerId: e.id, kind: pd && !pd.fire ? (pd.ice ? "slush" : "acid") : "mortar",
-          element: pd ? (pd.ice ? "frost" : pd.fire ? "fire" : "acid") : "none",
-          pos: { ...e.pos }, vel: { x: 0, y: 0 }, radius: 4, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0, life: 99,
-          hitIds: [], gunUid: -1,
-          lob: { from: { ...e.pos }, to: { ...to }, t: 0, dur: Math.max(0.3, (atk.flightMs / 1000) * (0.6 + (0.4 * d) / atk.range)), radius: atk.radius, puddle: atk.puddle },
-        });
-      }
+      const pd = atk.puddle;
+      const kind = pd && !pd.fire ? (pd.ice ? "slush" : "acid") : "mortar";
+      for (const to of e.attackPoints) lobAt(w, e, to, atk, kind);
+      break;
+    }
+    case "grab": {
+      // A lunge sells the grab. Catching nobody leaves it off balance for a moment.
+      e.knock = add(e.knock, scale(e.attackDir, 150));
+      if (!tryGrab(w, e, atk)) e.stateT += 0.3;
+      break;
+    }
+    case "blackout": {
+      // Every light goes out, and the pages come down while you can barely see.
+      snuffCandles(w);
+      w.run.room.blackoutT = atk.durationMs / 1000;
+      w.events.push({ type: "blackout", id: e.id });
+      for (const to of e.attackPoints) lobAt(w, e, to, { ...atk, range: Math.hypot(w.arena.w, w.arena.h) }, "page");
       break;
     }
     case "slam": {
@@ -556,6 +582,8 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       break;
     }
     case "shieldAllies": {
+      // A Bell Ringer's toll puts the candles around it out.
+      if (atk.snuff) snuffCandles(w, e.pos, atk.snuff);
       for (const o of w.enemies) {
         if (o === e || !targetable(o) || dist(o.pos, e.pos) > atk.radius) continue;
         o.shield = Math.max(o.shield, atk.amount);
@@ -573,6 +601,19 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       break;
     }
   }
+}
+
+/** One lobbed shell from an enemy to `to`: further shots take a little longer. */
+function lobAt(w: World, e: Enemy, to: Vec, atk: { flightMs: number; range: number; radius: number; damage: number; puddle?: Puddle }, kind: string): void {
+  const d = dist(e.pos, to);
+  const pd = atk.puddle;
+  w.projectiles.push({
+    id: newId(w), owner: "enemy", ownerId: e.id, kind,
+    element: pd ? (pd.ice ? "frost" : pd.fire ? "fire" : "acid") : "none",
+    pos: { ...e.pos }, vel: { x: 0, y: 0 }, radius: 4, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0, life: 99,
+    hitIds: [], gunUid: -1,
+    lob: { from: { ...e.pos }, to: { ...to }, t: 0, dur: Math.max(0.3, (atk.flightMs / 1000) * (0.6 + (0.4 * d) / atk.range)), radius: atk.radius, puddle: atk.puddle },
+  });
 }
 
 /**
@@ -645,7 +686,7 @@ function separate(w: World): void {
     }
     if (fixed(a) || submerged(a)) continue;
     for (const p of w.players) {
-      if (p.downed || p.away || p.dashT > 0) continue;
+      if (p.downed || p.away || p.dashT > 0 || p.pinnedBy === a.id) continue;
       const off = sub(a.pos, p.pos);
       const min = a.radius + p.radius;
       const l = len(off);

@@ -3,6 +3,7 @@
 // stage itself is drawn by LobbyScene; the HTML only frames it.
 import type Phaser from "phaser";
 import {
+  ADVENTURE_IDS,
   BIOMES,
   COSMETIC_SLOTS,
   COSMETICS,
@@ -65,7 +66,7 @@ const BIOME_KEY = "lostluggage.biome";
 function loadBiome(): Biome {
   try {
     const b = localStorage.getItem(BIOME_KEY) as Biome | null;
-    return b && BIOMES[b] ? b : "foundry";
+    return b && ADVENTURE_IDS.includes(b) ? b : "foundry";
   } catch {
     return "foundry";
   }
@@ -364,7 +365,8 @@ export class Menu {
   private nextBiome(): void {
     const s = this.session;
     if (s && !s.isHost) return;
-    const ids = Object.keys(BIOMES) as Biome[];
+    // The Drowned Crypt isn't on the list: every adventure ends there.
+    const ids = ADVENTURE_IDS;
     this.biome = ids[(ids.indexOf(s?.lobby?.biome ?? this.biome) + 1) % ids.length]!;
     try {
       localStorage.setItem(BIOME_KEY, this.biome);

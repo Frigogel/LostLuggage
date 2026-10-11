@@ -1,4 +1,13 @@
-import type { Biome, EnemyDef } from "../types";
+import type { AttackDef, Biome, EnemyDef } from "../types";
+
+/**
+ * Every grabber's grab: a short windup and lunge, then a hold of a few seconds. A teammate frees you in under a
+ * second; mashing dash takes five presses; a third of its health in damage breaks it. Nobody helps and you're thrown.
+ */
+const GRAB_ATTACK: AttackDef = {
+  type: "grab", telegraph: "redFlash", windupMs: 600, range: 18, reach: 14, damage: 6, squeeze: 5, holdMs: 3200, breakFrac: 0.3,
+  toss: 12, cooldownMs: 4500, recoverMs: 700,
+};
 
 // The Burning Foundry family: one enemy per role, plus a split child and the mini-boss.
 // Element focus for this biome is shields and fire immunity, so Shock and Acid shine here.
@@ -958,6 +967,330 @@ export const ENEMIES: Record<string, EnemyDef> = {
     threatCost: 0,
     dropChance: 1,
   },
+
+  // ---------------------------------------------------------------- grabbers
+  // One per biome, from act 2 on (see director). They catch you and hold on: a teammate standing next to you pulls
+  // you free, on your own you mash dash, and enough damage to the grabber breaks its grip.
+  claw_machine: {
+    id: "claw_machine",
+    name: "Claw Machine",
+    flavor: "Finally, a claw machine that wins.",
+    role: "grabber",
+    defense: "shield",
+    hp: 130,
+    speed: 50,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [GRAB_ATTACK],
+    biomes: ["foundry"],
+    threatCost: 3,
+    fireImmune: true,
+    dropChance: 0.1,
+  },
+  polar_hugger: {
+    id: "polar_hugger",
+    name: "Polar Hugger",
+    flavor: "Free hugs. Mandatory hugs.",
+    role: "grabber",
+    defense: "armor",
+    hp: 140,
+    speed: 48,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [GRAB_ATTACK],
+    biomes: ["caverns"],
+    threatCost: 3,
+    frostImmune: true,
+    dropChance: 0.1,
+  },
+  ubend_lurker: {
+    id: "ubend_lurker",
+    name: "U-Bend Lurker",
+    flavor: "Lives in the U-bend. Wants a hug. Smells like the U-bend.",
+    role: "grabber",
+    defense: "flesh",
+    hp: 130,
+    speed: 50,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [GRAB_ATTACK],
+    biomes: ["sewers"],
+    threatCost: 3,
+    swimmer: true,
+    dropChance: 0.1,
+  },
+  cargo_loader: {
+    id: "cargo_loader",
+    name: "Cargo Loader",
+    flavor: "Lifts two tons. Lifts you. Doesn't put you down.",
+    role: "grabber",
+    defense: "shield",
+    hp: 130,
+    speed: 50,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [GRAB_ATTACK],
+    biomes: ["orbital"],
+    threatCost: 3,
+    dropChance: 0.1,
+  },
+
+  // ---------------------------------------------------------------- Drowned Crypt
+  // Always the final act. It's dark: you see what your glow, the owl and the candles light, and lit candles expose
+  // whatever stands near them. Mostly flesh, so Fire, but the gargoyles are stone unless you bring the light to them.
+  souvenir_hunter: {
+    id: "souvenir_hunter",
+    name: "Souvenir Hunter",
+    flavor: "A skeleton with a metal detector. Has found three bottle caps and you.",
+    role: "swarmer",
+    defense: "flesh",
+    hp: 22,
+    speed: 88,
+    radius: 5,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 260, range: 14, reach: 9, damage: 7, cooldownMs: 750, recoverMs: 220 },
+    ],
+    biomes: ["crypt"],
+    threatCost: 1,
+    dropChance: 0.02,
+  },
+  zombie_porter: {
+    id: "zombie_porter",
+    name: "Zombie Porter",
+    flavor: "Still carrying the bags from 1987. Will carry you too.",
+    role: "bruiser",
+    defense: "flesh",
+    hp: 240,
+    speed: 38,
+    radius: 10,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "slam", telegraph: "groundCircle", windupMs: 800, range: 22, radius: 38, damage: 23, push: 200, cooldownMs: 1500, recoverMs: 500 },
+    ],
+    biomes: ["crypt"],
+    threatCost: 4,
+    dropChance: 0.12,
+  },
+  gargoyle_bellhop: {
+    id: "gargoyle_bellhop",
+    name: "Gargoyle Bellhop",
+    flavor: "Stone cold service. Bring a light, or bring a lot of bullets.",
+    role: "artillery",
+    defense: "armor",
+    hp: 90,
+    speed: 40,
+    radius: 7,
+    movement: { type: "keepDistance", min: 120, max: 220 },
+    attacks: [
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 800, range: 260, radius: 26, damage: 15,
+        flightMs: 850, cooldownMs: 2200, recoverMs: 400,
+      },
+    ],
+    biomes: ["crypt"],
+    threatCost: 3,
+    stone: true,
+    dropChance: 0.08,
+  },
+  banshee_guide: {
+    id: "banshee_guide",
+    name: "Banshee Tour Guide",
+    flavor: "Please stay with the group. She means it.",
+    role: "charger",
+    defense: "flesh",
+    hp: 95,
+    speed: 52,
+    radius: 8,
+    movement: { type: "chase" },
+    attacks: [
+      {
+        type: "dash", telegraph: "line", windupMs: 620, range: 200, dashSpeed: 400, dashMs: 600, damage: 21,
+        cooldownMs: 1900, recoverMs: 600, stunMs: 1300,
+      },
+    ],
+    biomes: ["crypt"],
+    threatCost: 3,
+    farAggro: true,
+    dropChance: 0.08,
+  },
+  ecto_slime: {
+    id: "ecto_slime",
+    name: "Ecto Slime",
+    flavor: "Leaves a trail of ectoplasm. Please don't step in the ectoplasm.",
+    role: "zoner",
+    defense: "flesh",
+    hp: 60,
+    speed: 32,
+    radius: 7,
+    movement: { type: "keepDistance", min: 60, max: 150 },
+    attacks: [
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 700, range: 200, radius: 16, damage: 6,
+        flightMs: 700, cooldownMs: 2500, recoverMs: 400, puddle: { radius: 18, durationMs: 5000, damage: 5 },
+      },
+    ],
+    trail: { intervalMs: 600, radius: 9, durationMs: 4000, damage: 4 },
+    biomes: ["crypt"],
+    threatCost: 2,
+    dropChance: 0.06,
+  },
+  bell_ringer: {
+    id: "bell_ringer",
+    name: "Bell Ringer Ghoul",
+    flavor: "Ask not for whom the bell tolls. It tolls for the candles.",
+    role: "support",
+    defense: "shield",
+    hp: 75,
+    speed: 46,
+    radius: 7,
+    movement: { type: "keepDistance", min: 110, max: 190 },
+    attacks: [
+      { type: "shieldAllies", telegraph: "channel", windupMs: 1200, range: 999, radius: 100, amount: 35, snuff: 110, cooldownMs: 5000, recoverMs: 500 },
+      {
+        type: "projectile", telegraph: "redFlash", windupMs: 500, range: 200, speed: 125, damage: 9, radius: 3,
+        count: 3, spreadDeg: 30, cooldownMs: 2000, recoverMs: 400,
+      },
+    ],
+    biomes: ["crypt"],
+    threatCost: 3,
+    dropChance: 0.1,
+  },
+  crypt_urn: {
+    id: "crypt_urn",
+    name: "Crypt Keeper's Urn",
+    flavor: "Contains the ashes of a very unhappy customer. And his friends.",
+    role: "summoner",
+    defense: "armor",
+    hp: 150,
+    speed: 0,
+    radius: 10,
+    movement: { type: "stationary" },
+    attacks: [
+      { type: "summon", telegraph: "channel", windupMs: 900, range: 999, enemyId: "ecto_wisp", count: 3, maxAlive: 6, cooldownMs: 4000, recoverMs: 300 },
+    ],
+    biomes: ["crypt"],
+    threatCost: 4,
+    dropChance: 0.15,
+  },
+  ecto_wisp: {
+    id: "ecto_wisp",
+    name: "Ecto Wisp",
+    flavor: "A little lost soul. Bites like a big one.",
+    role: "swarmer",
+    defense: "flesh",
+    hp: 18,
+    speed: 82,
+    radius: 5,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 260, range: 12, reach: 7, damage: 5, cooldownMs: 700, recoverMs: 300 },
+    ],
+    biomes: ["crypt"],
+    threatCost: 0,
+    dropChance: 0,
+  },
+  coffin_mimic: {
+    id: "coffin_mimic",
+    name: "Coffin Mimic",
+    flavor: "Not dead. Just resting its lid.",
+    role: "ambusher",
+    defense: "armor",
+    hp: 110,
+    speed: 95,
+    radius: 9,
+    movement: { type: "ambush", trigger: 46, revealMs: 450 },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 300, range: 16, reach: 12, damage: 16, cooldownMs: 1000, recoverMs: 400 },
+    ],
+    biomes: ["crypt"],
+    threatCost: 3,
+    dropChance: 0.25,
+  },
+  haunted_hatbox: {
+    id: "haunted_hatbox",
+    name: "Haunted Hatbox",
+    flavor: "Unclaimed since the maiden voyage. Something unclaimed is inside.",
+    role: "splitter",
+    defense: "flesh",
+    hp: 90,
+    speed: 44,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [
+      { type: "melee", telegraph: "redFlash", windupMs: 340, range: 14, reach: 8, damage: 10, cooldownMs: 900, recoverMs: 400 },
+    ],
+    biomes: ["crypt"],
+    threatCost: 3,
+    onDeath: { split: { enemyId: "ecto_wisp", count: 3 } },
+    dropChance: 0.08,
+  },
+  mummy_chaperone: {
+    id: "mummy_chaperone",
+    name: "Mummy Chaperone",
+    flavor: "Hold hands. Stay with the group. Forever.",
+    role: "grabber",
+    defense: "flesh",
+    hp: 130,
+    speed: 50,
+    radius: 9,
+    movement: { type: "chase" },
+    attacks: [GRAB_ATTACK],
+    biomes: ["crypt"],
+    threatCost: 3,
+    dropChance: 0.1,
+  },
+  night_auditor: {
+    id: "night_auditor",
+    name: "The Night Auditor",
+    flavor: "Died doing the cruise line's taxes. Still isn't finished.",
+    role: "boss",
+    defense: "flesh",
+    // About what the old final act's two bosses had between them.
+    hp: 3000,
+    speed: 38,
+    radius: 15,
+    movement: { type: "chase" },
+    attacks: [
+      // 0: a fan of tax forms
+      {
+        type: "projectile", telegraph: "redFlash", windupMs: 600, range: 260, speed: 130, damage: 12, radius: 3,
+        count: 5, spreadDeg: 50, cooldownMs: 2000, recoverMs: 400,
+      },
+      // 1: rubber stamps from above
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 750, range: 320, radius: 24, damage: 15,
+        flightMs: 900, cooldownMs: 3200, recoverMs: 400, count: 5, scatter: 70,
+      },
+      // 2: audit charge, twice
+      {
+        type: "dash", telegraph: "line", windupMs: 620, range: 240, dashSpeed: 390, dashMs: 650, damage: 26,
+        cooldownMs: 4400, recoverMs: 500, stunMs: 1600, chain: 2,
+      },
+      // 3: calls in the souvenir hunters
+      { type: "summon", telegraph: "channel", windupMs: 800, range: 999, enemyId: "souvenir_hunter", count: 4, maxAlive: 6, cooldownMs: 9000, recoverMs: 400 },
+      // 4: its own: Lights Out Audit. Every candle goes out, and the paperwork comes down in the dark.
+      {
+        type: "blackout", telegraph: "channel", windupMs: 1100, range: 999, durationMs: 6000, count: 14, radius: 22, damage: 16,
+        flightMs: 1500, cooldownMs: 10000, recoverMs: 700,
+      },
+      // 5: receipts in every direction
+      { type: "nova", telegraph: "channel", windupMs: 800, range: 999, count: 16, volleys: 4, gapMs: 380, speed: 115, damage: 11, radius: 3, cooldownMs: 7000, recoverMs: 600 },
+      // 6: slams the ledger shut
+      { type: "shockwave", telegraph: "groundCircle", windupMs: 900, range: 999, rings: 2, gapMs: 700, speed: 150, damage: 20, push: 160, cooldownMs: 7500, recoverMs: 500 },
+    ],
+    boss: {
+      phases: [
+        { hpFrac: 1, attacks: [0, 1, 4], haste: 1 },
+        { hpFrac: 0.7, attacks: [0, 1, 2, 4, 5], haste: 1.2 },
+        { hpFrac: 0.4, attacks: [1, 2, 3, 4, 5, 6], haste: 1.35 },
+        { hpFrac: 0.15, attacks: [2, 4, 5, 6], haste: 1.6 },
+      ],
+    },
+    biomes: ["crypt"],
+    threatCost: 0,
+    dropChance: 1,
+  },
 };
 
 /** Each biome's hand-made pieces: the boss at the end and the intro room's waves. */
@@ -1002,5 +1335,20 @@ export const BIOMES: Record<Biome, { name: string; boss: string; bossRoom: strin
     ],
     swarmer: "roomba_drone",
   },
+  crypt: {
+    name: "The Drowned Crypt",
+    boss: "night_auditor",
+    bossRoom: "The Night Audit",
+    intro: [
+      ["souvenir_hunter", "souvenir_hunter", "souvenir_hunter", "souvenir_hunter"],
+      ["zombie_porter", "souvenir_hunter", "souvenir_hunter", "souvenir_hunter"],
+      ["gargoyle_bellhop", "ecto_slime", "souvenir_hunter", "souvenir_hunter"],
+    ],
+    swarmer: "souvenir_hunter",
+  },
 };
 export const BIOME_IDS = Object.keys(BIOMES) as Biome[];
+/** Where every adventure ends: the final act. */
+export const FINALE_BIOME: Biome = "crypt";
+/** The adventures you can pick in the lobby: every biome but the finale. */
+export const ADVENTURE_IDS: Biome[] = BIOME_IDS.filter((b) => b !== FINALE_BIOME);

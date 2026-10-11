@@ -960,6 +960,302 @@ export const SPRITES: Record<string, PixelSprite> = {
       ".......kkkkk..kkkkk........",
     ],
   },
+
+  // ---------------------------------------------------------------- grabbers
+  claw_machine: {
+    palette: { p: "#e05a9a", P: "#a03a6e", y: "#f2c14e", c: "#5fd3e8", m: "#c9cfd6", M: "#7a8494", e: "#1b1020", r: "#e0533d" },
+    rows: [
+      "..kkkkkkkkk.....",
+      ".kyyyyyyyyyk....",
+      ".kpcccccccpk....",
+      ".kpcmmmmmcpkkkk.",
+      ".kpccMcMccpmmmmk",
+      ".kpcceccecpk.kmk",
+      ".kpcccccccpk.kmk",
+      ".kpppppppppk.mkm",
+      ".kPPPPPPPPPk.m.m",
+      ".kpprrrrrppk....",
+      ".kppyyyyyppk....",
+      ".kPPPPPPPPPk....",
+      "..kMk...kMk.....",
+      "..kkk...kkk.....",
+    ],
+  },
+  polar_hugger: {
+    palette: { s: "#cfd8e3", e: "#1b1020", p: "#f29bb0", r: "#e0533d" },
+    rows: [
+      "....kkkkk.....",
+      "...kWWWWWk....",
+      "..kWWeWWeWk...",
+      "..kWWWWkWWk...",
+      "..kWWWppWWk...",
+      "...krrrrrk....",
+      "kkkWWWWWWWkkk.",
+      "kWWWWWWWWWWWWk",
+      "kWskWWWWWWksWk",
+      ".kk.kWWWWWWk..",
+      "....kWsWWsWk..",
+      "....kWWkkWWk..",
+      "...kWWk..kWWk.",
+      "...kkk....kkk.",
+    ],
+  },
+  ubend_lurker: {
+    palette: { g: "#4e8a6a", G: "#2e5a44", p: "#a7b0bb", P: "#6d7682", e: "#f2c14e" },
+    rows: [
+      ".....kkkk.....",
+      "....kggggk....",
+      "...kggeeggk...",
+      "...kgekeggk...",
+      "...kggggggk...",
+      "..kgGgggGgkk..",
+      ".kgGkgggkgGgk.",
+      "kgk.kgGgk.kgGk",
+      "kk..kpppppk.kk",
+      "...kpPPPPPpk..",
+      "...kpppppppk..",
+      "....kkkkkkk...",
+    ],
+  },
+  cargo_loader: {
+    palette: { y: "#f2c14e", Y: "#b5862a", m: "#c9cfd6", M: "#7a8494", c: "#5fd3e8", r: "#e0533d" },
+    rows: [
+      "...kkkkkk.......",
+      "..kyyyyyyk......",
+      "..kyccccyk......",
+      "..kycrccyk......",
+      "..kyyyyyyk.kkkkk",
+      ".kkYYYYYYkkmmmmk",
+      ".kyyyyyyyykmkkkk",
+      ".kyyMMMMyykmk...",
+      ".kyyyyyyyykmkkkk",
+      ".kYYYYYYYYkmmmmk",
+      ".kkkkkkkkkkkkkk.",
+      ".kMMk....kMMk...",
+      ".kMMk....kMMk...",
+      "..kk......kk....",
+    ],
+  },
+
+  // ---------------------------------------------------------------- Drowned Crypt
+  mummy_chaperone: {
+    palette: { b: "#e8dcc0", B: "#b8a88a", e: "#7ee05a" },
+    rows: [
+      "...kkkkk....",
+      "..kbbbbbk...",
+      "..kBbbbBk...",
+      "..kbbebek...",
+      "..kBbbbbk...",
+      "...kbBbk....",
+      "..kbbbbbkkkk",
+      ".kbBbbbbbbbk",
+      ".kbbbBbkkkkk",
+      ".kbBbbbk....",
+      ".kbbbBbk....",
+      "..kbbkbbk...",
+      "..kBbkBbk...",
+      "..kkk.kkk...",
+    ],
+  },
+  souvenir_hunter: {
+    palette: { b: "#e8e4d8", B: "#a8a498", d: "#a7b0bb", r: "#e0533d" },
+    rows: [
+      "...kkk......",
+      "..kbbbk.....",
+      "..kbkbk.....",
+      "..kbbbk.....",
+      "...kbk...d..",
+      "..kbbbkkdd..",
+      "..kbBbk.d...",
+      "..kbbbk.d...",
+      "..kb.bk.drr.",
+      "..kk.kk..kk.",
+    ],
+  },
+  zombie_porter: {
+    palette: { g: "#7aa06a", G: "#56704a", r: "#a8323a", R: "#6e2026", y: "#f2c14e", n: "#9a6a42", N: "#6e4a2c", e: "#ffe08a" },
+    rows: [
+      "....kkkkk.......",
+      "...krrrrrk......",
+      "...kyyyyyk......",
+      "...kggegek......",
+      "...kgGgggk......",
+      "..kkkgggkkk.....",
+      ".kgkrrrrrkgk....",
+      ".kgkrryrrkgkkkk.",
+      ".kGkrrrrrkGknnk.",
+      "..kkRRRRRkknNnk.",
+      "....kRRkRRk.knk.",
+      "....kggkggk.kkk.",
+      "...kGGk.kGGk....",
+      "...kkkk.kkkk....",
+    ],
+  },
+  gargoyle_bellhop: {
+    palette: { s: "#8a8a96", S: "#5e5e6a", l: "#b0b0bc", r: "#a8323a", e: "#ff6a3c" },
+    rows: [
+      "....krrk......",
+      "...kkrrkk.....",
+      "k..kssssk...k.",
+      "kk.ksssesk.kk.",
+      "ksk.kSssk.ksk.",
+      "kssksssssksSk.",
+      ".kSksslssksk..",
+      "..kkssssskk...",
+      "...kslllsk....",
+      "...kSsssSk....",
+      "...kSk.kSk....",
+      "...kkk.kkk....",
+    ],
+  },
+  banshee_guide: {
+    palette: { c: "#bfe8e0", C: "#7fbfb8", h: "#e8e8f0", m: "#3a3040", f: "#f2c14e", p: "#9a6a42" },
+    rows: [
+      "...kkkk...ff",
+      "..khhhhk..pf",
+      ".khcccchk.p.",
+      ".khcmcmck.p.",
+      ".khccccck.p.",
+      ".khcCmCck.p.",
+      "..kccccckkp.",
+      ".kcCcccccck.",
+      ".kcccCcccck.",
+      "kcCcccccCcck",
+      "kcccCcccccck",
+      ".kcCkcCkcCk.",
+      "..kk.kk.kk..",
+    ],
+  },
+  ecto_slime: {
+    palette: { g: "#7ef0b0", G: "#3ea878", b: "#d8ffe8" },
+    rows: [
+      "......b.....",
+      "....b.......",
+      "..kkggggkk..",
+      ".kgggGgggggk",
+      "kggkgggkgggk",
+      "kgggggggggGk",
+      "kGgggggGgggk",
+      ".kkkkkkkkkk.",
+    ],
+  },
+  bell_ringer: {
+    palette: { g: "#9ab08a", G: "#6a805a", r: "#4a3a5a", R: "#2e2440", y: "#f2c14e", Y: "#b5862a", e: "#ff6a3c" },
+    rows: [
+      "...kkkk.....",
+      "..kggggk....",
+      "..kggegk....",
+      "..kgGggk....",
+      "...kggk..kk.",
+      "..krrrrk.kyk",
+      ".krrRrrrkkyk",
+      ".krrrRrrkyYk",
+      ".krRrrrkyyyk",
+      ".krrrrRrkkkk",
+      ".kRRRRRRk...",
+      "..kgk.kgk...",
+      "..kk..kk....",
+    ],
+  },
+  crypt_urn: {
+    palette: { u: "#6a7a8a", U: "#3e4a5a", g: "#c8a050", s: "#e8e4d8", e: "#7ef0b0" },
+    rows: [
+      ".....kkkkkk.....",
+      "....kggggggk....",
+      ".....kuuuuk.....",
+      "....kuuuuuuk....",
+      "...kuuussuuuk...",
+      "..kuuusesuuuuk..",
+      "..kuuussssuuuk..",
+      "..kUuuuuuuuUk...",
+      "..kggggggggggk..",
+      "...kUuuuuuuUk...",
+      "....kUUUUUUk....",
+      "...kkkkkkkkkk...",
+    ],
+  },
+  ecto_wisp: {
+    palette: { c: "#9ff3c8", C: "#4ec898", e: "#1b1020" },
+    rows: ["..kkk...", ".kccck..", "kcecek..", "kcccccCk", ".kCcCck.", "..k.k.k."],
+  },
+  coffin_hidden: {
+    palette: { n: "#7a4a2a", N: "#4e2e1a", g: "#c8a050" },
+    rows: [
+      "...kkkkkk...",
+      "..knnnnnnk..",
+      ".knnnnnnnnk.",
+      ".knnnggnnnk.",
+      ".knggggggnk.",
+      ".knnnggnnnk.",
+      ".knnnggnnnk.",
+      ".kNnnggnnNk.",
+      "..knnnnnnk..",
+      "..kNnnnnNk..",
+      "...knnnnk...",
+      "...kNNNNk...",
+      "....kkkk....",
+    ],
+  },
+  coffin_mimic: {
+    palette: { n: "#7a4a2a", N: "#4e2e1a", g: "#c8a050", t: "#f4ecd8", p: "#3a1020", e: "#ff6a3c" },
+    rows: [
+      "...kkkkkk...",
+      "..knnnnnnk..",
+      ".knnennnenk.",
+      ".knnnnnnnnk.",
+      ".kttttttttk.",
+      ".kppppppppk.",
+      ".kppppppppk.",
+      ".kttttttttk.",
+      "..knnnnnnk..",
+      "..kNnggnNk..",
+      "...knnnnk...",
+      "...kNNNNk...",
+      "....kkkk....",
+    ],
+  },
+  haunted_hatbox: {
+    palette: { h: "#d29bff", H: "#8c5ad1", s: "#f4ecd8", e: "#9ff3c8", d: "#2a1a3a" },
+    rows: [
+      "..kkkkkkkkk...",
+      ".khhhhhhhhhk..",
+      "..kkkkkkkkk...",
+      ".kdddddddddk..",
+      ".kdeddedddddk.",
+      ".khhhhhhhhhhk.",
+      ".kssssssssssk.",
+      ".khhhhhhhhhhk.",
+      ".kHhhhhhhhhHk.",
+      ".kssssssssssk.",
+      ".kHHHHHHHHHHk.",
+      "..kkkkkkkkkk..",
+    ],
+  },
+  night_auditor: {
+    palette: { r: "#3a2a5a", R: "#241838", b: "#e8e4d8", e: "#7ef0b0", v: "#5fd36a", g: "#f2c14e", p: "#f4ecd8", P: "#c9c0a8" },
+    rows: [
+      "..........kkkkkk..........",
+      ".........kvvvvvvk.........",
+      "........kvvvvvvvvk........",
+      ".........kbbbbbbk.........",
+      "........kbbebbebbk........",
+      "........kbbbbbbbbk........",
+      ".........kbkbkbbk.........",
+      "..........kbbbbk..........",
+      "......kkkkrrrrrrkkkk......",
+      ".....krrrrrrggrrrrrrk.....",
+      "....krrRrrrrggrrrrRrrk....",
+      "...kbkrrrrrrggrrrrrrkbk...",
+      "...kbkrRrrrrggrrrrRrkpppk.",
+      "....kkrrrrrrggrrrrrrkpPpk.",
+      ".....krrrrRrggrRrrrrkpppk.",
+      ".....krrRrrrggrrrRrrkkkkk.",
+      "....krrrrrrrggrrrrrrrk....",
+      "....kRrrRrrrrrrrRrrrRk....",
+      "...kRRrRRrRRrRRrRRrRRRk...",
+      "...kkk.kkk..kk..kkk.kkk...",
+    ],
+  },
 };
 
 // Recolors of existing shapes.
@@ -978,6 +1274,7 @@ export const BIOME_ART = {
   caverns: { sea: ["#0c1a2e", "#14304a", "#1f4a6e", "#3a7aa8", "#9fd8ff"], glow: 0x5fb3ff, ambient: [0xffffff, 0xcfe8ff, 0x9ff3ff], fade: [12, 20, 36] },
   sewers: { sea: ["#0e1a10", "#18301a", "#24462a", "#3a6a3a", "#8ab86a"], glow: 0x7ee05a, ambient: [0xc8ff9a, 0x7ee05a, 0xe8f0c8], fade: [12, 22, 14] },
   orbital: { sea: ["#05030f", "#0c0a24", "#1a1440", "#2a2060", "#8a7aff"], glow: 0x8a7aff, ambient: [0xffffff, 0x9ff3ff, 0xd8c8ff], fade: [8, 6, 24] },
+  crypt: { sea: ["#04060a", "#0a121c", "#122030", "#1c3446", "#4f9a90"], glow: 0x5fd3b8, ambient: [0x9ff3c8, 0xd8c8ff, 0xffffff], fade: [6, 10, 16] },
 } as const;
 
 export function drawVent(r: number): HTMLCanvasElement {
@@ -1522,6 +1819,88 @@ export function drawCargoPod(w: number, h: number): HTMLCanvasElement {
   ctx.fillRect(3, h + 2, Math.min(w - 6, 8), 2);
   ctx.fillStyle = "#5fd36a";
   ctx.fillRect(w - 6, h + 2, 2, 2);
+  return c;
+}
+
+/** The crypt floor: worn flagstones, cracks, the odd bone, and shallow water pooled in the low spots. */
+export function drawCryptFloor(w: number, h: number, pad: number): HTMLCanvasElement {
+  const [c, ctx] = canvas(w + pad * 2, h + pad * 2);
+  // Rim: a carved stone border with a gold inlay.
+  ctx.fillStyle = "#1e2230";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#8a7440";
+  ctx.fillRect(0, 2, c.width, 1);
+  ctx.fillRect(0, c.height - 3, c.width, 1);
+  ctx.fillRect(2, 0, 1, c.height);
+  ctx.fillRect(c.width - 3, 0, 1, c.height);
+  ctx.fillStyle = "#0a0c12";
+  ctx.fillRect(pad - 2, pad - 2, w + 4, h + 4);
+
+  // Big flagstones, offset every other row, each a slightly different stone.
+  const SW = 30;
+  const SH = 20;
+  for (let ty = 0; ty < h / SH; ty++) {
+    const off = ty % 2 === 0 ? 0 : SW / 2;
+    for (let tx = -1; tx < w / SW + 1; tx++) {
+      const x = pad + tx * SW + off;
+      const y = pad + ty * SH;
+      const r = hash(tx, ty, 41);
+      const x0 = Math.max(pad, x);
+      const ww = Math.min(SW - 1, pad + w - x0, x + SW - 1 - x0);
+      if (ww <= 0) continue;
+      ctx.fillStyle = r < 0.25 ? "#2a3040" : r < 0.7 ? "#30364a" : "#363c52";
+      ctx.fillRect(x0, y, ww, SH - 1);
+      ctx.fillStyle = "#3e4660";
+      ctx.fillRect(x0, y, ww, 1);
+      if (r > 0.8 && x >= pad) {
+        // A crack across the stone.
+        ctx.fillStyle = "#1a1e2a";
+        for (let i = 0; i < 8; i++) ctx.fillRect(x + 4 + i * 2, y + 6 + Math.round(Math.sin(i + tx) * 2), 2, 1);
+      } else if (r < 0.06 && x >= pad) {
+        // A bone someone left behind.
+        ctx.fillStyle = "#c8c4b8";
+        ctx.fillRect(x + 9, y + 9, 8, 2);
+        ctx.fillRect(x + 8, y + 8, 2, 4);
+        ctx.fillRect(x + 16, y + 8, 2, 4);
+      }
+    }
+  }
+  // Shallow water in the low spots, catching what little light there is.
+  for (let i = 0; i < 12; i++) {
+    const sx = pad + hash(i, 1, 42) * w;
+    const sy = pad + hash(i, 2, 42) * h;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 22);
+    g.addColorStop(0, "rgba(80,170,160,0.22)");
+    g.addColorStop(1, "rgba(80,170,160,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - 22, sy - 22, 44, 44);
+  }
+  return c;
+}
+
+/** A stone tomb with a carved lid, in place of a cargo crate. */
+export function drawTombBlock(w: number, h: number): HTMLCanvasElement {
+  const front = 8;
+  const [c, ctx] = canvas(w, h + front);
+  ctx.fillStyle = "#1b1020";
+  ctx.fillRect(0, 0, w, h + front);
+  ctx.fillStyle = "#5a6070";
+  ctx.fillRect(1, 1, w - 2, h - 2);
+  ctx.fillStyle = "#6e7486";
+  ctx.fillRect(2, 2, w - 4, 2);
+  // The lid's edge and a cross carved into it.
+  ctx.fillStyle = "#454a58";
+  ctx.fillRect(3, 4, w - 6, 1);
+  ctx.fillRect(3, h - 4, w - 6, 1);
+  ctx.fillStyle = "#8a7440";
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+  ctx.fillRect(cx - 1, cy - Math.min(5, cy - 3), 2, Math.min(10, h - 6));
+  ctx.fillRect(cx - Math.min(4, cx - 3), cy - 2, Math.min(8, w - 6), 2);
+  ctx.fillStyle = "#3a3e4a";
+  ctx.fillRect(1, h - 1, w - 2, front);
+  ctx.fillStyle = "#2a2e38";
+  for (let x = 5; x < w - 2; x += 8) ctx.fillRect(x, h + 1, 1, front - 3);
   return c;
 }
 

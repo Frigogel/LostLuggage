@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyAction,
   BIOMES,
+  BIOME_IDS,
+  CRYPT,
+  FINAL_ACT,
+  roomDark,
+  stepMovement,
+  type Player,
   createWorld,
   decodeSnapshot,
   EMPTY_INPUT,
@@ -31,6 +37,7 @@ import { beamLength } from "../src/enemies";
 import { dist, distToSegment } from "../src/math";
 import { linkPairs } from "../src/elites";
 import { newGun } from "../src/loot";
+import { lightCandles } from "../src/crypt";
 
 const input = (over: Partial<PlayerInput> = {}): PlayerInput => ({ ...EMPTY_INPUT, ...over });
 
@@ -551,10 +558,202 @@ describe("Orbital Deck", () => {
   });
 });
 
+describe("Drowned Crypt", () => {
+  /** A crypt fight with nothing in it yet. */
+  const crypt = (players: PlayerOptions[] = [{}]) => {
+    const w = quiet(players);
+    enterRoom(w, roomSpec(w, "combat", { act: FINAL_ACT, biome: "crypt", step: 1 }));
+    w.enemies = [];
+    w.run.room.waves = [];
+    w.run.room.cleared = true;
+    return w;
+  };
+
+  it("plans its own family, dark rooms with candles, and the Night Auditor", () => {
+    const w = createWorld({ seed: 3 });
+    const rooms = [1, 2, 3, 4, 5].map((step) => planRoom(w, roomSpec(w, "combat", { act: FINAL_ACT, biome: "crypt", step }), 0, 1));
+    const ids = rooms.flatMap((p) => p.waves.flat()).map((id) => id.replace("!", "").split("@")[0]!);
+    expect(ids.every((id) => ENEMIES[id]!.biomes.includes("crypt"))).toBe(true);
+    expect(planRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, biome: "crypt" }), 0, 1).waves).toEqual([["night_auditor"]]);
+    const c = crypt();
+    expect(roomDark(c.run.room)).toBe(true);
+    // Half the candles are already burning when you walk in.
+    const lit = c.run.room.candles.filter((k) => k.litT > 0).length;
+    expect(lit).toBeGreaterThan(0);
+    expect(lit).toBeLessThan(c.run.room.candles.length);
+    // Candles reach co-op clients.
+    const snap = decodeSnapshot(encodeSnapshot(c, [], new Map())).world;
+    expect(snap.run.room.candles.map((k) => k.litT > 0)).toEqual(c.run.room.candles.map((k) => k.litT > 0));
+  });
+
+  it("a shot lights a candle, and candlelight exposes whatever stands in it", () => {
+    const w = crypt();
+    for (const k of w.run.room.candles) k.litT = 0;
+    const candle = w.run.room.candles[0]!;
+    const p = w.players[0]!;
+    w.projectiles.push({
+      id: 9999, owner: "player", ownerId: p.id, kind: "pistol", element: "none", pos: { x: candle.pos.x - 12, y: candle.pos.y }, vel: { x: 300, y: 0 },
+      radius: 2, damage: 1, pierce: 0, bounces: 0, knockback: 0, life: 1, hitIds: [], gunUid: -1,
+    });
+    run(w, 3);
+    expect(candle.litT).toBeGreaterThan(0);
+    // The same hit does more in the light than out of it.
+    const lit = dummy(w, "zombie_porter", candle.pos.x + 10, candle.pos.y, 1000);
+    const far = dummy(w, "zombie_porter", 40, 60, 1000);
+    for (const k of w.run.room.candles.slice(1)) k.litT = 0;
+    shoot(w, lit, p.id, 100);
+    shoot(w, far, p.id, 100);
+    expect((1000 - lit.hp) / (1000 - far.hp)).toBeCloseTo(CRYPT.exposed, 2);
+  });
+
+  it("gargoyles are stone in the dark, and take full damage once lit", () => {
+    const w = crypt();
+    for (const k of w.run.room.candles) k.litT = 0;
+    const p = w.players[0]!;
+    const g = dummy(w, "gargoyle_bellhop", 40, 60, 1000);
+    shoot(w, g, p.id, 100);
+    expect(1000 - g.hp).toBeCloseTo(100 * CRYPT.stone, 1);
+    // Bring your glow over to it.
+    p.pos = { x: 70, y: 70 };
+    shoot(w, g, p.id, 100);
+    expect(1000 - g.hp).toBeCloseTo(100 * CRYPT.stone + 100, 1);
+  });
+
+  it("the Night Auditor's blackout puts every light out while pages rain down", () => {
+    const w = crypt();
+    for (const k of w.run.room.candles) k.litT = 10;
+    const b = dummy(w, "night_auditor", 360, 200, 5000);
+    b.cooldowns = b.cooldowns.map((_, i) => (i === 4 ? 0 : 99));
+    for (let t = 0; t < 30 * 3 && w.run.room.blackoutT <= 0; t++) run(w, 1);
+    expect(w.run.room.blackoutT).toBeGreaterThan(0);
+    expect(w.run.room.candles.every((k) => k.litT === 0)).toBe(true);
+    expect(w.projectiles.filter((pr) => pr.kind === "page").length).toBeGreaterThanOrEqual(14);
+    // Nothing lights during a blackout.
+    lightCandles(w, w.run.room.candles[0]!.pos, 10);
+    expect(w.run.room.candles[0]!.litT).toBe(0);
+  });
+
+  it("a Bell Ringer's toll blows out the candles around it", () => {
+    const w = crypt();
+    const candle = w.run.room.candles[0]!;
+    candle.litT = 10;
+    const r = dummy(w, "bell_ringer", candle.pos.x + 30, candle.pos.y);
+    r.cooldowns = [0, 99];
+    run(w, 30 * 2);
+    expect(candle.litT).toBe(0);
+  });
+
+  it("the Banshee goes after whoever strayed from the group", () => {
+    const w = crypt([{}, {}, {}]);
+    const [a, b, c] = w.players as [Player, Player, Player];
+    a.pos = { x: 360, y: 300 };
+    b.pos = { x: 380, y: 300 };
+    c.pos = { x: 640, y: 80 };
+    const e = dummy(w, "banshee_guide", 360, 200);
+    let aimed = false;
+    for (let t = 0; t < 30 * 4 && !aimed; t++) {
+      run(w, 1);
+      const to = { x: c.pos.x - e.pos.x, y: c.pos.y - e.pos.y };
+      const n = Math.hypot(to.x, to.y);
+      if (e.state === "windup" && (e.attackDir.x * to.x + e.attackDir.y * to.y) / n > 0.8) aimed = true;
+    }
+    expect(aimed).toBe(true);
+  });
+});
+
+describe("grabbers", () => {
+  /** A Claw Machine right next to you, about to grab. */
+  const grabbed = (players: PlayerOptions[] = [{}]) => {
+    const w = quiet(players);
+    const p = w.players[0]!;
+    p.pos = { x: 330, y: 300 };
+    w.players.slice(1).forEach((o, i) => (o.pos = { x: 500 + i * 30, y: 100 }));
+    const g = dummy(w, "claw_machine", 300, 300, 1000);
+    g.cooldowns = [0];
+    for (let t = 0; t < 60 && !p.pinnedBy; t++) run(w, 1);
+    expect(p.pinnedBy).toBe(g.id);
+    return { w, p, g };
+  };
+  const freedBy = (w: World) => (w.events.find((ev) => ev.type === "freed") as { by: number } | undefined)?.by;
+
+  it("every biome has one, and they turn up from act 2 on", () => {
+    for (const b of BIOME_IDS) expect(Object.values(ENEMIES).some((d) => d.role === "grabber" && d.threatCost > 0 && d.biomes.includes(b))).toBe(true);
+    const w = createWorld({ seed: 4 });
+    const grabbers = (act: number) =>
+      [1, 2, 3, 4, 5, 6]
+        .flatMap((step) => planCombatWaves(w, roomSpec(w, "combat", { act, step, biome: "sewers" }), 0, 1).flat())
+        .filter((id) => ENEMIES[id.replace("!", "").split("@")[0]!]!.role === "grabber").length;
+    expect(grabbers(0)).toBe(0);
+    expect(grabbers(1)).toBeGreaterThan(0);
+    expect(grabbers(4)).toBeGreaterThan(0);
+  });
+
+  it("pins you: no moving or shooting, it squeezes, and nobody helping gets you thrown", () => {
+    const { w, p, g } = grabbed();
+    const hp = p.hp;
+    let shots = 0;
+    let thrown = false;
+    for (let t = 0; t < 30 * 5 && !thrown; t++) {
+      step(w, [input({ move: { x: 0, y: 1 }, fire: true, autoAim: true })]);
+      shots += w.events.filter((ev) => ev.type === "shot").length;
+      // Held right in front of it, however hard you push the stick.
+      if (p.pinnedBy) expect(dist(p.pos, g.pos)).toBeLessThan(g.radius + p.radius + 1);
+      thrown = freedBy(w) === -2;
+    }
+    expect(shots).toBe(0);
+    expect(thrown).toBe(true);
+    expect(p.hp).toBeLessThan(hp);
+    expect(p.pinnedBy).toBe(0);
+  });
+
+  it("a teammate standing next to you pulls you free, and the grabber is left dazed", () => {
+    const { w, p, g } = grabbed([{}, {}]);
+    const friend = w.players[1]!;
+    friend.pos = { x: p.pos.x, y: p.pos.y + 14 };
+    let by: number | undefined;
+    for (let t = 0; t < 30 && by === undefined; t++) {
+      run(w, 1);
+      by = freedBy(w);
+    }
+    expect(by).toBe(friend.id);
+    expect(p.pinnedBy).toBe(0);
+    expect(g.stunT).toBeGreaterThan(0);
+  });
+
+  it("on your own, mashing dash breaks you free before the throw", () => {
+    const { w, p } = grabbed();
+    let by: number | undefined;
+    for (let t = 0; t < 30 * 3 && by === undefined; t++) {
+      step(w, [input({ dash: t % 3 === 0 })]);
+      by = freedBy(w);
+    }
+    expect(by).toBe(-1);
+    expect(p.pinnedBy).toBe(0);
+  });
+
+  it("enough damage to the grabber breaks its grip", () => {
+    const { w, p, g } = grabbed([{}, {}]);
+    shoot(w, g, w.players[1]!.id, 0.35 * g.maxHp);
+    run(w, 2);
+    expect(p.pinnedBy).toBe(0);
+    expect(g.stunT).toBeGreaterThan(0);
+  });
+
+  it("co-op clients know who's pinned, and don't predict them moving", () => {
+    const { w, p } = grabbed();
+    const snap = decodeSnapshot(encodeSnapshot(w, [], new Map())).world;
+    const me = snap.players.find((x) => x.id === p.id)!;
+    expect(me.pinnedBy).toBe(p.pinnedBy);
+    const before = { ...me.pos };
+    expect(stepMovement(snap, me, input({ move: { x: 1, y: 0 }, dash: true }))).toBe(false);
+    expect(me.pos).toEqual(before);
+  });
+});
+
 describe("boss signatures", () => {
   it("every boss has an attack no other boss has", () => {
     const bosses = Object.values(ENEMIES).filter((d) => d.role === "boss");
-    expect(bosses.length).toBe(4);
+    expect(bosses.length).toBe(BIOME_IDS.length);
     const sig = (d: (typeof bosses)[number]) => d.attacks.map((a) => (a.type === "lobbedProjectile" && a.cross ? "cross" : a.type));
     for (const d of bosses) {
       const others = new Set(bosses.filter((o) => o !== d).flatMap(sig));

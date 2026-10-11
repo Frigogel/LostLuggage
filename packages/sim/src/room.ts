@@ -4,6 +4,7 @@ import { ENEMIES } from "./data/enemies";
 import { ACT_ROOMS, depthOf, FINAL_ACT, MAX_ENEMIES, planDoors, planRoom, firstRoom } from "./director";
 import { linkPairs, parseElite } from "./elites";
 import { canAct, startPos } from "./players";
+import { CRYPT, updateCandles } from "./crypt";
 import { newGun } from "./loot";
 import { clamp, dist, distToSegment, norm, randRange, rand, scale, sub, type Rect, type Vec } from "./math";
 import type { Belt, Current, Door, Enemy, Pad, Player, Room, RoomKind, RoomSpec, Vent, World } from "./types";
@@ -30,6 +31,8 @@ interface Layout {
   lasers?: [Vec, Vec][];
   /** Orbital Deck: linked teleporter pads. */
   pads?: Pad[];
+  /** Drowned Crypt: candles to light. */
+  candles?: Vec[];
 }
 
 const crate = (x: number, y: number, w = 32, h = 32): Rect => ({ x, y, w, h });
@@ -247,6 +250,50 @@ export const LAYOUTS: Layout[] = [
     lasers: [[v(40, 220), v(190, 220)], [v(530, 220), v(680, 220)]],
     pads: [pads(70, 70, 650, 370), pads(650, 70, 70, 370)],
   },
+
+  // Drowned Crypt: dark rooms with candles to light, tombs for crates.
+  // 30: intro, the crypt gate, candles all round so you learn to keep them burning
+  {
+    obstacles: [crate(160, 112), crate(528, 112), crate(160, 296), crate(528, 296), crate(336, 200, 48, 16)],
+    vents: [],
+    candles: [v(120, 220), v(600, 220), v(250, 150), v(470, 150), v(250, 330), v(470, 330), v(360, 90)],
+  },
+  // 31: the nave, rows of pews and candles down the aisle
+  {
+    obstacles: [crate(110, 140, 48, 16), crate(210, 140, 48, 16), crate(462, 140, 48, 16), crate(562, 140, 48, 16), crate(110, 290, 48, 16), crate(210, 290, 48, 16), crate(462, 290, 48, 16), crate(562, 290, 48, 16)],
+    vents: [],
+    candles: [v(360, 110), v(360, 220), v(360, 330), v(70, 220), v(650, 220), v(180, 215), v(540, 225)],
+  },
+  // 32: the ossuary, bone pillars with candles between them
+  {
+    obstacles: [crate(230, 130), crate(458, 130), crate(230, 280), crate(458, 280), crate(344, 205)],
+    vents: [],
+    candles: [v(200, 225), v(520, 225), v(360, 110), v(360, 345), v(110, 90), v(610, 90), v(110, 350), v(610, 350)],
+  },
+  // 33: the catacombs, a wall of tombs with gaps to funnel through
+  {
+    obstacles: [crate(60, 220, 48, 16), crate(150, 220, 48, 16), crate(300, 220, 48, 16), crate(372, 220, 48, 16), crate(522, 220, 48, 16), crate(612, 220, 48, 16), crate(250, 110), crate(438, 110)],
+    vents: [],
+    candles: [v(130, 160), v(590, 160), v(360, 150), v(130, 300), v(590, 300), v(360, 320), v(240, 228), v(480, 228)],
+  },
+  // 34: the vault, scattered tombs and candles you have to go and light
+  {
+    obstacles: [crate(110, 90), crate(578, 90), crate(220, 190), crate(468, 190), crate(344, 290), crate(110, 330), crate(578, 330)],
+    vents: [],
+    candles: [v(180, 150), v(540, 150), v(360, 180), v(160, 270), v(560, 270), v(300, 100), v(420, 100), v(360, 380)],
+  },
+  // 35: rest stop
+  {
+    obstacles: [crate(200, 200), crate(488, 200)],
+    vents: [],
+    candles: [v(300, 300), v(420, 300), v(150, 150), v(570, 150)],
+  },
+  // 36: the Night Auditor's office, a ring of candles for it to blow out
+  {
+    obstacles: [crate(120, 120), crate(568, 120), crate(120, 288), crate(568, 288)],
+    vents: [],
+    candles: [v(510, 220), v(466, 326), v(360, 370), v(254, 326), v(210, 220), v(254, 114), v(360, 70), v(466, 114)],
+  },
 ];
 
 /** Teleporter pads: how close to the middle counts as standing on one. */
@@ -409,6 +456,9 @@ export function enterRoom(w: World, spec: RoomSpec): void {
   const room: Room = {
     index, kind: plan.kind, biome: plan.biome, twist: plan.twist, doors: [], holdT: plan.twist === "hold" ? HOLD_S : 0, twistT: 2,
     waves, waveIdx: 0, waveTimer: 1.5, cleared: false, exitT: -1, vents,
+    // Every other candle is already burning when you walk in, so you can see what they do.
+    candles: (layout.candles ?? []).map((pos, i) => ({ pos: { ...pos }, litT: i % 2 === 0 ? CRYPT.burnS : 0 })),
+    blackoutT: 0,
   };
   w.run.room = room;
 
@@ -421,6 +471,8 @@ export function enterRoom(w: World, spec: RoomSpec): void {
     p.burstLeft = 0;
     p.charging = false;
     p.panicUsed = false;
+    p.pinnedBy = 0;
+    p.freeProgress = 0;
     // Teammates left down in the last room get carried along.
     if (p.downed && p.reviveT === Infinity && index > 0) {
       p.downed = false;
@@ -576,6 +628,7 @@ export function updateRoom(w: World): void {
   const room = run.room;
   run.time += DT;
   updateVents(w, room);
+  updateCandles(room, DT);
 
   if (!room.cleared) {
     updateTwist(w, room);
@@ -677,20 +730,14 @@ function spawnWave(w: World, room: Room): void {
     const def = ENEMIES[id]!;
     const swarm = def.role === "swarmer";
     let pos: Vec;
-    if (def.role === "boss") {
-      // A duo of bosses stands side by side.
-      const duo = list.length > 1;
-      pos = { x: ARENA.w / 2 + (duo ? (i === 0 ? -110 : 110) : 0), y: 170 };
-    } else if (ring) pos = ringPoint(w, ring, (i / list.length) * Math.PI * 2);
+    if (def.role === "boss") pos = { x: ARENA.w / 2, y: 170 };
+    else if (ring) pos = ringPoint(w, ring, (i / list.length) * Math.PI * 2);
     else if (swarm && packCenter) pos = nearPoint(w, packCenter);
     else {
       pos = spawnPoint(w, 140);
       if (swarm) packCenter = pos;
     }
-    const e = spawnEnemy(w, id, pos, 0.8 + i * 0.1, elite);
-    // The final act's two bosses share the stage, so each brings a bit less.
-    if (raw.endsWith("@duo")) e.hp = e.maxHp = Math.round(e.maxHp * 0.65);
-    spawned.push(e);
+    spawned.push(spawnEnemy(w, id, pos, 0.8 + i * 0.1, elite));
   });
   linkPairs(spawned);
 }
@@ -735,7 +782,7 @@ export function roomSpec(w: World, kind: RoomKind, over: Partial<RoomSpec> = {})
   const here = w.run.plans[w.run.room.index] ?? firstRoom(w);
   const act = over.act ?? here.act;
   const biome = over.biome ?? (act === 0 ? w.run.biome : here.biome);
-  return { kind, biome, twist: "", mix: false, act, step: kind === "boss" ? ACT_ROOMS : Math.min(ACT_ROOMS - 1, here.step + 1), ...over };
+  return { kind, biome, twist: "", act, step: kind === "boss" ? ACT_ROOMS : Math.min(ACT_ROOMS - 1, here.step + 1), ...over };
 }
 
 /** Names for the HUD and doors. */

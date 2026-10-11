@@ -1,4 +1,5 @@
 import { actDamage, actHp } from "./director";
+import { CRYPT, inCandleLight, isLit, lightCandles } from "./crypt";
 import { ENEMIES } from "./data/enemies";
 import { HEROES, levelMultiplier } from "./data/heroes";
 import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
@@ -122,7 +123,13 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   const { mult, weak } = elementMultiplier(def, o.element);
   let dmg = amount * mult;
   if (e.status.acidT > 0 && def.defense === "armor") dmg *= 1.25;
-  const p = w.players.find((pl) => pl.id === o.sourcePlayerId);
+  // Drowned Crypt: candlelight exposes whatever stands in it, and stone barely notices you in the dark.
+  if (w.run.room.candles.length > 0 && inCandleLight(w, e.pos)) dmg *= CRYPT.exposed;
+  if (def.stone && !isLit(w, e.pos)) {
+    dmg *= CRYPT.stone;
+    if (!o.secondary) w.events.push({ type: "deflect", x: e.pos.x, y: e.pos.y });
+  }
+  const p =w.players.find((pl) => pl.id === o.sourcePlayerId);
   const mark = markBonus(w, e, p, !!o.secondary);
   dmg *= mark.mult;
   if (e.status.acidT > 0 && def.defense === "armor" && p?.boosts.meltdown) dmg *= 1.6 / 1.25;
@@ -438,6 +445,7 @@ export function partyHpMultiplier(w: World, boss: boolean): number {
 /** Area damage from a player explosion: hurts enemies, never teammates or yourself (for now). */
 export function playerExplosion(w: World, at: Vec, radius: number, damage: number, knockback: number, ownerId: number, element: Element, secondary = false, gunUid?: number): void {
   w.events.push({ type: "explosion", x: at.x, y: at.y, radius, owner: "player", element });
+  lightCandles(w, at, radius);
   for (const e of [...w.enemies]) {
     if (!targetable(e)) continue;
     const d = dist(at, e.pos);

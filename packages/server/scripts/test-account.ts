@@ -3,7 +3,7 @@
 // Run with `npm run test-account` (optionally `-- NAME PASSWORD`). Running it again resets the profile.
 // Defaults: name TESTER, password tester123. Writes to DB_PATH or data/lostluggage.db, like the server.
 import {
-  BIOME_IDS,
+  ADVENTURE_IDS,
   COSMETIC_IDS,
   ELEMENT_INFO,
   GRENADE_IDS,
@@ -78,7 +78,7 @@ for (const id of SOUVENIR_IDS) p.souvenirs[id] = SOUVENIRS[id].maxRanks;
 p.signatures = [...SIGNATURE_IDS];
 p.cosmetics = COSMETIC_IDS.filter((id) => !isStarter(id));
 p.newCosmetics = [...p.cosmetics];
-p.clears = BIOME_IDS.flatMap((b) => [0, 1, 2].map((t) => `${b}:${t}`));
+p.clears = ADVENTURE_IDS.flatMap((b) => [0, 1, 2].map((t) => `${b}:${t}`));
 p.stats = { runs: 500, wins: 200, kills: 100_000, legendaries: 100, mythics: 25 };
 
 // Through the same repair the server does on every read, so nothing here is something the game wouldn't accept.

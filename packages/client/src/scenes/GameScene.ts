@@ -4,7 +4,10 @@ import {
   BIOMES,
   BOOSTS,
   beamLength,
+  CRYPT,
   FINAL_ACT,
+  heroLight,
+  roomDark,
   PAD,
   submerged,
   sweepAngle,
@@ -81,7 +84,7 @@ export interface GameData {
 
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
 /** Mimics look like their prop until they reveal. */
-const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden", ice_machine: "ice_hidden", toilet_mimic: "toilet_hidden", cryo_pod: "cryo_hidden" };
+const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden", ice_machine: "ice_hidden", toilet_mimic: "toilet_hidden", cryo_pod: "cryo_hidden", coffin_mimic: "coffin_hidden" };
 /** Each biome's look: the sea under the deck, the floor, what the crates are, and the weather. */
 const BIOME_LOOK: Record<Biome, { sea: string; floor: string; block: string; ambient: { speedY: [number, number]; speedX: [number, number]; scale: number; every: number } }> = {
   // Embers rising.
@@ -92,6 +95,8 @@ const BIOME_LOOK: Record<Biome, { sea: string; floor: string; block: string; amb
   sewers: { sea: "sea-sewers", floor: "floor-sewers", block: "stone", ambient: { speedY: [-12, -4], speedX: [-4, 4], scale: 0.7, every: 60 } },
   // Stars streaming past the windows.
   orbital: { sea: "sea-orbital", floor: "floor-orbital", block: "pod", ambient: { speedY: [-2, 2], speedX: [-40, -18], scale: 0.5, every: 35 } },
+  // Ghostly motes, drifting nowhere in particular.
+  crypt: { sea: "sea-crypt", floor: "floor-crypt", block: "tomb", ambient: { speedY: [-6, 4], speedX: [-6, 6], scale: 0.6, every: 70 } },
 };
 /** Teleporter pad pairs: each pair glows its own color. */
 const PAD_COLORS = [0x5fd3e8, 0xd29bff, 0x5fd36a];
@@ -204,8 +209,10 @@ export class GameScene extends Phaser.Scene {
   private builtBiome?: Biome;
   private biomeObjs: Phaser.GameObjects.GameObject[] = [];
   private ambient?: Phaser.GameObjects.Particles.ParticleEmitter;
-  /** Lights Out: the darkness, with holes cut around the heroes. */
+  /** Lights Out and the Drowned Crypt: the darkness, with holes cut around the heroes and lit candles. */
   private dark?: Phaser.GameObjects.RenderTexture;
+  /** Drowned Crypt: each candle's glow, by its place in the room's list. */
+  private candleGlows: Phaser.GameObjects.Image[] = [];
   private stamp?: Phaser.GameObjects.Image;
   private zaps: { x1: number; y1: number; x2: number; y2: number; t: number }[] = [];
 
@@ -260,6 +267,7 @@ export class GameScene extends Phaser.Scene {
     this.biomeObjs = [];
     this.ambient = undefined;
     this.dark = undefined;
+    this.candleGlows = [];
   }
 
   get ui(): UIScene | undefined {
@@ -279,7 +287,8 @@ export class GameScene extends Phaser.Scene {
       this.myId = this.net.myId;
     } else {
       // Dev shortcuts: ?seed=123 replays a run; ?biome=sewers starts in that adventure; ?room=boss (or combat, elite,
-      // event, shrine, rest) jumps to a room, with &act=4 for a later act (in that act's biome) and &twist=belts;
+      // event, shrine, rest) jumps to a room, with &act=4 for a later act (in that act's biome: 4 is the Drowned Crypt)
+      // and &twist=belts;
       // ?mythics lays every mythic out on the floor of the first room.
       const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
@@ -288,7 +297,7 @@ export class GameScene extends Phaser.Scene {
       const room = params.get("room") as RoomKind | null;
       if (room && room in ROOM_NAMES) {
         const act = Number(params.get("act")) || 0;
-        enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, ...actBiome(this.world, act) }));
+        enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, biome: actBiome(this.world, act) }));
       }
       if (params.has("mythics")) {
         const ids = [...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS];
@@ -521,10 +530,16 @@ export class GameScene extends Phaser.Scene {
     this.doorKey = "";
     this.dark?.destroy();
     this.dark = undefined;
-    if (room.twist === "dark") {
-      // Lights Out: a dark layer over the room, under the HUD bits (bars, telegraphs) that keep it fair.
+    if (roomDark(room)) {
+      // Lights Out and the Crypt: a dark layer over the room, under the HUD bits (bars, telegraphs) that keep it fair.
       this.dark = this.add.renderTexture(0, 0, this.scale.width, this.scale.height).setOrigin(0).setScrollFactor(0).setDepth(D.overlay - 10);
     }
+    // Candle glows: pale gold, flickering while they burn.
+    this.candleGlows = room.candles.map((c) => {
+      const glow = this.add.image(c.pos.x, c.pos.y - 6, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0xffd27a).setDepth(D.light);
+      this.roomObjs.push(glow);
+      return glow;
+    });
     const block = BIOME_LOOK[room.biome].block;
     for (const o of this.world.arena.obstacles) {
       this.roomObjs.push(this.add.image(o.x, o.y - 8, `${block}-${o.w}x${o.h}`).setOrigin(0).setDepth(o.y + o.h));
@@ -588,9 +603,9 @@ export class GameScene extends Phaser.Scene {
   private doorSub(d: Door): string {
     const here = this.world.run.plans[this.world.run.room.index];
     if (d.kind === "home") return "TAKE THE WIN";
-    if (here && d.act > here.act) return d.mix ? "MIXED BAG" : BIOMES[d.biome].name.replace("The ", "").toUpperCase();
+    if (here && d.act > here.act) return BIOMES[d.biome].name.replace("The ", "").toUpperCase();
     if (d.twist) return TWISTS[d.twist].name.toUpperCase();
-    if (d.mix || (here && d.biome !== here.biome)) return BIOMES[d.biome].name.replace("The ", "").toUpperCase();
+    if (here && d.biome !== here.biome) return BIOMES[d.biome].name.replace("The ", "").toUpperCase();
     return "";
   }
 
@@ -612,18 +627,34 @@ export class GameScene extends Phaser.Scene {
     this.doorViews.forEach((v, i) => v.label.setScale(i === winner ? 1.25 : 1));
   }
 
-  /** Lights Out: everything is dark except around the heroes (and a glint of enemy eyes). */
+  /**
+   * Lights Out and the Crypt: everything is dark except around the heroes, lit candles and owls (and a glint of enemy
+   * eyes). The Night Auditor's blackout shrinks every hero's glow to almost nothing.
+   */
   private renderDark(t: number): void {
     const rt = this.dark;
     if (!rt) return;
     const cam = this.cameras.main;
-    rt.clear().fill(0x05030a, 0.9);
+    const room = this.world.run.room;
+    const blackout = room.blackoutT > 0;
+    rt.clear().fill(0x05030a, blackout ? 0.96 : 0.9);
     // A soft hole of light around each hero, and a little around your shots.
     const stamp = (this.stamp ??= this.make.image({ key: "glow", add: false }).setOrigin(0.5));
+    const glow = heroLight(room);
     for (const p of this.world.players) {
       if (p.away) continue;
-      const r = p.downed ? 40 : 90 + Math.sin(t * 0.004 + p.id) * 3;
+      const r = (p.downed ? glow * 0.45 : glow) + Math.sin(t * 0.004 + p.id) * 3;
       rt.erase(stamp.setScale((r * 2) / 32), p.pos.x - cam.scrollX, p.pos.y - cam.scrollY);
+    }
+    for (const c of room.candles) {
+      if (c.litT <= 0) continue;
+      // A candle about to go out gutters.
+      const gutter = c.litT < 3 ? 0.75 + 0.25 * Math.sin(t * 0.03 + c.pos.x) : 1;
+      const r = (CRYPT.candleRadius + Math.sin(t * 0.009 + c.pos.y) * 2) * gutter;
+      rt.erase(stamp.setScale((r * 2) / 32), c.pos.x - cam.scrollX, c.pos.y - cam.scrollY);
+    }
+    for (const g of this.world.gadgets) {
+      if (g.kind === "drone") rt.erase(stamp.setScale((CRYPT.owlLight * 2) / 32), g.pos.x - cam.scrollX, g.pos.y - cam.scrollY);
     }
     for (const pr of this.world.projectiles) {
       if (pr.owner !== "player" || pr.lob) continue;
@@ -634,6 +665,59 @@ export class GameScene extends Phaser.Scene {
       if (e.spawnT > 0 || e.state === "hidden") continue;
       const c = e.state === "windup" ? 0xff3030 : 0xffe08a;
       this.over.fillStyle(c, 0.9).fillRect(Math.round(e.pos.x - 2), Math.round(e.pos.y - e.radius * 1.4), 1, 1).fillRect(Math.round(e.pos.x + 1), Math.round(e.pos.y - e.radius * 1.4), 1, 1);
+    }
+  }
+
+  /**
+   * Drowned Crypt candles: a stub of wax on a little dish. Lit ones flicker and glow; out ones show a wisp of smoke
+   * and a faint ring now and then, so you know they're worth a shot.
+   */
+  private renderCandles(t: number): void {
+    const g = this.ground;
+    const o = this.over;
+    const room = this.world.run.room;
+    room.candles.forEach((c, i) => {
+      const x = Math.round(c.pos.x);
+      const y = Math.round(c.pos.y);
+      // Dish and wax (drawn over the dark, so you can find the unlit ones).
+      o.fillStyle(0x1b1020).fillRect(x - 4, y, 9, 3).fillRect(x - 2, y - 7, 5, 8);
+      o.fillStyle(0x8a7440).fillRect(x - 3, y + 1, 7, 1);
+      o.fillStyle(0xe8e0c8).fillRect(x - 1, y - 6, 3, 6);
+      o.fillStyle(0xfff6e0).fillRect(x - 1, y - 6, 1, 5);
+      const glow = this.candleGlows[i];
+      if (c.litT > 0) {
+        const flick = Math.sin(t * 0.02 + i * 1.7) + Math.sin(t * 0.033 + i);
+        const gutter = c.litT < 3 && Math.floor(t / 90) % 2 === 0;
+        o.fillStyle(0xff9a2a).fillRect(x - 1, y - 10 + (flick > 1 ? -1 : 0), 3, 3);
+        o.fillStyle(0xffe08a).fillRect(x, y - 9, 1, 2);
+        glow?.setVisible(true).setAlpha(gutter ? 0.25 : 0.45 + flick * 0.05).setScale(1.6 + flick * 0.05);
+        // The circle it lights: faint, so you can see who's standing in it.
+        g.lineStyle(1, 0xffd27a, 0.12).strokeCircle(c.pos.x, c.pos.y, CRYPT.candleRadius);
+      } else {
+        glow?.setVisible(false);
+        o.fillStyle(0x3a3040).fillRect(x, y - 8, 1, 2);
+        if ((t * 0.001 + i * 0.37) % 2 < 0.15) o.lineStyle(1, 0xffd27a, 0.5).strokeCircle(c.pos.x, c.pos.y - 3, 7);
+      }
+    });
+  }
+
+  /**
+   * Someone in a grabber's hold: a wrap between the two, and a ring like a revive's that fills as a teammate (or
+   * mashing dash) pulls them free.
+   */
+  private drawPinned(p: Player, pos: Vec, t: number, mine: boolean): void {
+    const e = this.enemyById(p.pinnedBy);
+    if (e) {
+      const ep = this.lerpPos(e.id, e.pos, this.alpha);
+      this.over.lineStyle(2, 0xe8dcc0, 0.8).lineBetween(ep.x, ep.y - e.radius * 0.8, pos.x, pos.y - 4);
+      this.over.lineStyle(1, 0x1b1020, 0.8).lineBetween(ep.x, ep.y - e.radius * 0.8 + 2, pos.x, pos.y - 2);
+    }
+    const r = REVIVE.reach;
+    const pulse = mine ? 0.5 : 0.5 + 0.4 * Math.sin(t * 0.012);
+    this.ground.fillStyle(0xff9a2a, 0.07).fillCircle(pos.x, pos.y, r);
+    this.ground.lineStyle(1, 0xff9a2a, pulse).strokeCircle(pos.x, pos.y, r);
+    if (p.freeProgress > 0) {
+      this.over.lineStyle(2, 0xffe08a, 1).beginPath().arc(pos.x, pos.y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, p.freeProgress)).strokePath();
     }
   }
 
@@ -1008,7 +1092,7 @@ export class GameScene extends Phaser.Scene {
       case "enemyWindup": {
         const map: Record<string, string> = {
           melee: "windupMelee", dash: "windupDash", lobbedProjectile: "windupLob", slam: "windupLob", cone: "windupBreath", projectile: "windupMelee", summon: "summon", shieldAllies: "summon",
-          nova: "bossPhase", shockwave: "windupLob", submerge: "windupLob", sweep: "charge",
+          nova: "bossPhase", shockwave: "windupLob", submerge: "windupLob", sweep: "charge", grab: "windupMelee", blackout: "bossPhase",
         };
         sfx.play(map[ev.attack] ?? "windupMelee");
         break;
@@ -1260,6 +1344,42 @@ export class GameScene extends Phaser.Scene {
         sfx.play("rewind");
         break;
       }
+      case "grabbed": {
+        const p = at(ev.id);
+        this.ringFx(p.x, p.y, 16, 0xff9a2a, 250);
+        this.floatText(p.x, p.y - 22, "GRABBED!", 0xff9a2a, 8, 900);
+        this.shake(ev.id === this.myId ? 180 : 60, ev.id === this.myId ? 0.008 : 0.002);
+        if (ev.id === this.myId) navigator.vibrate?.([50, 30, 50]);
+        sfx.play("grab");
+        break;
+      }
+      case "freed": {
+        const p = at(ev.id);
+        if (ev.by === -2) {
+          this.floatText(p.x, p.y - 22, "THROWN!", 0xe0533d, 8, 900);
+          this.smoke.explode(6, p.x, p.y + 4);
+          this.shake(150, 0.006);
+          sfx.play("bonk");
+          break;
+        }
+        this.ringFx(p.x, p.y, 30, 0xffe08a, 300);
+        this.floatText(p.x, p.y - 22, ev.by >= 0 ? "FREED!" : "BROKE FREE!", 0xffe08a, 8, 900);
+        sfx.play("freed");
+        break;
+      }
+      case "candleLit":
+        this.flash(ev.x, ev.y - 8, 0xffd27a, 40, 300);
+        this.sparks.explode(4, ev.x, ev.y - 8);
+        sfx.play("candle");
+        break;
+      case "blackout": {
+        // Every light in the room goes out at once.
+        for (const c of this.world.run.room.candles) this.smoke.explode(3, c.pos.x, c.pos.y - 8);
+        this.cameras.main.flash(120, 0, 0, 0);
+        this.shake(300, 0.006);
+        sfx.play("blackout");
+        break;
+      }
       case "deflect":
         this.flash(ev.x, ev.y, 0x5fb3ff, 20, 120);
         this.sparks.explode(3, ev.x, ev.y);
@@ -1373,6 +1493,7 @@ export class GameScene extends Phaser.Scene {
     this.renderWater(t);
     this.renderBelts(t);
     this.renderVents(t);
+    this.renderCandles(t);
     this.renderHazards(t);
     this.renderDoors();
     this.renderPickups(t);
@@ -1631,6 +1752,11 @@ export class GameScene extends Phaser.Scene {
     }
     if (p.hurtT > 0) v.body.setTintFill(0xffffff);
     else v.body.clearTint();
+    if (p.pinnedBy) {
+      // Held: squirming in place.
+      v.body.setX(pos.x + Math.sin(t * 0.05) * 1.2);
+      this.drawPinned(p, pos, t, mine);
+    }
     // Blink while invulnerable after a hit (not during a dash: the trail shows that).
     v.body.setAlpha(p.iframes > 0 && p.dashT <= 0 && Math.floor(t / 60) % 2 === 0 ? 0.4 : 1);
     this.placeHat(v, p, pos, bob, left, outfit.hat);
@@ -2046,6 +2172,22 @@ export class GameScene extends Phaser.Scene {
       case "summon":
         g.lineStyle(1, 0xb48cff, 0.4 + 0.5 * k).strokeCircle(pos.x, pos.y, e.radius + 4 + 10 * (1 - k));
         break;
+      case "grab": {
+        // Arms out: the reach it's about to close, in front of it.
+        const a = angleOf(e.attackDir);
+        const reach = e.radius + atk.reach + 6;
+        g.fillStyle(0xe0533d, 0.1 + 0.2 * k).slice(pos.x, pos.y, reach, a - 0.9, a + 0.9, false).fillPath();
+        g.lineStyle(1, 0xff6a5a, 0.6 + 0.4 * Math.sin(t * 0.03)).slice(pos.x, pos.y, reach, a - 0.9, a + 0.9, false).strokePath();
+        break;
+      }
+      case "blackout":
+        // The lights are about to go: darkness gathering in toward it.
+        for (let i = 0; i < 3; i++) {
+          const r = ((1 - k) * 120 + i * 24) % 140 + e.radius;
+          this.over.lineStyle(2, 0x1b1020, 0.5 + 0.4 * k).strokeCircle(pos.x, pos.y, r);
+        }
+        this.over.lineStyle(1, 0x7ef0b0, 0.5 + 0.5 * k).strokeCircle(pos.x, pos.y, e.radius + 6);
+        break;
     }
   }
 
@@ -2094,7 +2236,7 @@ export class GameScene extends Phaser.Scene {
         v.img.setPosition(pos.x, pos.y - z).setDepth(D.air).setAngle(pr.kind === "grenade" ? k * 720 : 0).setVisible(!doom);
         v.glow.setPosition(pos.x, pos.y - z).setVisible(!doom);
         v.shadow?.setPosition(pos.x, pos.y).setScale(1 - (z / arc) * 0.5).setVisible(!doom);
-        const ring = doom ? 0xff6a3c : pr.kind === "slush" ? 0x7ad7ff : pr.lob.puddle && pr.element === "fire" ? 0xff9a2a : pr.lob.puddle ? 0x7ee05a : 0xe0533d;
+        const ring = doom ? 0xff6a3c : pr.kind === "page" ? 0xd8ffe8 : pr.kind === "slush" ? 0x7ad7ff : pr.lob.puddle && pr.element === "fire" ? 0xff9a2a : pr.lob.puddle ? 0x7ee05a : 0xe0533d;
         if (pr.owner === "enemy") this.groundCircle(pr.lob.to, pr.lob.radius, 0.5 + k * 0.5, this.time.now, ring);
       } else {
         v.img.setPosition(pos.x, pos.y).setRotation(Math.atan2(pr.vel.y, pr.vel.x)).setDepth(pos.y + 1);
@@ -2122,8 +2264,10 @@ export class GameScene extends Phaser.Scene {
       const img = this.take(key);
       if (pr.kind === "acid") img.setTint(0x7ee05a);
       if (pr.kind === "slush") img.setTint(0x9ff3ff);
-      const enemyGlow = pr.kind === "acid" ? 0x7ee05a : pr.kind === "slush" ? 0x9ff3ff : 0xff6a3c;
-      glow.setTint(pr.owner === "enemy" ? enemyGlow : pr.element === "none" ? 0xffd27a : elem).setScale(0.5).setAlpha(0.6);
+      // The Night Auditor's pages glow, so you can see them coming in the blackout.
+      if (pr.kind === "page") img.setTint(0xf4ecd8);
+      const enemyGlow = pr.kind === "acid" ? 0x7ee05a : pr.kind === "slush" ? 0x9ff3ff : pr.kind === "page" ? 0x9ff3c8 : 0xff6a3c;
+      glow.setTint(pr.owner === "enemy" ? enemyGlow : pr.element === "none" ? 0xffd27a : elem).setScale(pr.kind === "page" ? 0.9 : 0.5).setAlpha(pr.kind === "page" ? 0.9 : 0.6);
       return { img, glow, shadow: this.take("shadow-s").setDepth(D.ground + 1) };
     }
     if (pr.kind === "rocket") {

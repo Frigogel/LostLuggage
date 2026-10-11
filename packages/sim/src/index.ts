@@ -3,7 +3,9 @@ export * from "./math";
 export { DT, TICK_HZ, elementMultiplier, partyHpMultiplier, submerged } from "./combat";
 export { GUNS, GRENADE } from "./data/guns";
 export { GRENADES, GRENADE_IDS, GRENADE_KINDS } from "./data/grenades";
-export { BIOMES, BIOME_IDS, ENEMIES } from "./data/enemies";
+export { ADVENTURE_IDS, BIOMES, BIOME_IDS, ENEMIES, FINALE_BIOME } from "./data/enemies";
+export { CRYPT, heroLight, inCandleLight, isLit, roomDark } from "./crypt";
+export { GRAB, holding } from "./grabs";
 export { HEROES, HERO_IDS, DASH, MAX_LEVEL, REVIVE, TIER_LEVELS, levelMultiplier, tierLevel } from "./data/heroes";
 export { SIGNATURES, SIGNATURE_IDS, signaturesFor, type SignatureDef } from "./data/signatures";
 export { ELITES, ELITE_IDS, type EliteDef } from "./elites";
@@ -46,7 +48,7 @@ export {
   updateFacing,
   type PlayerOptions,
 } from "./players";
-export { ACT_ROOMS, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, actLevel, actOrder, actDamage, actHaste, actHp, depthOf, eliteShare, endlessActs, ENDLESS, firstRoom, planDoors, planRoom, planWave, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
+export { ACT_ROOMS, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, grabberChance, actLevel, actOrder, actDamage, actHaste, actHp, depthOf, eliteShare, endlessActs, ENDLESS, firstRoom, planDoors, planRoom, planWave, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
 export { BOOSTS, BOOST_IDS, boostOffers, playerTags, stacks, type BoostDef, type BoostRarity, type BoostTag } from "./data/boosts";
 export { ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, grenadeName, grenadeStats, heldGrenade, heldStats, mythicChance, mythicItem, newGun, rollGrenade, rollGun, rollMythic, STARTER_GRENADE, unpredictable, type GrenadeStats } from "./loot";
 export { ARENA, DOOR, EXIT_WAIT_S, HOLD_S, LAYOUTS, PAD, ROOM_NAMES, START, arenaFor, beltAt, beltsFor, padAt, trapDist, trapPoint, waterAt, doorAt, doorRect, doorVotes, enterRoom, offerBoosts, roomAct, roomSpec, ventState, type VentState } from "./room";

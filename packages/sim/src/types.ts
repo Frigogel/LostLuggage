@@ -15,6 +15,8 @@ export type Role =
   | "summoner"
   | "ambusher"
   | "splitter"
+  /** Pins a player until a teammate frees them (or they struggle free). From act 2 on, in every biome. */
+  | "grabber"
   | "boss";
 
 // ---------------------------------------------------------------- guns
@@ -287,11 +289,43 @@ export type AttackDef =
       damage: number;
     })
   | (AttackBase & {
+      /**
+       * Grabs the player in front and holds them: they can't move or shoot until a teammate stands next to them,
+       * they mash dash, or the grabber takes `breakFrac` of its health in damage. Held too long, they get thrown.
+       */
+      type: "grab";
+      telegraph: "redFlash";
+      reach: number;
+      /** On the catch. */
+      damage: number;
+      /** Every squeeze while held. */
+      squeeze: number;
+      holdMs: number;
+      breakFrac: number;
+      /** The throw at the end of a hold that nobody broke. */
+      toss: number;
+    })
+  | (AttackBase & {
+      /**
+       * Boss (the Drowned Crypt): blows out every candle and plunges the room into near-total dark for `durationMs`,
+       * while glowing pages rain down all over it (one on every player).
+       */
+      type: "blackout";
+      telegraph: "channel";
+      durationMs: number;
+      count: number;
+      radius: number;
+      damage: number;
+      flightMs: number;
+    })
+  | (AttackBase & {
       /** Grants a blue shield bar to nearby allies. */
       type: "shieldAllies";
       telegraph: "channel";
       radius: number;
       amount: number;
+      /** Also blows out lit candles this close (the Drowned Crypt). */
+      snuff?: number;
     })
   | (AttackBase & {
       type: "summon";
@@ -343,6 +377,10 @@ export interface EnemyDef {
   frostImmune?: boolean;
   /** Sewer family: swims through deep water at full speed, and the current doesn't carry it. */
   swimmer?: boolean;
+  /** Goes after whoever strays furthest from the group instead of the nearest player. */
+  farAggro?: boolean;
+  /** Stone in the dark: takes far less damage unless it stands in light (a candle, a hero's glow, an owl). */
+  stone?: boolean;
   /** Leaves a damaging trail while moving. */
   trail?: { intervalMs: number; radius: number; durationMs: number; damage: number };
   onDeath?: { split?: { enemyId: string; count: number } };
@@ -454,6 +492,10 @@ export interface Player {
   markHits: number;
   /** Bosses beaten since this player last brought a mythic home: slowly raises the mythic odds. Server only. */
   mythicPity?: number;
+  /** Held by a grabber (its enemy id), or 0. Pinned players can't move, dash, shoot or throw. */
+  pinnedBy: number;
+  /** 0..1 while pinned: teammates standing close (or mashing dash) fill it, and at 1 they're free. */
+  freeProgress: number;
 }
 
 export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";
@@ -541,6 +583,8 @@ export interface Enemy {
   burst: number;
   /** Ranged enemies: time until they think about dodging again. Server only. */
   dodgeT: number;
+  /** Grabbers: health when the hold started, so enough damage breaks it. Server only. */
+  gripHp?: number;
 }
 
 /** Something a hero put on the field: a Tinker's turret or a Warden's drone. */
@@ -711,16 +755,17 @@ export type DoorKind = RoomKind | "home";
 /** Room twists (see director TWISTS): one rule that changes how a fight plays. "" = none. */
 export type TwistId = "" | "rush" | "dark" | "hold" | "belts" | "overbooked" | "convention" | "luggage" | "surrounded";
 
-/** Each biome brings an enemy family and a terrain rule (design doc: Biomes). */
-export type Biome = "foundry" | "caverns" | "sewers" | "orbital";
+/**
+ * Each biome brings an enemy family and a terrain rule (design doc: Biomes). The first four are adventures you can
+ * pick; the Drowned Crypt is always the final act.
+ */
+export type Biome = "foundry" | "caverns" | "sewers" | "orbital" | "crypt";
 
 /** Where a door leads, decided when the doors appear. */
 export interface RoomSpec {
   kind: RoomKind;
   biome: Biome;
   twist: TwistId;
-  /** Mixed rooms draw enemies from every biome's family. */
-  mix: boolean;
   /** 0 to FINAL_ACT is the adventure; after that is endless. */
   act: number;
   /** Room number within the act: 0 is the arrival, the boss comes last. */
@@ -760,6 +805,16 @@ export interface Room {
   /** Co-op: counts down while someone waits at a door, so nobody gets yanked out mid-loot. -1 = idle. */
   exitT: number;
   vents: Vent[];
+  /** Drowned Crypt: candles you light by shooting them. Their light pushes back the dark and exposes enemies. */
+  candles: Candle[];
+  /** The Night Auditor's blackout: seconds of near-total dark left. */
+  blackoutT: number;
+}
+
+export interface Candle {
+  pos: Vec;
+  /** Seconds left burning; 0 = out. */
+  litT: number;
 }
 
 export interface Run {
@@ -892,6 +947,17 @@ export type SimEvent =
   | { type: "swapped"; id: number; other: number; x1: number; y1: number; x2: number; y2: number }
   /** A shielded elite's front shield stopped a shot. */
   | { type: "deflect"; x: number; y: number }
+  /** A grabber caught a player (`by` is the enemy). */
+  | { type: "grabbed"; id: number; by: number }
+  /**
+   * A pinned player got loose: `by` is the teammate who freed them, -1 if they struggled free or the grabber let go,
+   * -2 if nobody broke the hold and they got thrown.
+   */
+  | { type: "freed"; id: number; by: number }
+  /** A candle caught (Drowned Crypt). */
+  | { type: "candleLit"; x: number; y: number }
+  /** The Night Auditor blew out every light. */
+  | { type: "blackout"; id: number }
   | { type: "playerDowned"; id: number; canRevive: boolean }
   /** The last player standing went down and Second Wind kicks in. */
   | { type: "secondWind"; id: number }

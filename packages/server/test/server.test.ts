@@ -294,7 +294,7 @@ describe("accounts", () => {
       if (door) w.players[0]!.pos = { x: door.x, y: 8 };
     }, 10);
     try {
-      enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, mix: true }));
+      enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, biome: "crypt" }));
       w.run.room.waves = [];
       w.enemies = [];
       const r = await reward;
