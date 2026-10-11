@@ -68,7 +68,7 @@ const LIST: BoostDef[] = [
   // ---------------------------------------------------------------- survival
   b("vitamins", "Airline Vitamins", "+20 max health (and heal 20)", "common", ["tank"], 5),
   b("bubbleWrap", "Bubble Wrap", "Take 10% less damage", "common", ["tank"], 4),
-  b("meal", "In-Flight Meal", "Regenerate 1 health a second", "rare", ["tank"], 2),
+  b("meal", "In-Flight Meal", "Regenerate 1 health a second until the room is cleared", "rare", ["tank"], 2),
   b("mint", "Hotel Mint", "Heal 15% when a room is cleared", "common", ["tank"], 3),
   b("dnd", "Do Not Disturb", "Getting hit releases a shock burst", "rare", ["tank", "shock"], 2),
   b("insurance", "Travel Insurance", "+1 Second Wind", "epic", ["tank"], 2),

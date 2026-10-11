@@ -279,8 +279,8 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     updateDowned(w, p);
     return;
   }
-  // In-Flight Meal: a little health back all the time.
-  if (p.boosts.meal && !p.away) p.hp = Math.min(p.maxHp, p.hp + p.boosts.meal * DT);
+  // In-Flight Meal: a little health back while the room is still being fought.
+  if (p.boosts.meal && !p.away && !w.run.room.cleared) p.hp = Math.min(p.maxHp, p.hp + p.boosts.meal * DT);
   if (p.away) {
     p.vel = { x: 0, y: 0 };
     return;
