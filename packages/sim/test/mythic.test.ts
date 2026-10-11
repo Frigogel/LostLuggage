@@ -147,6 +147,45 @@ describe("mythics: the abilities", () => {
     expect(events.some((e) => e.type === "reflect")).toBe(true);
   });
 
+  it("Return to Sender bats a lobbed shell back onto whoever lobbed it", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.guns[0] = mythicGun(w, "return_to_sender");
+    const beetle = spawnEnemy(w, "mortar_beetle", { x: p.pos.x + 200, y: p.pos.y }, 0);
+    beetle.cooldowns = beetle.cooldowns.map(() => 99);
+    const from = { ...beetle.pos };
+    w.projectiles.push({
+      id: 9003, owner: "enemy", ownerId: beetle.id, kind: "mortar", element: "none", pos: { x: p.pos.x + 40, y: p.pos.y }, vel: { x: 0, y: 0 },
+      radius: 4, damage: 12, pierce: 0, bounces: 0, knockback: 0, life: 99, hitIds: [], gunUid: -1,
+      lob: { from, to: { ...p.pos }, t: 0.8, dur: 1, radius: 20 },
+    });
+    const events = run(w, 1, input({ fire: true, aim: { x: 40, y: 0 } }));
+    events.push(...run(w, 40));
+    expect(events.some((e) => e.type === "reflect")).toBe(true);
+    expect(p.hp).toBe(p.maxHp);
+    expect(beetle.hp).toBeLessThan(beetle.maxHp);
+  });
+
+  it("Return to Sender sends a charging enemy back the way it came, stunned", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.guns[0] = mythicGun(w, "return_to_sender");
+    const boar = spawnEnemy(w, "jet_boar", { x: p.pos.x + 60, y: p.pos.y }, 0);
+    boar.hp = boar.maxHp = 99999;
+    boar.state = "attack";
+    boar.attackIdx = 0;
+    boar.stateT = 1;
+    boar.attackDir = { x: -1, y: 0 };
+    const events = run(w, 1, input({ fire: true, aim: { x: 60, y: 0 } }));
+    events.push(...run(w, 2));
+    expect(boar.state).toBe("recover");
+    expect(events.some((e) => e.type === "bonk" && e.id === boar.id)).toBe(true);
+    const at = boar.pos.x;
+    run(w, 6);
+    // Shoved back away from the player, not still coming.
+    expect(boar.pos.x).toBeGreaterThan(at);
+  });
+
   it("Customs Officer confiscates an elite's modifier, so a Vengeful elite dies quietly", () => {
     const w = quiet();
     const p = w.players[0]!;

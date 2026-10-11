@@ -160,7 +160,7 @@ Loot is the Borderlands heart of the game: every gun is archetype + manufacturer
 
 | Mythic | Kind | The rule it breaks |
 | --- | --- | --- |
-| Return to Sender | Shotgun | Pellets bat enemy shots back at whoever fired them |
+| Return to Sender | Shotgun | Pellets bat enemy bolts and lobbed shells back at the shooter, and send charging enemies flying back, stunned |
 | Customs Officer | Pistol | Hits confiscate an elite's modifier and strip shield bars |
 | Snooze Button | Grenade | Enemies in the blast sleep until something hits them; bosses only nod off |
 | Black Box | Grenade | 4s later, allies it caught get back the health they had, even if they went down, and the wipe waits for it |

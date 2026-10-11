@@ -7,6 +7,7 @@ import { levelMultiplier } from "./data/heroes";
 import { MYTHIC } from "./data/mythics";
 import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub, type Vec } from "./math";
 import { ENEMIES } from "./data/enemies";
+import { returnCharge } from "./enemies";
 import { dashedWithin, hasSkill, revive } from "./players";
 import { GRENADES } from "./data/grenades";
 import type { Element, Hazard, Player, Projectile, World } from "./types";
@@ -25,17 +26,40 @@ export function updateProjectiles(w: World): void {
   swatShots(w);
 }
 
-/** Return to Sender: pellets bat the enemy shots they touch back at whoever fired them, and keep going. */
+/**
+ * Return to Sender: pellets bat the enemy shots they touch back at whoever fired them, and keep going. Bolts turn
+ * around; lobbed shells and globs (mortars, acid, slush, a Vengeful blast) arc back and land on the shooter.
+ */
 function swatShots(w: World): void {
-  for (const bat of w.projectiles) {
-    if (!bat.swat || bat.owner !== "player" || bat.lob) continue;
-    const by = w.players.find((p) => p.id === bat.ownerId);
-    if (!by) continue;
-    for (const pr of w.projectiles) {
-      if (pr.owner !== "enemy" || pr.lob || dist(pr.pos, bat.pos) > pr.radius + bat.radius + MYTHIC.swatReach) continue;
+  const bats = w.projectiles.filter((b) => b.swat && b.owner === "player" && !b.lob);
+  if (bats.length === 0) return;
+  w.projectiles = w.projectiles.map((pr) => {
+    if (pr.owner !== "enemy") return pr;
+    const bat = bats.find((b) => dist(pr.pos, b.pos) <= pr.radius + b.radius + MYTHIC.swatReach);
+    const by = bat && w.players.find((p) => p.id === bat.ownerId);
+    if (!by) return pr;
+    if (!pr.lob) {
       reflect(w, pr, by);
+      return pr;
     }
-  }
+    return sendShellBack(w, pr, by, pr.pos, pr.lob.from) ?? pr;
+  });
+}
+
+/**
+ * An enemy shell, sent back where it came from as `by`'s (Hot Potato, the Revolving Door, Return to Sender): it
+ * lands on whoever lobbed it, or the nearest enemy. With nobody there, it goes to `fallback`, or nowhere.
+ */
+function sendShellBack(w: World, pr: Projectile, by: Player, at: Vec, fallback?: Vec): Projectile | undefined {
+  const shooter = w.enemies.find((e) => e.id === pr.ownerId && targetable(e)) ?? nearestEnemy(w, at, 260);
+  const to = shooter ? { ...shooter.pos } : fallback && { ...fallback };
+  if (!to) return undefined;
+  const d = Math.max(30, dist(at, to));
+  w.events.push({ type: "reflect", x: at.x, y: at.y });
+  return {
+    ...pr, id: newId(w), owner: "player", ownerId: by.id, hitIds: [], damage: Math.max(20, pr.damage * 2) * levelMultiplier(by.syncLevel) * by.mods.damage, knockback: 120,
+    special: true, pos: { ...at }, lob: { from: { ...at }, to, t: 0, dur: Math.min(1, d / 260), radius: pr.lob!.radius },
+  };
 }
 
 /** Returns false when the projectile is done. */
@@ -78,15 +102,8 @@ function updateLob(w: World, pr: Projectile): boolean {
     w.events.push({ type: "blocked", x: lob.to.x, y: lob.to.y });
     // Hot Potato (and the Revolving Door): the shell goes back to whoever lobbed it.
     if (owner && (hasSkill(owner, "vg_potato") || owner.signature === "sig_revolving")) {
-      const shooter = w.enemies.find((e) => e.id === pr.ownerId && targetable(e)) ?? nearestEnemy(w, lob.to, 260);
-      if (shooter) {
-        const d = Math.max(30, dist(lob.to, shooter.pos));
-        w.projectiles.push({
-          ...pr, id: newId(w), owner: "player", ownerId: owner.id, hitIds: [], damage: Math.max(20, pr.damage * 2) * levelMultiplier(owner.syncLevel) * owner.mods.damage, knockback: 120,
-          special: true, pos: { ...lob.to }, lob: { from: { ...lob.to }, to: { ...shooter.pos }, t: 0, dur: Math.min(1, d / 260), radius: lob.radius },
-        });
-        w.events.push({ type: "reflect", x: lob.to.x, y: lob.to.y });
-      }
+      const back = sendShellBack(w, pr, owner, lob.to);
+      if (back) w.projectiles.push(back);
     }
     return false;
   }
@@ -194,6 +211,8 @@ function updateStraight(w: World, pr: Projectile): boolean {
       const marked = e.markT > 0 && e.markBy === pr.ownerId;
       damageEnemy(w, e, pr.damage, { dir: pr.vel, knockback: pr.knockback, sourcePlayerId: pr.ownerId, element: pr.element, gunUid: pr.gunUid, noCharge: pr.noCharge });
       pr.hitIds.push(e.id);
+      // Return to Sender: a charge caught mid-run gets sent back the way it came.
+      if (pr.swat && e.hp > 0) returnCharge(w, e);
       // Trick Shot: a hit on a mark bounces on to another mark.
       if (marked && pr.seekMarks) {
         const owner = w.players.find((pl) => pl.id === pr.ownerId);

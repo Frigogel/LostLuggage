@@ -567,6 +567,24 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
   }
 }
 
+/**
+ * Return to Sender: a charge caught mid-run is cut short and sent back the way it came, then stunned as if it had
+ * hit a wall (bosses aren't shoved, but still lose the rest of a chained charge). Returns true if it was charging.
+ */
+export function returnCharge(w: World, e: Enemy): boolean {
+  const def = ENEMIES[e.defId]!;
+  const atk = def.attacks[e.attackIdx];
+  if (e.state !== "attack" || atk?.type !== "dash") return false;
+  if (!def.boss) e.knock = scale(e.attackDir, -atk.dashSpeed * RETURN_SHOVE);
+  e.burst = 0;
+  endDash(w, e, true);
+  w.events.push({ type: "reflect", x: e.pos.x, y: e.pos.y });
+  return true;
+}
+
+/** How hard a returned charge is shoved back, as a share of its own charge speed. */
+const RETURN_SHOVE = 0.9;
+
 function endDash(w: World, e: Enemy, hitWall: boolean): void {
   const def = ENEMIES[e.defId]!;
   const atk = def.attacks[e.attackIdx]!;

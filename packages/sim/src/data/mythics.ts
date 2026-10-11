@@ -27,7 +27,7 @@ export const MYTHIC_GUNS: Record<string, MythicGunDef> = {
     id: "return_to_sender",
     name: "Return to Sender",
     flavor: "No forwarding address. It goes back where it came from.",
-    text: "Pellets bat enemy shots back at whoever fired them",
+    text: "Pellets bat enemy shots and shells back at the shooter, and send charging enemies back where they came from",
     defId: "shotgun",
     maker: "goblin",
     effect: "swat",
