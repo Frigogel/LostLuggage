@@ -1,7 +1,11 @@
 import Phaser from "phaser";
 import {
+  ACT_ROOMS,
   BIOMES,
   BOOSTS,
+  FINAL_ACT,
+  ROOM_NAMES,
+  TWISTS,
   ELITES,
   COSMETICS,
   SIGNATURES,
@@ -20,13 +24,14 @@ import {
   type Gun,
   type Pickup,
   type Player,
+  type RoomKind,
   type RunReward,
   type SimEvent,
   type World,
 } from "@lostluggage/sim";
 import { BUTTONS, Controls, SCREEN, STICK_R, WEAPON_SLOTS, stickValue, type ButtonId, type Stick } from "../controls";
 import { ELEMENT_COLORS, RARITY_COLORS, SLOT_COLORS } from "../render/colors";
-import type { GameScene } from "./GameScene";
+import { BOOST_COLORS, type GameScene } from "./GameScene";
 
 const BUTTON_LABELS: Record<ButtonId, { touch: string; keys: string }> = {
   skill: { touch: "DOME", keys: "E" },
@@ -39,8 +44,14 @@ const DESKTOP_HELP = (skill: string) => `WASD MOVE  CLICK SHOOT  SPACE DASH  E $
 const SKILL_COLORS: Record<string, number> = { vanguard: 0x5fd3e8, gunslinger: 0xf2c14e, tinker: 0xffb238, warden: 0x5fd36a };
 /** What the bosses have to say as they get angrier. */
 const BOSS_PHASES: Record<string, string[]> = {
-  furnace_foreman: ["HE'S FILING A COMPLAINT", "HE WANTS A FULL REFUND"],
-  complaint_dragon: ["IT'S CC'ING YOUR MANAGER", "IT WANTS COMPENSATION. IN GOLD."],
+  furnace_foreman: ["HE'S FILING A COMPLAINT", "HE WANTS A FULL REFUND", "HE'S TAKING THIS TO THE TOP"],
+  complaint_dragon: ["IT'S CC'ING YOUR MANAGER", "IT WANTS COMPENSATION. IN GOLD.", "IT'S WRITING A ONE-STAR REVIEW"],
+};
+/** What the big boss attacks want from you, said out loud the first few times. */
+const BOSS_CALLS: Record<string, [string, string]> = {
+  shockwave: ["SHOCKWAVE!", "DASH THROUGH THE RING"],
+  nova: ["INCOMING!", "SLIP THROUGH THE GAPS"],
+  lobbedProjectile: ["IT'S RAINING!", "KEEP MOVING. WATCH THE CIRCLES"],
 };
 const BOSS_WINS: Record<string, string> = {
   furnace_foreman: "THE FOREMAN HAS BEEN ESCALATED.",
@@ -49,8 +60,14 @@ const BOSS_WINS: Record<string, string> = {
 /** Who splits into what, for introducing the pieces. */
 const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball" };
 /** What the pickup button says for each kind of item. */
-const PICKUP_VERBS = { gun: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB" };
-const ROOM_ICONS = { intro: 0xc9cfd6, combat: 0xe0533d, breather: 0x5fd36a, boss: 0xff9a2a };
+const PICKUP_VERBS = { gun: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
+const ROOM_ICONS: Record<RoomKind, number> = { intro: 0xc9cfd6, combat: 0xe0533d, elite: 0xff9a2a, event: 0xb46cff, shrine: 0xf2c14e, rest: 0x5fd36a, boss: 0xff3030 };
+/** What each kind of room says when you walk in. */
+const ROOM_BANNERS: Partial<Record<RoomKind, [string, string, number]>> = {
+  rest: ["REST STOP", "HALF YOUR HEALTH BACK, AND A SUITCASE. TAKE A BREATH.", 0x5fd36a],
+  shrine: ["SHRINE", "TWO BOOSTS FOR EVERYONE. CHOOSE WELL.", 0xf2c14e],
+  elite: ["ELITE FIGHT", "TOUGH CROWD. BETTER LOOT.", 0xff9a2a],
+};
 const SEEN_KEY = "lostluggage.seenEnemies";
 
 type Text = Phaser.GameObjects.BitmapText;
@@ -71,6 +88,7 @@ export class UIScene extends Phaser.Scene {
   private heroLabel!: Text;
   private hpText!: Text;
   private roomText!: Text;
+  private actText!: Text;
   private killText!: Text;
   private bossName!: Text;
   private boostText!: Text;
@@ -145,6 +163,7 @@ export class UIScene extends Phaser.Scene {
     this.hpText = this.text(110, 14, "");
     this.boostText = this.text(6, 26, "").setTint(0xf2c14e);
     this.roomText = this.text(SCREEN.w / 2, 13, "").setOrigin(0.5, 0);
+    this.actText = this.text(SCREEN.w / 2, 3, "").setOrigin(1, 0).setTint(0xf2c14e);
     this.killText = this.text(SCREEN.w / 2, 23, "").setOrigin(0.5, 0).setTint(0xc9cfd6);
     this.bossName = this.text(SCREEN.w / 2, 23, "").setOrigin(0.5, 0).setTint(0xff9a2a);
     for (const id of Object.keys(BUTTONS) as ButtonId[]) {
@@ -158,7 +177,7 @@ export class UIScene extends Phaser.Scene {
     this.card = [0, 1, 2, 3, 4, 5, 6].map((i) => this.text(SCREEN.w / 2, SCREEN.h - 70 + i * 11, "").setOrigin(0.5, 0));
     this.help = this.text(SCREEN.w / 2, SCREEN.h - 4, DESKTOP_HELP(HEROES[game.me.heroId]!.skillName), 8).setOrigin(0.5, 1).setCenterAlign().setTint(0xc9cfd6);
     this.tweens.add({ targets: this.help, alpha: 0, delay: 12000, duration: 1500 });
-    this.exitLabel = this.text(0, 0, "EXIT", 8).setOrigin(0.5).setTint(0x5fd36a);
+    this.exitLabel = this.text(0, 0, "DOORS", 8).setOrigin(0.5).setTint(0x5fd36a);
     this.toast = [this.text(6, 52, "").setTint(0xffe08a), this.text(6, 63, "").setTint(0xc9cfd6)];
     // Party panel under your health: one line per teammate.
     this.partyText = [0, 1, 2].map((i) => this.text(14, 38 + i * 10, ""));
@@ -298,21 +317,50 @@ export class UIScene extends Phaser.Scene {
     for (const p of world.players) this.names.set(p.id, p.name);
     for (const ev of events) {
       switch (ev.type) {
-        case "waveStart":
-          if (world.run.room.kind === "boss") {
-            const boss = ENEMIES[BIOMES[world.run.biome].boss]!;
-            this.showBanner(boss.name.toUpperCase(), boss.flavor.toUpperCase(), 0xff9a2a, 2400);
-          } else this.showBanner(`WAVE ${ev.wave}/${ev.waves}`, world.run.room.index === 0 && ev.wave === 1 ? BIOMES[world.run.biome].name.toUpperCase() : "");
+        case "waveStart": {
+          const room = world.run.room;
+          if (room.kind === "boss") {
+            if (ev.wave > 1) break;
+            const bosses = world.enemies.filter((e) => ENEMIES[e.defId]!.role === "boss");
+            if (bosses.length > 1) this.showBanner("THE COMPLAINTS DEPARTMENT", "BOTH OF THEM. AT ONCE.", 0xff3030, 2600);
+            else {
+              const boss = ENEMIES[BIOMES[room.biome].boss]!;
+              this.showBanner(boss.name.toUpperCase(), boss.flavor.toUpperCase(), 0xff9a2a, 2400);
+            }
+          } else if (room.twist === "hold") break;
+          else this.showBanner(`WAVE ${ev.wave}/${ev.waves}`, room.index === 0 && ev.wave === 1 ? BIOMES[room.biome].name.toUpperCase() : "");
           break;
-        case "roomCleared":
-          // Breather rooms start clear; their own banner already says so.
-          if (!world.run.victory && world.run.room.kind !== "breather") this.showBanner("ROOM CLEAR!", "HEAD FOR THE EXIT", 0x5fd36a);
+        }
+        case "roomCleared": {
+          // Rest stops and shrines start clear; their own banner already says so.
+          const kind = world.run.room.kind;
+          if (world.run.victory || kind === "rest" || kind === "shrine") break;
+          if (kind === "boss" && world.run.finale && world.run.bosses === FINAL_ACT + 1) break;
+          this.showBanner(kind === "boss" ? "BOSS DOWN!" : "ROOM CLEAR!", "TAKE A BOOST, THEN PICK A DOOR", 0x5fd36a, 2000);
           break;
-        case "roomEnter":
-          if (ev.kind === "breather") this.showBanner("LOST & FOUND", "A SHRINE AND A SUITCASE. TAKE A BREATH.", 0x5fd36a, 2400);
-          else if (ev.kind === "boss") this.showBanner(BIOMES[world.run.biome].bossRoom.toUpperCase(), "", 0xff9a2a);
-          else if (ev.index === 0 && world.run.biome === "caverns") this.showBanner("MIND THE ICE", "YOU SLIDE. YOUR DASH GOES FURTHER. SPIKES HURT.", 0x9ff3ff, 2600);
+        }
+        case "finale":
+          this.showBanner("LUGGAGE RECOVERED!", "FLY HOME WITH THE WIN, OR KEEP GOING: ENDLESS", 0x5fd36a, 3600);
           break;
+        case "bossCall": {
+          const call = BOSS_CALLS[ev.attack];
+          if (call) this.showBanner(call[0], call[1], 0xff9a2a, 1100);
+          break;
+        }
+        case "roomEnter": {
+          const room = world.run.room;
+          const plan = world.run.plans[ev.index];
+          const prev = world.run.plans[ev.index - 1];
+          if (plan && prev && plan.act > prev.act) {
+            // A new act: say where we are.
+            const name = plan.act > FINAL_ACT ? `ENDLESS ${plan.act - FINAL_ACT}` : `ACT ${plan.act + 1}`;
+            this.showBanner(name, plan.act === FINAL_ACT ? "A BIT OF EVERYTHING" : BIOMES[room.biome].name.toUpperCase(), 0xf2c14e, 2600);
+          } else if (room.twist) this.showBanner(TWISTS[room.twist].name.toUpperCase(), TWISTS[room.twist].text.toUpperCase(), 0xb46cff, 2600);
+          else if (ev.kind === "boss") this.showBanner(BIOMES[room.biome].bossRoom.toUpperCase(), "", 0xff9a2a);
+          else if (ROOM_BANNERS[ev.kind]) this.showBanner(...ROOM_BANNERS[ev.kind]!, 2400);
+          else if (ev.index === 0 && room.biome === "caverns") this.showBanner("MIND THE ICE", "YOU SLIDE. YOUR DASH GOES FURTHER. SPIKES HURT.", 0x9ff3ff, 2600);
+          break;
+        }
         case "enemySpawn": {
           const e = world.enemies.find((en) => en.id === ev.id);
           if (!e) break;
@@ -327,7 +375,7 @@ export class UIScene extends Phaser.Scene {
           break;
         }
         case "split":
-          this.introduce(SPLITS[world.run.biome] ?? "blobling");
+          this.introduce(SPLITS[world.run.room.biome] ?? "blobling");
           break;
         case "bossPhase": {
           const boss = world.enemies.find((en) => en.id === ev.id);
@@ -369,12 +417,15 @@ export class UIScene extends Phaser.Scene {
           if (ev.id !== myId) break;
           this.showBanner(gunName(ev.gun).toUpperCase(), `${ev.gun.rarity} ${gunStats(ev.gun).archetype}`.toUpperCase(), RARITY_COLORS[ev.gun.rarity]);
           break;
-        case "shrine":
+        case "shrine": {
           if (ev.id !== myId) break;
-          this.showBanner(BOOSTS[ev.boost].name.toUpperCase(), BOOSTS[ev.boost].text.toUpperCase(), 0xf2c14e, 2200);
+          const b = BOOSTS[ev.boost];
+          if (b) this.showBanner(b.name.toUpperCase(), b.text.toUpperCase(), BOOST_COLORS[b.rarity], 2200);
           break;
+        }
         case "gameOver":
-          this.showEndPanel(world, false);
+          // Going down in endless after beating the final boss still counts as a win.
+          this.showEndPanel(world, world.run.finale);
           break;
         case "victory":
           this.time.delayedCall(1500, () => this.showEndPanel(world, true));
@@ -390,11 +441,18 @@ export class UIScene extends Phaser.Scene {
     const t = (y: number, s: string, size: number, tint = 0xffffff) => this.add.bitmapText(0, y, "pixel", s, size).setOrigin(0.5).setLetterSpacing(-1).setTint(tint);
     const mins = Math.floor(run.time / 60);
     const secs = String(Math.floor(run.time % 60)).padStart(2, "0");
+    const plan = run.plans[run.room.index];
+    const where = plan ? (plan.act > FINAL_ACT ? `ENDLESS ${plan.act - FINAL_ACT}` : `ACT ${plan.act + 1}`) + (plan.kind === "boss" ? ", THE BOSS" : `, ROOM ${plan.step + 1}`) : "";
+    const line = run.victory
+      ? "FLEW HOME WITH EVERYTHING. THE CRUISE LINE IS STUNNED."
+      : won
+        ? `THE ADVENTURE IS WON. ENDLESS GOT YOU AT ${where}.`
+        : `REACHED ${where}. THE CRUISE LINE IS NOT LIABLE.`;
     c.add([
       bg,
       t(-70, won ? "LUGGAGE RECOVERED!" : "LUGGAGE LOST", 16, won ? 0x5fd36a : 0xe0533d),
-      t(-50, won ? (BOSS_WINS[BIOMES[run.biome].boss] ?? "") : `REACHED ROOM ${run.room.index + 1}/${run.plans.length}. THE CRUISE LINE IS NOT LIABLE.`, 8),
-      t(-38, `${mins}:${secs}   ${run.kills} KILLS   ${run.gunsFound} GUNS FOUND`, 8, 0xc9cfd6),
+      t(-50, line, 8),
+      t(-38, `${mins}:${secs}   ${run.bosses} BOSS${run.bosses === 1 ? "" : "ES"}   ${run.kills} KILLS   ${run.gunsFound} GUNS`, 8, 0xc9cfd6),
     ]);
     this.rewardText = [-20, -8, 4, 16, 28].map((y) => t(y, "", 8));
     c.add(this.rewardText);
@@ -464,17 +522,27 @@ export class UIScene extends Phaser.Scene {
       const net = game.net;
       c.add([
         this.add.rectangle(0, 0, SCREEN.w, SCREEN.h, 0x1b1020, 0.7),
-        this.add.bitmapText(0, -20, "pixel", net ? "MENU" : "PAUSED", 16).setOrigin(0.5).setLetterSpacing(-1),
-        this.add.bitmapText(0, 0, "pixel", this.controls.touchMode ? "TAP TO RESUME" : "CLICK OR P TO RESUME", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e),
+        this.add.bitmapText(0, -50, "pixel", net ? "MENU" : "PAUSED", 16).setOrigin(0.5).setLetterSpacing(-1),
+        this.add.bitmapText(0, -30, "pixel", this.controls.touchMode ? "TAP TO RESUME" : "CLICK OR P TO RESUME", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e),
       ]);
       if (net) {
         // The party keeps going while this is open.
-        c.add(this.add.bitmapText(0, 14, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
-        this.panelButton(c, 0, 36, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
+        c.add(this.add.bitmapText(0, -14, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        this.panelButton(c, 0, 26, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
       } else {
-        c.add(this.add.bitmapText(0, 14, "pixel", "QUITTING KEEPS THE GUNS YOU PICKED UP", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
-        this.panelButton(c, 0, 36, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
+        c.add(this.add.bitmapText(0, -14, "pixel", "QUITTING KEEPS THE GUNS YOU PICKED UP", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        this.panelButton(c, 0, 26, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
       }
+      // Your build so far, in two columns.
+      const entries = Object.entries(game.me.boosts);
+      entries.slice(0, 16).forEach(([id, n], i) => {
+        const b = BOOSTS[id];
+        if (!b) return;
+        const x = i < 8 ? -110 : 110;
+        const y = 58 + (i % 8) * 10;
+        c.add(this.add.bitmapText(x, y, "pixel", `${b.name.toUpperCase()}${n! > 1 ? " X" + n : ""}`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(BOOST_COLORS[b.rarity]));
+      });
+      if (entries.length > 0) c.add(this.add.bitmapText(0, 48, "pixel", "YOUR BOOSTS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e));
       this.pausePanel = c;
     }
 
@@ -516,7 +584,7 @@ export class UIScene extends Phaser.Scene {
       g.fillStyle(0x9ff3ff).fillRect(bx, 126, Math.round(bw * p.reviveProgress), 4);
       status = [p.reviveProgress > 0 ? "GETTING PICKED UP..." : "DOWNED. WAIT FOR A FRIEND", 0xffe08a];
     } else if (world.run.room.exitT >= 0 && !world.run.victory) {
-      status = [`LEAVING THE ROOM IN ${Math.ceil(world.run.room.exitT)}...`, 0x5fd36a];
+      status = [`GOING THROUGH IN ${Math.ceil(world.run.room.exitT)}... (MOST VOTES WINS, HOST BREAKS TIES)`, 0x5fd36a];
     }
     if (status) {
       // Set every frame, so it wins over the banner's fade-out tween without cancelling it.
@@ -586,37 +654,51 @@ export class UIScene extends Phaser.Scene {
     // Level sync: co-op shows the level your stats were set to.
     const lv = this.game_.net ? `LV ${p.syncLevel}` : `LV ${p.level}`;
     this.heroLabel.setText(`${name}  ${lv}${p.selfRevives > 0 ? "" : "  NO SECOND WIND"}`);
-    const boosts = Object.entries(p.boosts).map(([id, n]) => `${BOOSTS[id as keyof typeof BOOSTS].name.replace("SHRINE OF ", "").replace("Shrine of ", "").toUpperCase()}${n! > 1 ? " X" + n : ""}`);
-    this.boostText.setText(boosts.join("  "));
+    // Builds get long: the HUD shows the count and the newest; the pause menu lists the lot.
+    const ids = Object.keys(p.boosts);
+    const total = Object.values(p.boosts).reduce<number>((a, b) => a + (b ?? 0), 0);
+    const newest = ids.at(-1);
+    this.boostText.setText(total === 0 ? "" : `${total} BOOST${total === 1 ? "" : "S"}${newest ? `  NEW: ${(BOOSTS[newest]?.name ?? "").toUpperCase()}` : ""}`);
   }
 
   private drawRoomProgress(world: World): void {
     const g = this.gfx;
     const run = world.run;
     const room = run.room;
-    const n = run.plans.length;
-    const x0 = SCREEN.w / 2 - (n * 12) / 2 + 6;
-    run.plans.forEach((plan, i) => {
-      const x = x0 + i * 12;
-      const color = ROOM_ICONS[plan.kind];
-      const done = i < room.index || (i === room.index && room.cleared);
-      if (i < n - 1) g.fillStyle(0x5a5060).fillRect(x + 3, 7, 6, 1);
+    // This act's rooms so far, then empty slots up to the boss.
+    const here = run.plans[room.index];
+    const act = here?.act ?? 0;
+    const slots = ACT_ROOMS + 1;
+    const actPlans = run.plans.map((plan, i) => ({ plan, i })).filter(({ plan }) => plan.act === act);
+    const x0 = SCREEN.w / 2 - (slots * 12) / 2 + 6;
+    for (let k = 0; k < slots; k++) {
+      const x = x0 + k * 12;
+      const entry = actPlans.find(({ plan }) => (plan.kind === "boss" ? ACT_ROOMS : plan.step) === k);
+      const current = entry?.i === room.index;
+      const done = !!entry && (entry.i < room.index || (current && room.cleared));
+      if (k < slots - 1) g.fillStyle(0x5a5060).fillRect(x + 3, 7, 6, 1);
       g.fillStyle(0x1b1020).fillRect(x - 4, 3, 9, 9);
-      if (i === room.index) g.lineStyle(1, 0xffffff).strokeRect(x - 4.5, 2.5, 10, 10);
-      g.fillStyle(color, done || i === room.index ? 1 : 0.3).fillRect(x - 2, 5, 5, 5);
-      if (plan.kind === "boss") g.fillStyle(0x1b1020).fillRect(x, 6, 1, 3);
-    });
+      if (current) g.lineStyle(1, 0xffffff).strokeRect(x - 4.5, 2.5, 10, 10);
+      const kind: RoomKind = entry?.plan.kind ?? (k === ACT_ROOMS ? "boss" : "combat");
+      g.fillStyle(entry ? ROOM_ICONS[kind] : 0x5a5060, done || current ? 1 : entry ? 0.3 : 0.5).fillRect(x - 2, 5, 5, 5);
+      if (kind === "boss") g.fillStyle(0x1b1020).fillRect(x, 6, 1, 3);
+    }
+    this.actText.setText(act > FINAL_ACT ? `ENDLESS ${act - FINAL_ACT}` : `ACT ${act + 1}/${FINAL_ACT + 1}`).setX(x0 - 10);
 
-    const boss = world.enemies.find((e) => ENEMIES[e.defId]!.role === "boss" && e.spawnT <= 0);
-    if (boss) {
-      const def = ENEMIES[boss.defId]!;
-      const bw = 200;
-      const bx = SCREEN.w / 2 - bw / 2;
-      g.fillStyle(0x1b1020).fillRect(bx - 1, 34, bw + 2, 7);
-      g.fillStyle(0x3a2a30).fillRect(bx, 35, bw, 5);
-      g.fillStyle(0xff9a2a).fillRect(bx, 35, Math.max(0, Math.round((bw * boss.hp) / boss.maxHp)), 5);
-      for (const ph of def.boss!.phases.slice(1)) g.fillStyle(0x1b1020).fillRect(bx + Math.round(bw * ph.hpFrac), 35, 1, 5);
-      this.bossName.setText(def.name.toUpperCase()).setVisible(true);
+    const bosses = world.enemies.filter((e) => ENEMIES[e.defId]!.role === "boss" && e.spawnT <= 0);
+    if (bosses.length > 0) {
+      // One bar per boss (the final act brings two).
+      const bw = bosses.length > 1 ? 150 : 200;
+      bosses.slice(0, 2).forEach((boss, i) => {
+        const def = ENEMIES[boss.defId]!;
+        const bx = bosses.length > 1 ? SCREEN.w / 2 - bw - 4 + i * (bw + 8) : SCREEN.w / 2 - bw / 2;
+        g.fillStyle(0x1b1020).fillRect(bx - 1, 34, bw + 2, 7);
+        g.fillStyle(0x3a2a30).fillRect(bx, 35, bw, 5);
+        g.fillStyle(0xff9a2a).fillRect(bx, 35, Math.max(0, Math.round((bw * boss.hp) / boss.maxHp)), 5);
+        for (const ph of def.boss!.phases.slice(1)) g.fillStyle(0x1b1020).fillRect(bx + Math.round(bw * ph.hpFrac), 35, 1, 5);
+      });
+      const names = bosses.slice(0, 2).map((b) => ENEMIES[b.defId]!.name.toUpperCase());
+      this.bossName.setText(names.join("   &   ")).setVisible(true);
       this.roomText.setText("");
       this.killText.setVisible(false);
       return;
@@ -624,10 +706,11 @@ export class UIScene extends Phaser.Scene {
     this.bossName.setVisible(false);
     this.killText.setVisible(true);
     if (run.victory) this.roomText.setText("VICTORY").setTint(0x5fd36a);
-    else if (room.cleared) this.roomText.setText("EXIT OPEN").setTint(0x5fd36a);
+    else if (room.cleared) this.roomText.setText(room.doors.length > 1 ? "PICK A DOOR" : "DOOR OPEN").setTint(0x5fd36a);
+    else if (room.twist === "hold") this.roomText.setText(`HOLD THE LINE: ${Math.ceil(room.holdT)}`).setTint(0xb46cff);
     else if (room.waves.length > 0) this.roomText.setText(`WAVE ${Math.max(1, room.waveIdx)}/${room.waves.length}`).setTint(0xffffff);
     else this.roomText.setText("");
-    this.killText.setText(`${run.kills} KILLS`);
+    this.killText.setText(room.twist && !room.cleared ? TWISTS[room.twist].name.toUpperCase() : `${run.kills} KILLS`).setTint(room.twist && !room.cleared ? 0xb46cff : 0xc9cfd6);
   }
 
   private drawWeaponSlots(p: Player): void {
@@ -654,13 +737,20 @@ export class UIScene extends Phaser.Scene {
   /** A bobbing arrow at the exit (or the screen edge toward it) once the room is clear. */
   private drawExitArrow(world: World): void {
     const room = world.run.room;
-    if (!room.cleared || world.run.victory) {
+    if (!room.cleared || world.run.victory || room.doors.length === 0) {
       this.exitLabel.setVisible(false);
       return;
     }
     const cam = this.game_.cameras.main;
-    const ex = room.exit.x + room.exit.w / 2 - cam.worldView.x;
-    const ey = room.exit.y + room.exit.h + 14 - cam.worldView.y;
+    const me = this.game_.me;
+    const door = room.doors.reduce((a, b) => (Math.abs(b.x - me.pos.x) < Math.abs(a.x - me.pos.x) ? b : a));
+    // Once the doors are on screen their own labels do the talking.
+    if (door.x - cam.worldView.x > 0 && door.x - cam.worldView.x < SCREEN.w && cam.worldView.y < 10) {
+      this.exitLabel.setVisible(false);
+      return;
+    }
+    const ex = door.x - cam.worldView.x;
+    const ey = 14 + 14 - cam.worldView.y;
     const x = Phaser.Math.Clamp(ex, 20, SCREEN.w - 20);
     const y = Phaser.Math.Clamp(ey, 48, SCREEN.h - 30) + Math.sin(this.time.now * 0.008) * 3;
     const g = this.gfx;
@@ -687,10 +777,13 @@ export class UIScene extends Phaser.Scene {
       const dps = Math.round(gunDps(gun));
       const diff = dps - Math.round(gunDps(current));
       lines.push([`DPS ${dps} (${diff >= 0 ? "+" : ""}${diff} VS YOURS)  ${press("SWAP")}`, diff >= 0 ? 0x5fd36a : 0xe0533d]);
-    } else if (pk?.kind === "shrine" && pk.boost) {
-      lines.push([BOOSTS[pk.boost].name.toUpperCase(), 0xf2c14e]);
-      lines.push([BOOSTS[pk.boost].text.toUpperCase(), 0xffffff]);
-      lines.push([`LASTS THIS RUN. ${press("PRAY")}`, 0xc9cfd6]);
+    } else if ((pk?.kind === "boost" || pk?.kind === "shrine") && pk.boost && BOOSTS[pk.boost]) {
+      const b = BOOSTS[pk.boost]!;
+      const have = this.game_.me.boosts[pk.boost] ?? 0;
+      lines.push([`${b.name.toUpperCase()}${have ? `  (HAVE ${have}/${b.max})` : ""}`, BOOST_COLORS[b.rarity]]);
+      lines.push([b.text.toUpperCase(), 0xffffff]);
+      lines.push([`${b.rarity.toUpperCase()}  ${b.tags.map((t) => t.toUpperCase()).join(" ")}`, 0xc9cfd6]);
+      lines.push([`ONE OF THREE: THE OTHERS GO AWAY. ${press("TAKE")}`, 0xc9cfd6]);
     } else if (pk?.kind === "chest") {
       lines.push(["LOST & FOUND SUITCASE", 0x4aa3ff]);
       lines.push(["SOMEBODY'S LUGGAGE. FINDERS KEEPERS.", 0xc9cfd6]);

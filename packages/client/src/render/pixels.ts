@@ -1005,3 +1005,16 @@ export function drawSpikes(w: number, h: number): HTMLCanvasElement {
   for (let i = 0; i < n; i += 3) ctx.fillRect(across ? i * 6 + 2 : Math.floor(w / 2), across ? Math.floor(h / 2) : i * 6 + 2, 1, 1);
   return c;
 }
+
+/** A run boost on offer: a small cut gem, drawn in greys so it can be tinted by rarity. */
+export function drawOrb(): HTMLCanvasElement {
+  const [c, ctx] = canvas(11, 13);
+  const rows = ["....111....", "...12221...", "..1222221..", ".122333221.", "12233333221", "12233333221", "12223332221", ".122222221.", "..1222221..", "...12221...", "....121....", ".....1.....", "..........."];
+  const cols: Record<string, string> = { "1": "#1b1020", "2": "#c9cfd6", "3": "#ffffff" };
+  rows.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (!cols[ch]) return;
+    ctx.fillStyle = cols[ch]!;
+    ctx.fillRect(x, y, 1, 1);
+  }));
+  return c;
+}

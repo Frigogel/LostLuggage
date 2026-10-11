@@ -6,22 +6,26 @@
 // back into an ordinary `World`, so the renderer doesn't care whether it is drawing solo or co-op.
 
 import { BIOME_IDS, ENEMIES } from "./data/enemies";
+import { BOOST_IDS } from "./data/boosts";
+import { TWIST_IDS } from "./director";
 import { GUNS } from "./data/guns";
 import { HEROES } from "./data/heroes";
 import { LEGENDARY_IDS } from "./data/legendaries";
 import { MAKER_IDS } from "./data/makers";
 import { SIGNATURE_IDS } from "./data/signatures";
 import { ELITE_IDS } from "./elites";
-import { BOOSTS, PERKS, RARITIES } from "./loot";
+import { PERKS, RARITIES } from "./loot";
 import { clamp, fromAngle, angleOf, type Vec } from "./math";
 import { EMPTY_INPUT } from "./players";
 import type { Outfit } from "./data/cosmetics";
 import type { Profile, RunReward } from "./progress";
-import { EXIT, LAYOUTS } from "./room";
+import { beltsFor, LAYOUTS } from "./room";
 import { ARENA } from "./room";
 import type {
   Biome,
   BoostId,
+  Door,
+  DoorKind,
   Dome,
   Element,
   Enemy,
@@ -36,6 +40,8 @@ import type {
   PlayerInput,
   Projectile,
   RoomKind,
+  RoomPlan,
+  TwistId,
   SimEvent,
   Vent,
   World,
@@ -48,13 +54,14 @@ const ENEMY_IDS = Object.keys(ENEMIES);
 const GUN_IDS = Object.keys(GUNS);
 const HERO_IDS = Object.keys(HEROES);
 const PERK_IDS = Object.keys(PERKS) as PerkId[];
-const BOOST_IDS = Object.keys(BOOSTS) as BoostId[];
 const ELEMENT_IDS: Element[] = ["none", "fire", "shock", "frost", "acid"];
 const STATES: EnemyState[] = ["move", "windup", "attack", "recover", "hidden", "reveal"];
-const ROOM_KINDS: RoomKind[] = ["intro", "combat", "breather", "boss"];
-const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest"];
+const ROOM_KINDS: RoomKind[] = ["intro", "combat", "elite", "event", "shrine", "rest", "boss"];
+const DOOR_KINDS: DoorKind[] = [...ROOM_KINDS, "home"];
+const TWISTS: TwistId[] = ["", ...TWIST_IDS];
+const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost"];
 const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush"];
-const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice"];
+const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave"];
 
 const POS = 4; // quarter pixels
 const T = 100; // centiseconds
@@ -72,8 +79,10 @@ export interface Snapshot {
   a: number[];
   /** Run and room numbers, see encodeRun. */
   r: number[];
-  /** Room plans: [kind, layout, kind, layout, ...]. */
+  /** Rooms so far: [kind, layout, act, step, biome, twist] each. */
   pl: number[];
+  /** Doors out of the room: [x, kind, twist, biome, mix, act, step] each. */
+  dr: number[][];
   v: number[][];
   p: unknown[][];
   /** Enemies: plain numbers, with one nested array (or 0) for elite and status extras. */
@@ -256,6 +265,8 @@ function decodeEnemy(raw: (number | number[])[]): Enemy {
     link: x[6]!,
     linkT: x[7]! / T,
     blinkT: 0,
+    burst: 0,
+    dodgeT: 0,
   };
   const elite = ELITE_IDS[x[0]! - 1];
   if (elite) e.elite = elite;
@@ -330,7 +341,8 @@ const decodeVent = (a: number[]): Vent => ({
 });
 
 function encodePickup(p: Pickup): unknown[] {
-  const extra = p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
+  const extra =
+    p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "boost" && p.boost ? [idx(BOOST_IDS, p.boost), p.owner ?? -1, p.group ?? 0] : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
   return [p.id, idx(PICKUP_KINDS, p.kind), q(p.pos.x, POS), q(p.pos.y, POS), b(p.used), extra];
 }
 
@@ -339,6 +351,12 @@ function decodePickup(a: unknown[]): Pickup {
   const pk: Pickup = { id: a[0] as number, kind, pos: { x: (a[2] as number) / POS, y: (a[3] as number) / POS }, used: a[4] === 1 };
   if (kind === "gun") pk.gun = decodeGun(a[5] as GunWire);
   else if (kind === "shrine") pk.boost = BOOST_IDS[a[5] as number];
+  else if (kind === "boost") {
+    const [boost, owner, group] = a[5] as number[];
+    pk.boost = BOOST_IDS[boost!];
+    if (owner! >= 0) pk.owner = owner;
+    pk.group = group;
+  }
   else if (kind === "heal") pk.heal = a[5] as number;
   return pk;
 }
@@ -397,7 +415,9 @@ const EVENT_KEYS: EventKeys = {
   enemySpawn: ["id"],
   waveStart: ["wave", "waves"],
   roomCleared: ["index"],
-  roomEnter: ["index", "kind", "rooms"],
+  roomEnter: ["index", "kind", "act"],
+  finale: [],
+  bossCall: ["id", "attack"],
   victory: [],
   gameOver: [],
 };
@@ -442,8 +462,10 @@ export function encodeSnapshot(w: World, events: readonly SimEvent[], acks: Read
     r: [
       room.index, idx(ROOM_KINDS, room.kind), room.waveIdx, room.waves.length, b(room.cleared), room.exitT < 0 ? -1 : q(room.exitT, 10),
       b(run.victory), b(w.gameOver), run.kills, run.gunsFound, q(run.time, 10), run.tier, b(run.coop), idx(BIOME_IDS, run.biome),
+      b(run.finale), run.bosses, idx(BIOME_IDS, room.biome), idx(TWISTS, room.twist), q(room.holdT, 10),
     ],
-    pl: run.plans.flatMap((p) => [idx(ROOM_KINDS, p.kind), p.layout]),
+    pl: run.plans.flatMap((p) => [idx(ROOM_KINDS, p.kind), p.layout, p.act, p.step, idx(BIOME_IDS, p.biome), idx(TWISTS, p.twist)]),
+    dr: room.doors.map((d) => [d.x, idx(DOOR_KINDS, d.kind), idx(TWISTS, d.twist), idx(BIOME_IDS, d.biome), b(d.mix), d.act, d.step]),
     v: room.vents.map(encodeVent),
     p: w.players.map(encodePlayer),
     e: w.enemies.map(encodeEnemy),
@@ -459,16 +481,25 @@ export function encodeSnapshot(w: World, events: readonly SimEvent[], acks: Read
 /** Rebuilds a renderable World from a snapshot. Server-only details (RNG, cooldowns, damage numbers) are left blank. */
 export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[]; acks: Map<number, number> } {
   const r = s.r;
-  const plans = [];
-  for (let i = 0; i < s.pl.length; i += 2) plans.push({ kind: ROOM_KINDS[s.pl[i]!] ?? "combat", layout: s.pl[i + 1]!, waves: [] as string[][], party: 0 });
+  const plans: RoomPlan[] = [];
+  for (let i = 0; i + 5 < s.pl.length; i += 6) {
+    plans.push({
+      kind: ROOM_KINDS[s.pl[i]!] ?? "combat", layout: s.pl[i + 1]!, act: s.pl[i + 2]!, step: s.pl[i + 3]!, biome: BIOME_IDS[s.pl[i + 4]!] ?? "foundry",
+      twist: TWISTS[s.pl[i + 5]!] ?? "", mix: false, waves: [], party: 0,
+    });
+  }
   const index = r[0]!;
   const layout = LAYOUTS[plans[index]?.layout ?? 0] ?? LAYOUTS[0]!;
+  const twist = TWISTS[r[17]!] ?? "";
+  const doors: Door[] = (s.dr ?? []).map((d) => ({
+    x: d[0]!, kind: DOOR_KINDS[d[1]!] ?? "combat", twist: TWISTS[d[2]!] ?? "", biome: BIOME_IDS[d[3]!] ?? "foundry", mix: d[4] === 1, act: d[5]!, step: d[6]!,
+  }));
   const world: World = {
     tick: s.t,
     time: s.t / 30,
     seed: 0,
     nextId: 0,
-    arena: { w: ARENA.w, h: ARENA.h, obstacles: layout.obstacles.map((o) => ({ ...o })), ice: !!layout.ice, spikes: (layout.spikes ?? []).map((o) => ({ ...o })) },
+    arena: { w: ARENA.w, h: ARENA.h, obstacles: layout.obstacles.map((o) => ({ ...o })), ice: !!layout.ice, spikes: (layout.spikes ?? []).map((o) => ({ ...o })), belts: beltsFor(twist) },
     players: s.p.map(decodePlayer),
     enemies: s.e.map(decodeEnemy),
     projectiles: s.j.map(decodeProjectile),
@@ -482,12 +513,16 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
       room: {
         index,
         kind: ROOM_KINDS[r[1]!] ?? "combat",
+        biome: BIOME_IDS[r[16]!] ?? "foundry",
+        twist,
+        doors,
+        holdT: r[18]! / 10,
+        twistT: 0,
         waveIdx: r[2]!,
         waves: Array.from({ length: r[3]! }, () => []),
         waveTimer: 0,
         cleared: r[4] === 1,
         exitT: r[5]! < 0 ? -1 : r[5]! / 10,
-        exit: { ...EXIT },
         vents: s.v.map(decodeVent),
       },
       tier: r[11]!,
@@ -496,6 +531,8 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
       gunsFound: r[9]!,
       time: r[10]! / 10,
       victory: r[6] === 1,
+      finale: r[14] === 1,
+      bosses: r[15]!,
     },
     events: [],
     gameOver: r[7] === 1,

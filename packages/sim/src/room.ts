@@ -1,15 +1,19 @@
-import { damageEnemy, dropHeal, DT, hurtPlayer, insideArenaSolid, newId, spawnEnemy } from "./combat";
+import { damageEnemy, dropGun, dropHeal, DT, healPlayer, hurtPlayer, insideArenaSolid, newId, partyLuck, spawnEnemy } from "./combat";
+import { boostOffers } from "./data/boosts";
 import { ENEMIES } from "./data/enemies";
-import { MAX_ENEMIES, planCombatWaves } from "./director";
+import { ACT_ROOMS, FINAL_ACT, MAX_ENEMIES, planDoors, planRoom, firstRoom } from "./director";
 import { linkPairs, parseElite } from "./elites";
 import { canAct, startPos } from "./players";
-import { newGun, BOOSTS } from "./loot";
-import { dist, pick, randRange, type Rect, type Vec } from "./math";
-import type { BoostId, Enemy, Room, Vent, World } from "./types";
+import { newGun } from "./loot";
+import { clamp, dist, randRange, rand, type Rect, type Vec } from "./math";
+import type { Belt, Door, Enemy, Player, Room, RoomKind, RoomSpec, Vent, World } from "./types";
 
 export const ARENA = { w: 720, h: 440 };
 export const START = { x: ARENA.w / 2, y: ARENA.h - 40 };
-export const EXIT: Rect = { x: ARENA.w / 2 - 24, y: 0, w: 48, h: 14 };
+/** One door's size; doors sit along the top wall (see director planDoors). */
+export const DOOR = { w: 48, h: 14 };
+/** The door rect around a door's center. */
+export const doorRect = (d: Pick<Door, "x">): Rect => ({ x: d.x - DOOR.w / 2, y: 0, w: DOOR.w, h: DOOR.h });
 
 interface Layout {
   obstacles: Rect[];
@@ -25,6 +29,7 @@ const crate = (x: number, y: number, w = 32, h = 32): Rect => ({ x, y, w, h });
 const SPIKE = 8;
 const leftSpikes = (y: number, h: number): Rect => ({ x: 0, y, w: SPIKE, h });
 const rightSpikes = (y: number, h: number): Rect => ({ x: ARENA.w - SPIKE, y, w: SPIKE, h });
+// Top-wall spikes stay in the corners: the middle of the top wall is where the doors open.
 const topSpikes = (x: number, w: number): Rect => ({ x, y: 0, w, h: SPIKE });
 
 /** Hand-placed room layouts. Crates come in 32x32 and 48x16 so the client has art for them. */
@@ -44,12 +49,12 @@ export const LAYOUTS: Layout[] = [
     obstacles: [crate(240, 140), crate(448, 140), crate(240, 268), crate(448, 268), crate(336, 60, 48, 16), crate(80, 212, 48, 16), crate(592, 212, 48, 16)],
     vents: [{ x: 360, y: 220 }, { x: 180, y: 110 }, { x: 540, y: 110 }, { x: 360, y: 340 }],
   },
-  // 3: breather, the shrine and chest sit up top
+  // 3: rest stop: room for a suitcase, offers and a snack
   {
     obstacles: [crate(200, 200), crate(488, 200)],
     vents: [{ x: 360, y: 300 }],
   },
-  // 4: mini-boss arena, wide open with vents to bait the charge into
+  // 4: boss arena, wide open with vents to bait the charge into
   {
     obstacles: [crate(120, 120), crate(568, 120), crate(120, 288), crate(568, 288)],
     vents: [{ x: 230, y: 150 }, { x: 490, y: 150 }, { x: 230, y: 300 }, { x: 490, y: 300 }, { x: 360, y: 220 }],
@@ -67,17 +72,17 @@ export const LAYOUTS: Layout[] = [
   {
     obstacles: [crate(344, 204), crate(120, 110, 48, 16), crate(552, 110, 48, 16), crate(120, 320, 48, 16), crate(552, 320, 48, 16)],
     vents: [],
-    spikes: [{ x: 336, y: 204, w: SPIKE, h: 32 }, { x: 376, y: 204, w: SPIKE, h: 32 }, leftSpikes(100, 240), rightSpikes(100, 240), topSpikes(80, 200), topSpikes(440, 200)],
+    spikes: [{ x: 336, y: 204, w: SPIKE, h: 32 }, { x: 376, y: 204, w: SPIKE, h: 32 }, leftSpikes(100, 240), rightSpikes(100, 240), topSpikes(16, 110), topSpikes(594, 110)],
     ice: true,
   },
   // 7: the crevasse, spike walls the whole way down both sides
   {
-    obstacles: [crate(240, 200), crate(448, 200), crate(344, 100), crate(344, 300), crate(160, 60, 48, 16), crate(512, 60, 48, 16)],
+    obstacles: [crate(240, 200), crate(448, 200), crate(344, 100), crate(344, 300), crate(100, 70, 48, 16), crate(572, 70, 48, 16)],
     vents: [],
     spikes: [leftSpikes(40, 360), rightSpikes(40, 360)],
     ice: true,
   },
-  // 8: breather
+  // 8: rest stop
   {
     obstacles: [crate(200, 200), crate(488, 200)],
     vents: [],
@@ -87,10 +92,65 @@ export const LAYOUTS: Layout[] = [
   {
     obstacles: [crate(120, 120), crate(568, 120), crate(120, 288), crate(568, 288)],
     vents: [],
-    spikes: [leftSpikes(40, 360), rightSpikes(40, 360), topSpikes(40, 240), topSpikes(440, 240)],
+    spikes: [leftSpikes(40, 360), rightSpikes(40, 360), topSpikes(16, 110), topSpikes(594, 110)],
+    ice: true,
+  },
+
+  // More foundry fights.
+  // 10: the furnace ring, a loop of cover around a hot middle
+  {
+    obstacles: [crate(296, 150), crate(392, 150), crate(296, 258), crate(392, 258), crate(140, 204, 48, 16), crate(532, 204, 48, 16)],
+    vents: [{ x: 360, y: 222 }, { x: 120, y: 120 }, { x: 600, y: 120 }, { x: 120, y: 340 }, { x: 600, y: 340 }],
+  },
+  // 11: loading dock, a wall of crates with gaps to funnel through
+  {
+    obstacles: [crate(60, 220, 48, 16), crate(150, 220, 48, 16), crate(300, 220, 48, 16), crate(372, 220, 48, 16), crate(522, 220, 48, 16), crate(612, 220, 48, 16), crate(250, 110), crate(438, 110)],
+    vents: [{ x: 240, y: 300 }, { x: 480, y: 300 }, { x: 360, y: 140 }],
+  },
+  // 12: the shop floor, scattered cover and nowhere to hide for long
+  {
+    obstacles: [crate(110, 90), crate(578, 90), crate(220, 190), crate(468, 190), crate(344, 280), crate(110, 330), crate(578, 330), crate(336, 120, 48, 16)],
+    vents: [{ x: 160, y: 220 }, { x: 560, y: 220 }, { x: 360, y: 210 }, { x: 260, y: 350 }, { x: 460, y: 350 }],
+  },
+
+  // More caverns fights.
+  // 13: the ice maze, blocks to slide around and spikes at the ends
+  {
+    obstacles: [crate(150, 130), crate(270, 210), crate(418, 210), crate(538, 130), crate(150, 300), crate(538, 300), crate(344, 330)],
+    vents: [],
+    spikes: [leftSpikes(60, 120), leftSpikes(280, 120), rightSpikes(60, 120), rightSpikes(280, 120), { x: 344, y: 120, w: 32, h: SPIKE }],
+    ice: true,
+  },
+  // 14: the frozen lake, nearly no cover and a spiked island
+  {
+    obstacles: [crate(200, 160, 48, 16), crate(472, 160, 48, 16), crate(336, 300, 48, 16)],
+    vents: [],
+    spikes: [{ x: 340, y: 200, w: 40, h: SPIKE }, { x: 340, y: 240, w: 40, h: SPIKE }, leftSpikes(120, 200), rightSpikes(120, 200), topSpikes(16, 110), topSpikes(594, 110)],
+    ice: true,
+  },
+  // 15: the glacier corridor, a spiked spine down the middle
+  {
+    obstacles: [crate(120, 100), crate(568, 100), crate(120, 310), crate(568, 310), crate(240, 330, 48, 16), crate(432, 330, 48, 16)],
+    vents: [],
+    spikes: [{ x: 356, y: 130, w: SPIKE, h: 60 }, { x: 356, y: 250, w: SPIKE, h: 60 }, leftSpikes(180, 80), rightSpikes(180, 80)],
     ice: true,
   },
 ];
+
+/** Baggage Claim: three conveyor belts across the room, alternating directions. */
+export function beltsFor(twist: string): Belt[] {
+  if (twist !== "belts") return [];
+  return [
+    { x: 0, y: 92, w: ARENA.w, h: 44, vx: 70 },
+    { x: 0, y: 198, w: ARENA.w, h: 44, vx: -70 },
+    { x: 0, y: 304, w: ARENA.w, h: 44, vx: 70 },
+  ];
+}
+
+/** The belt under a point, if any. */
+export function beltAt(arena: { belts: Belt[] }, p: Vec): Belt | undefined {
+  return arena.belts.find((b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+}
 
 // ---------------------------------------------------------------- vents
 
@@ -129,21 +189,27 @@ function updateVents(w: World, room: Room): void {
 
 // ---------------------------------------------------------------- rooms
 
-/** How long the exit waits for the rest of the party once someone steps on it. */
+/** How long the doors wait for the rest of the party once someone steps into one. */
 export const EXIT_WAIT_S = 4;
+/** Hold the Line: seconds to survive. */
+export const HOLD_S = 40;
+/** Falling Luggage: a suitcase lands this often, plus one aimed at each player now and then. */
+const LUGGAGE = { every: 0.9, radius: 22, damage: 14, flight: 1.1 };
 
-export function enterRoom(w: World, index: number): void {
-  const plan = w.run.plans[index]!;
+/** The act the current room belongs to. */
+export const roomAct = (w: World): number => w.run.plans[w.run.room.index]?.act ?? 0;
+
+/** Plans the room a door leads to and walks the party in. */
+export function enterRoom(w: World, spec: RoomSpec): void {
   const party = w.players.filter((p) => !p.away).length || 1;
-  if (plan.kind === "combat" && plan.party !== party) {
-    // Someone dropped in or left: re-plan this room for the party that's actually here.
-    plan.waves = planCombatWaves(w, index, w.run.tier, party);
-    plan.party = party;
-  }
+  const plan = planRoom(w, spec, w.run.tier, party);
+  w.run.plans.push(plan);
+  const index = w.run.plans.length - 1;
   const layout = LAYOUTS[plan.layout]!;
   w.arena.obstacles = layout.obstacles.map((o) => ({ ...o }));
   w.arena.spikes = (layout.spikes ?? []).map((o) => ({ ...o }));
   w.arena.ice = !!layout.ice;
+  w.arena.belts = beltsFor(plan.twist);
   w.enemies = [];
   w.projectiles = [];
   w.hazards = [];
@@ -159,7 +225,10 @@ export function enterRoom(w: World, index: number): void {
   const waves = plan.waves.map((wave) => wave.filter((id) => !id.startsWith("!")));
   const props = plan.waves.flatMap((wave) => wave.filter((id) => id.startsWith("!")).map((id) => id.slice(1)));
 
-  const room: Room = { index, kind: plan.kind, waves, waveIdx: 0, waveTimer: 1.5, cleared: false, exit: { ...EXIT }, exitT: -1, vents };
+  const room: Room = {
+    index, kind: plan.kind, biome: plan.biome, twist: plan.twist, doors: [], holdT: plan.twist === "hold" ? HOLD_S : 0, twistT: 2,
+    waves, waveIdx: 0, waveTimer: 1.5, cleared: false, exitT: -1, vents,
+  };
   w.run.room = room;
 
   w.players.forEach((p, i) => {
@@ -193,18 +262,119 @@ export function enterRoom(w: World, index: number): void {
       w.pickups.push({ id: newId(w), kind: "gun", pos: { x, y: START.y - 30 + (x === 360 ? 10 : 0) }, gun: { ...newGun(w, defId), loaner: true }, used: false });
     }
   }
-  if (plan.kind === "breather") {
-    const boost = pick(w, Object.keys(BOOSTS) as BoostId[]);
-    w.pickups.push({ id: newId(w), kind: "shrine", pos: { x: 280, y: 110 }, boost, used: false });
-    w.pickups.push({ id: newId(w), kind: "chest", pos: { x: 440, y: 110 }, used: false });
+  if (plan.kind === "rest") {
+    // A breather: everyone gets half their health back, there's a snack, and a suitcase of guns.
+    for (const p of w.players) healPlayer(w, p, p.maxHp * 0.5);
+    w.pickups.push({ id: newId(w), kind: "chest", pos: { x: 360, y: 110 }, used: false });
     dropHeal(w, { x: 360, y: 180 }, 40);
   }
+  if (plan.kind === "shrine") {
+    // Two picks for everyone, from better offers than usual.
+    w.pickups.push({ id: newId(w), kind: "shrine", pos: { x: 360, y: 100 }, used: true });
+    offerBoosts(w, { x: 240, y: 300 }, 1);
+    offerBoosts(w, { x: 480, y: 300 }, 1);
+  }
+  if (plan.kind === "rest" || plan.kind === "shrine") clearRoom(w, room);
 
-  w.events.push({ type: "roomEnter", index, kind: plan.kind, rooms: w.run.plans.length });
+  w.events.push({ type: "roomEnter", index, kind: plan.kind, act: plan.act });
+}
+
+/** Rewards for clearing a room, and the doors to what's next. */
+function clearRoom(w: World, room: Room): void {
+  room.cleared = true;
+  w.events.push({ type: "roomCleared", index: room.index });
+  const plan = w.run.plans[room.index]!;
+  const mid = { x: 360, y: 230 };
+  if (plan.kind === "combat" || plan.kind === "intro") offerBoosts(w, mid, 0);
+  if (plan.kind === "event") offerBoosts(w, mid, 0.6);
+  if (plan.kind === "elite") {
+    offerBoosts(w, mid, 1.2);
+    // And something shiny for everyone.
+    w.players.forEach((p, i) => dropGun(w, { x: 300 + i * 40, y: 300 }, 0.9 + w.run.tier * 0.3 + partyLuck(w), "rare"));
+  }
+  if (plan.kind === "boss") {
+    w.run.bosses++;
+    offerBoosts(w, mid, 2);
+    // Patch everyone up for the next act.
+    for (const p of w.players) healPlayer(w, p, p.maxHp * 0.4);
+    if (plan.act === FINAL_ACT && !w.run.finale) {
+      w.run.finale = true;
+      w.events.push({ type: "finale" });
+    }
+  }
+  if (plan.kind !== "rest" && plan.kind !== "shrine") {
+    // Hotel Mint: a little health back for every room cleared.
+    for (const p of w.players) if (p.boosts.mint) healPlayer(w, p, p.maxHp * 0.15 * p.boosts.mint);
+  }
+  room.doors = planDoors(w);
+}
+
+/** Three boosts for each player to pick from, laid out around `at`. Only the owner sees and takes them. */
+export function offerBoosts(w: World, near: Vec, quality: number): void {
+  const at = openSpot(w, near);
+  for (const p of w.players) {
+    const group = newId(w);
+    const offers = boostOffers(p, w.players, quality, () => rand(w));
+    offers.forEach((boost, i) => {
+      const pos = { x: at.x + (i - (offers.length - 1) / 2) * 36, y: at.y + (i === 1 ? -8 : 0) };
+      w.pickups.push({ id: newId(w), kind: "boost", pos, boost, owner: p.id, group, used: false });
+    });
+  }
+}
+
+/** The spot nearest `near` with room for a row of three offers: clear of crates, spikes and vents. */
+function openSpot(w: World, near: Vec): Vec {
+  const blocked = (c: Vec) =>
+    [...w.arena.obstacles, ...w.arena.spikes].some((o) => c.x > o.x - 66 && c.x < o.x + o.w + 66 && c.y > o.y - 22 && c.y < o.y + o.h + 22) ||
+    w.run.room.vents.some((v) => Math.abs(v.pos.x - c.x) < v.radius + 50 && Math.abs(v.pos.y - c.y) < v.radius + 14);
+  for (let r = 0; r < 220; r += 12) {
+    for (let k = 0; k < 12; k++) {
+      const c = { x: clamp(near.x + Math.cos((k / 12) * Math.PI * 2) * r, 70, ARENA.w - 70), y: clamp(near.y + Math.sin((k / 12) * Math.PI * 2) * r * 0.7, 60, ARENA.h - 50) };
+      if (!blocked(c)) return c;
+      if (r === 0) break;
+    }
+  }
+  return near;
 }
 
 function liveThreat(w: World): number {
   return w.enemies.reduce((sum, e) => (e.state === "hidden" ? sum : sum + Math.max(0.5, ENEMIES[e.defId]!.threatCost)), 0);
+}
+
+/** The door a player is standing in, or -1. */
+export function doorAt(room: Room, p: Player): number {
+  if (!room.cleared) return -1;
+  return room.doors.findIndex((d) => p.pos.x > d.x - DOOR.w / 2 && p.pos.x < d.x + DOOR.w / 2 && p.pos.y < DOOR.h + p.radius + 4);
+}
+
+/**
+ * Who wants which door: everyone who can act and is standing in one. The door with the most votes wins; a tie goes
+ * to the host's pick (the first player), or else the leftmost tied door.
+ */
+export function doorVotes(w: World): { votes: number[]; winner: number } {
+  const room = w.run.room;
+  const votes = room.doors.map(() => 0);
+  for (const p of w.players) {
+    if (!canAct(p)) continue;
+    const d = doorAt(room, p);
+    if (d >= 0) votes[d]!++;
+  }
+  const best = Math.max(0, ...votes);
+  if (best === 0) return { votes, winner: -1 };
+  const tied = votes.map((v, i) => (v === best ? i : -1)).filter((i) => i >= 0);
+  const host = w.players[0];
+  const hostDoor = host && canAct(host) ? doorAt(room, host) : -1;
+  return { votes, winner: tied.includes(hostDoor) ? hostDoor : tied[0]! };
+}
+
+function goThrough(w: World, door: Door): void {
+  if (door.kind === "home") {
+    w.run.victory = true;
+    w.events.push({ type: "victory" });
+    return;
+  }
+  const { x: _x, ...spec } = door;
+  enterRoom(w, { ...spec, kind: door.kind });
 }
 
 export function updateRoom(w: World): void {
@@ -214,62 +384,135 @@ export function updateRoom(w: World): void {
   updateVents(w, room);
 
   if (!room.cleared) {
+    updateTwist(w, room);
+    if (room.twist === "hold") {
+      updateHold(w, room);
+      return;
+    }
     if (room.waveIdx < room.waves.length) {
       // The next wave arrives once the current one is nearly beaten, so fights flow into each other.
-      if (liveThreat(w) <= 2) {
+      // Rush Hour doesn't wait: the next wave comes on a clock.
+      const ready = liveThreat(w) <= 2;
+      if (ready || room.twist === "rush") {
         room.waveTimer -= DT;
         if (room.waveTimer <= 0) spawnWave(w, room);
       }
     } else if (w.enemies.every((e) => e.state === "hidden")) {
-      room.cleared = true;
-      w.events.push({ type: "roomCleared", index: room.index });
-      if (room.kind === "boss") {
-        run.victory = true;
-        w.events.push({ type: "victory" });
-      }
+      clearRoom(w, room);
     }
     return;
   }
 
   if (run.victory) return;
-  const e = room.exit;
   const up = w.players.filter(canAct);
-  const waiting = up.filter((p) => p.pos.x > e.x && p.pos.x < e.x + e.w && p.pos.y < e.y + e.h + p.radius + 4);
-  if (waiting.length === 0) {
+  const { winner } = doorVotes(w);
+  if (winner < 0) {
     room.exitT = -1;
     return;
   }
-  // Everyone who can walk is at the door: go now. Otherwise give the stragglers a few seconds.
-  if (waiting.length === up.length) {
-    enterRoom(w, room.index + 1);
+  // Everyone who can walk is at a door: go now. Otherwise give the stragglers a few seconds.
+  const voting = up.filter((p) => doorAt(room, p) >= 0).length;
+  if (voting === up.length) {
+    goThrough(w, room.doors[winner]!);
     return;
   }
   if (room.exitT < 0) room.exitT = EXIT_WAIT_S;
   room.exitT -= DT;
-  if (room.exitT <= 0) enterRoom(w, room.index + 1);
+  if (room.exitT <= 0) goThrough(w, room.doors[winner]!);
+}
+
+/** Per-tick twist rules that aren't about waves. */
+function updateTwist(w: World, room: Room): void {
+  if (room.twist !== "luggage" || room.waveIdx === 0) return;
+  room.twistT -= DT;
+  if (room.twistT > 0) return;
+  room.twistT = LUGGAGE.every;
+  // Mostly random spots, sometimes right where a player is heading.
+  const up = w.players.filter(canAct);
+  const aimed = up.length > 0 && rand(w) < 0.4 ? up[Math.floor(rand(w) * up.length)]! : undefined;
+  const to = aimed
+    ? { x: clamp(aimed.pos.x + aimed.vel.x * 0.5, 20, ARENA.w - 20), y: clamp(aimed.pos.y + aimed.vel.y * 0.5, 30, ARENA.h - 20) }
+    : { x: randRange(w, 30, ARENA.w - 30), y: randRange(w, 40, ARENA.h - 30) };
+  w.projectiles.push({
+    id: newId(w), owner: "enemy", ownerId: 0, kind: "mortar", element: "none", pos: { x: to.x, y: to.y - 160 }, vel: { x: 0, y: 0 }, radius: 4,
+    damage: LUGGAGE.damage, pierce: 0, bounces: 0, knockback: 0, life: 99, hitIds: [], gunUid: -1,
+    lob: { from: { x: to.x, y: to.y - 160 }, to, t: 0, dur: LUGGAGE.flight, radius: LUGGAGE.radius },
+  });
+}
+
+/** Hold the Line: spawns come on a clock until time runs out, then whatever's left gives up. */
+function updateHold(w: World, room: Room): void {
+  if (room.waveIdx === 0) {
+    room.waveTimer -= DT;
+    if (room.waveTimer <= 0) spawnWave(w, room);
+    return;
+  }
+  room.holdT = Math.max(0, room.holdT - DT);
+  if (room.holdT <= 0) {
+    for (const e of w.enemies) {
+      e.noLoot = true;
+      w.events.push({ type: "enemyDied", x: e.pos.x, y: e.pos.y, id: e.id, defId: e.defId });
+    }
+    w.enemies = [];
+    w.projectiles = w.projectiles.filter((pr) => pr.owner === "player");
+    clearRoom(w, room);
+    return;
+  }
+  room.twistT -= DT;
+  if ((room.twistT <= 0 || liveThreat(w) <= 2) && w.enemies.length < MAX_ENEMIES - 8) {
+    room.twistT = 6;
+    // Cycle through the planned waves for as long as it takes.
+    if (room.waveIdx >= room.waves.length) room.waveIdx = 0;
+    spawnWave(w, room);
+  }
 }
 
 function spawnWave(w: World, room: Room): void {
   const ids = room.waves[room.waveIdx]!;
   room.waveIdx++;
-  room.waveTimer = 1.2;
+  room.waveTimer = room.twist === "rush" ? 7 : 1.2;
   w.events.push({ type: "waveStart", wave: room.waveIdx, waves: room.waves.length });
 
   let packCenter: Vec | undefined;
   const spawned: Enemy[] = [];
-  ids.slice(0, MAX_ENEMIES - w.enemies.length).forEach((raw, i) => {
+  // Ambush: everything arrives in a ring around the party.
+  const ring = room.twist === "surrounded" ? partyCenter(w) : undefined;
+  const list = ids.slice(0, Math.max(0, MAX_ENEMIES - w.enemies.length));
+  list.forEach((raw, i) => {
     const { defId: id, elite } = parseElite(raw);
     const def = ENEMIES[id]!;
     const swarm = def.role === "swarmer";
     let pos: Vec;
-    if (swarm && packCenter) pos = nearPoint(w, packCenter);
+    if (def.role === "boss") {
+      // A duo of bosses stands side by side.
+      const duo = list.length > 1;
+      pos = { x: ARENA.w / 2 + (duo ? (i === 0 ? -110 : 110) : 0), y: 170 };
+    } else if (ring) pos = ringPoint(w, ring, (i / list.length) * Math.PI * 2);
+    else if (swarm && packCenter) pos = nearPoint(w, packCenter);
     else {
-      pos = def.role === "boss" ? { x: ARENA.w / 2, y: 170 } : spawnPoint(w, 140);
+      pos = spawnPoint(w, 140);
       if (swarm) packCenter = pos;
     }
-    spawned.push(spawnEnemy(w, id, pos, 0.8 + i * 0.1, elite));
+    const e = spawnEnemy(w, id, pos, 0.8 + i * 0.1, elite);
+    // The final act's two bosses share the stage, so each brings a bit less.
+    if (raw.endsWith("@duo")) e.hp = e.maxHp = Math.round(e.maxHp * 0.65);
+    spawned.push(e);
   });
   linkPairs(spawned);
+}
+
+function partyCenter(w: World): Vec {
+  const up = w.players.filter(canAct);
+  if (up.length === 0) return { x: ARENA.w / 2, y: ARENA.h / 2 };
+  return { x: up.reduce((s, p) => s + p.pos.x, 0) / up.length, y: up.reduce((s, p) => s + p.pos.y, 0) / up.length };
+}
+
+function ringPoint(w: World, c: Vec, a: number): Vec {
+  for (let r = 120; r > 60; r -= 15) {
+    const p = { x: clamp(c.x + Math.cos(a) * r, 24, ARENA.w - 24), y: clamp(c.y + Math.sin(a) * r, 30, ARENA.h - 24) };
+    if (!insideArenaSolid(w, p) && w.players.every((pl) => dist(pl.pos, p) > 55)) return p;
+  }
+  return spawnPoint(w, 100);
 }
 
 function spawnPoint(w: World, minPlayerDist: number): Vec {
@@ -290,3 +533,26 @@ function nearPoint(w: World, c: Vec): Vec {
   }
   return { ...c };
 }
+
+// ---------------------------------------------------------------- helpers for tests and dev shortcuts
+
+/** A room of `kind` in the current act (or `act`), for jumping straight to it. */
+export function roomSpec(w: World, kind: RoomKind, over: Partial<RoomSpec> = {}): RoomSpec {
+  const here = w.run.plans[w.run.room.index] ?? firstRoom(w);
+  const act = over.act ?? here.act;
+  const biome = over.biome ?? (act === 0 ? w.run.biome : here.biome);
+  return { kind, biome, twist: "", mix: false, act, step: kind === "boss" ? ACT_ROOMS : Math.min(ACT_ROOMS - 1, here.step + 1), ...over };
+}
+
+/** Names for the HUD and doors. */
+export const ROOM_NAMES: Record<RoomKind | "home", string> = {
+  intro: "Check-In",
+  combat: "Fight",
+  elite: "Elite Fight",
+  event: "Event",
+  shrine: "Shrine",
+  rest: "Rest Stop",
+  boss: "Boss",
+  home: "Fly Home",
+};
+

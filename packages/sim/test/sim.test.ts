@@ -1,6 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { createWorld, EMPTY_INPUT, ENEMIES, GUNS, gunDps, gunName, gunStats, LEGENDARIES, MAKER_IDS, planRun, planWave, rollGun, step, type PlayerInput, type World } from "../src";
-import { damageEnemy, spawnEnemy } from "../src/combat";
+import {
+  ACT_ROOMS,
+  BIOMES,
+  BOOSTS,
+  BOOST_IDS,
+  boostOffers,
+  createWorld,
+  doorRect,
+  EMPTY_INPUT,
+  ENEMIES,
+  enterRoom,
+  FINAL_ACT,
+  GUNS,
+  gunDps,
+  gunName,
+  gunStats,
+  LEGENDARIES,
+  MAKER_IDS,
+  planDoors,
+  planRoom,
+  planWave,
+  rollGun,
+  roomSpec,
+  step,
+  type PlayerInput,
+  type World,
+} from "../src";
+import { damageEnemy, hurtPlayer, spawnEnemy } from "../src/combat";
+import { applyBoost } from "../src/players";
 import { newGun } from "../src/loot";
 
 const input = (over: Partial<PlayerInput> = {}): PlayerInput => ({ ...EMPTY_INPUT, ...over });
@@ -236,9 +263,74 @@ describe("loot", () => {
 });
 
 describe("director and run", () => {
-  it("plans intro, combat, breather, combat, boss", () => {
+  it("starts at check-in, then offers two or three different doors with at least one fight", () => {
     const w = createWorld({ seed: 11 });
-    expect(planRun(w, 0).map((r) => r.kind)).toEqual(["intro", "combat", "breather", "combat", "boss"]);
+    expect(w.run.plans.map((r) => r.kind)).toEqual(["intro"]);
+    for (let seed = 1; seed <= 40; seed++) {
+      const v = createWorld({ seed });
+      v.run.room.cleared = true;
+      const doors = planDoors(v);
+      expect(doors.length).toBeGreaterThanOrEqual(2);
+      expect(doors.length).toBeLessThanOrEqual(3);
+      expect(new Set(doors.map((d) => d.kind)).size).toBe(doors.length);
+      expect(doors.some((d) => d.kind === "combat" || d.kind === "elite" || d.kind === "event")).toBe(true);
+      // Events always come with a twist; doors never overlap.
+      for (const d of doors) if (d.kind === "event") expect(d.twist).not.toBe("");
+      const rects = doors.map(doorRect);
+      for (let i = 1; i < rects.length; i++) expect(rects[i]!.x).toBeGreaterThan(rects[i - 1]!.x + rects[i - 1]!.w);
+    }
+  });
+
+  it("ends each act with a boss, crosses biomes, and brings both bosses at the end", () => {
+    const w = createWorld({ seed: 5 });
+    // The last room of an act only leads to its boss.
+    enterRoom(w, roomSpec(w, "combat", { step: ACT_ROOMS - 1 }));
+    w.run.room.cleared = true;
+    expect(planDoors(w).map((d) => d.kind)).toEqual(["boss"]);
+    // After the first boss, the next act is in the other biome.
+    enterRoom(w, roomSpec(w, "boss"));
+    expect(w.run.plans.at(-1)!.waves).toEqual([[BIOMES.foundry.boss]]);
+    w.run.room.cleared = true;
+    const next = planDoors(w);
+    expect(next.map((d) => [d.kind, d.act, d.biome])).toEqual([["combat", 1, "caverns"]]);
+    // The final act's boss room brings both, and its doors lead home or on into endless.
+    enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, biome: "caverns", mix: true }));
+    expect(w.run.plans.at(-1)!.waves[0]!.map((id) => id.split("@")[0])).toEqual([BIOMES.foundry.boss, BIOMES.caverns.boss]);
+    w.run.room.cleared = true;
+    expect(planDoors(w).map((d) => [d.kind, d.act])).toEqual([["home", FINAL_ACT + 1], ["combat", FINAL_ACT + 1]]);
+  });
+
+  it("mixed rooms draw enemies from both families", () => {
+    const w = createWorld({ seed: 3 });
+    const biomes = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const plan = planRoom(w, roomSpec(w, "combat", { act: FINAL_ACT, mix: true, step: 3 }), 0, 1);
+      for (const id of plan.waves.flat()) {
+        const def = ENEMIES[id.replace("!", "").split("@")[0]!]!;
+        if (def.biomes.length === 1) biomes.add(def.biomes[0]!);
+      }
+    }
+    expect([...biomes].sort()).toEqual(["caverns", "foundry"]);
+  });
+
+  it("later acts make enemies tougher, hit harder and attack sooner", () => {
+    const hpAt = (act: number) => {
+      const w = createWorld({ seed: 2 });
+      enterRoom(w, roomSpec(w, "combat", { act }));
+      return spawnEnemy(w, "cone_rat", { x: 100, y: 100 }, 0).maxHp;
+    };
+    expect(hpAt(1)).toBeGreaterThan(hpAt(0));
+    expect(hpAt(2)).toBeGreaterThan(hpAt(1));
+    expect(hpAt(4)).toBeGreaterThan(hpAt(2));
+    const hurtAt = (act: number) => {
+      const w = createWorld({ seed: 2 });
+      enterRoom(w, roomSpec(w, "rest", { act }));
+      const p = w.players[0]!;
+      p.hp = p.maxHp = 500;
+      hurtPlayer(w, p, 10);
+      return 500 - p.hp;
+    };
+    expect(hurtAt(2)).toBeGreaterThan(hurtAt(0));
   });
 
   it("respects role caps and stays near budget", () => {
@@ -248,27 +340,152 @@ describe("director and run", () => {
       const all = [...plan.enemies, ...plan.props];
       const roles = all.map((id) => ENEMIES[id]!.role);
       expect(roles.filter((r) => r === "support").length).toBeLessThanOrEqual(1);
-      expect(roles.filter((r) => r === "artillery").length).toBeLessThanOrEqual(2);
+      expect(roles.filter((r) => r === "artillery").length).toBeLessThanOrEqual(3);
       const cost = all.reduce((s, id) => s + ENEMIES[id]!.threatCost, 0);
       expect(cost).toBeLessThanOrEqual(21);
       expect(cost).toBeGreaterThanOrEqual(12);
     }
   });
 
-  it("can be played from first room to victory", () => {
-    const w = createWorld({ seed: 17 });
+  it("can be played through all three acts to a win, or on into endless", () => {
+    const play = (endless: boolean) => {
+      const w = createWorld({ seed: 17 });
+      const p = w.players[0]!;
+      const rooms: string[] = [];
+      let finale = false;
+      for (let t = 0; t < 30 * 60 * 40 && !w.run.victory && w.run.bosses < 5; t++) {
+        p.hp = p.maxHp;
+        // A god-mode bot: delete visible enemies, then hop through the first door (or home, if it's going home).
+        for (const e of w.enemies) if (e.spawnT <= 0 && e.state !== "hidden") damageEnemy(w, e, 1e6, { dir: { x: 0, y: 1 }, knockback: 0, sourcePlayerId: p.id, element: "none" });
+        const doors = w.run.room.doors;
+        const door = (!endless && doors.find((d) => d.kind === "home")) || doors.find((d) => d.kind !== "home") || doors[0];
+        if (w.run.room.cleared && door) p.pos = { x: door.x, y: 8 };
+        step(w, [EMPTY_INPUT]);
+        for (const ev of w.events) {
+          if (ev.type === "roomEnter") rooms.push(ev.kind);
+          if (ev.type === "finale") finale = true;
+        }
+      }
+      return { w, rooms, finale };
+    };
+    const home = play(false);
+    expect(home.finale).toBe(true);
+    expect(home.w.run.victory).toBe(true);
+    expect(home.w.run.bosses).toBe(FINAL_ACT + 1);
+    expect(home.rooms.filter((k) => k === "boss").length).toBe(FINAL_ACT + 1);
+    expect(home.rooms.length).toBe((ACT_ROOMS + 1) * (FINAL_ACT + 1) - 1);
+    // Endless keeps going past the final boss.
+    const more = play(true);
+    expect(more.w.run.victory).toBe(false);
+    expect(more.w.run.bosses).toBe(5);
+    expect(more.w.run.plans.at(-1)!.act).toBeGreaterThan(FINAL_ACT);
+  });
+});
+
+describe("run boosts", () => {
+  it("each player gets their own three different offers, and taking one removes the rest", () => {
+    const w = createWorld({ seed: 21, coop: true, players: [{ name: "A" }, { name: "B" }] });
+    w.enemies = [];
+    w.run.room.waves = [];
+    w.run.room.waveIdx = 0;
+    step(w, [EMPTY_INPUT, EMPTY_INPUT]);
+    expect(w.run.room.cleared).toBe(true);
+    const [a, b] = w.players;
+    const mine = w.pickups.filter((k) => k.kind === "boost" && k.owner === a!.id);
+    const theirs = w.pickups.filter((k) => k.kind === "boost" && k.owner === b!.id);
+    expect(mine.length).toBe(3);
+    expect(theirs.length).toBe(3);
+    expect(new Set(mine.map((k) => k.boost)).size).toBe(3);
+    // Standing on the same spot, B's button only ever takes B's own offer.
+    b!.pos = { ...mine[0]!.pos };
+    a!.pos = { ...mine[0]!.pos };
+    step(w, [EMPTY_INPUT, input({ interact: true })]);
+    expect(Object.keys(b!.boosts)).toEqual([theirs[0]!.boost]);
+    expect(w.pickups.filter((k) => k.kind === "boost" && k.owner === a!.id).length).toBe(3);
+    expect(w.pickups.filter((k) => k.kind === "boost" && k.owner === b!.id).length).toBe(0);
+    step(w, [input({ interact: true }), EMPTY_INPUT]);
+    expect(a!.boosts[mine[0]!.boost!]).toBe(1);
+    expect(w.pickups.filter((k) => k.kind === "boost" && k.owner === a!.id).length).toBe(0);
+  });
+
+  it("offers lean into your build and keystones need their tag", () => {
+    const w = createWorld({ seed: 4 });
     const p = w.players[0]!;
-    const rooms: string[] = [];
-    for (let t = 0; t < 30 * 60 * 10 && !w.run.victory; t++) {
+    // No fire anywhere: Wildfire never shows up.
+    let roll = 0;
+    const rng = () => ((roll = (roll * 9301 + 49297) % 233280) / 233280);
+    for (let i = 0; i < 200; i++) expect(boostOffers(p, w.players, 2, rng)).not.toContain("wildfire");
+    p.boosts = { hotSauce: 1 };
+    const seen = new Set<string>();
+    for (let i = 0; i < 400; i++) for (const id of boostOffers(p, w.players, 2, rng)) seen.add(id);
+    expect(seen.has("wildfire")).toBe(true);
+    // Maxed boosts aren't offered again.
+    p.boosts = { heavy: BOOSTS.heavy!.max };
+    for (let i = 0; i < 100; i++) expect(boostOffers(p, w.players, 0, rng)).not.toContain("heavy");
+    expect(BOOST_IDS.length).toBeGreaterThanOrEqual(45);
+  });
+
+  it("stat boosts apply right away, damage boosts make hits land harder", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    const hp = p.maxHp;
+    applyBoost(w, p, "vitamins");
+    expect(p.maxHp).toBe(hp + 20);
+    const e = spawnEnemy(w, "slag_golem", { x: p.pos.x + 30, y: p.pos.y }, 0);
+    e.hp = e.maxHp = 1e6;
+    hit(w, e, 100, "none");
+    const plain = 1e6 - e.hp;
+    applyBoost(w, p, "personal");
+    e.hp = 1e6;
+    hit(w, e, 100, "none");
+    expect(1e6 - e.hp).toBeGreaterThan(plain * 1.2);
+  });
+});
+
+describe("twists", () => {
+  it("Hold the Line clears when the timer runs out, whatever is left", () => {
+    const w = createWorld({ seed: 8 });
+    enterRoom(w, roomSpec(w, "event", { twist: "hold" }));
+    const p = w.players[0]!;
+    for (let t = 0; t < 30 * 50 && !w.run.room.cleared; t++) {
       p.hp = p.maxHp;
-      // A god-mode bot: delete visible enemies, then hop to the exit.
-      for (const e of w.enemies) if (e.spawnT <= 0 && e.state !== "hidden") damageEnemy(w, e, 1e6, { dir: { x: 0, y: 1 }, knockback: 0, sourcePlayerId: p.id, element: "none" });
-      const exit = w.run.room.exit;
-      if (w.run.room.cleared) p.pos = { x: exit.x + exit.w / 2, y: 20 };
       step(w, [EMPTY_INPUT]);
-      for (const ev of w.events) if (ev.type === "roomEnter") rooms.push(ev.kind);
     }
-    expect(rooms).toEqual(["combat", "breather", "combat", "boss"]);
-    expect(w.run.victory).toBe(true);
+    expect(w.run.room.cleared).toBe(true);
+    expect(w.run.time).toBeGreaterThan(38);
+  });
+
+  it("Baggage Claim belts carry you along", () => {
+    const w = createWorld({ seed: 8 });
+    enterRoom(w, roomSpec(w, "event", { twist: "belts" }));
+    w.enemies = [];
+    w.arena.obstacles = [];
+    w.arena.spikes = [];
+    const p = w.players[0]!;
+    const belt = w.arena.belts[0]!;
+    p.pos = { x: 360, y: belt.y + belt.h / 2 };
+    run(w, 15);
+    expect(Math.sign(p.pos.x - 360)).toBe(Math.sign(belt.vx));
+    expect(Math.abs(p.pos.x - 360)).toBeGreaterThan(20);
+  });
+
+  it("boss shockwaves hurt unless you dash over them", () => {
+    const ring = (dash: boolean) => {
+      const w = quiet();
+      const p = w.players[0]!;
+      p.pos = { x: 360, y: 300 };
+      w.hazards.push({ id: 900, kind: "wave", owner: "enemy", pos: { x: 360, y: 100 }, radius: 800, t: 800 / 150, maxT: 800 / 150, damage: 20 });
+      let hurt = false;
+      for (let t = 0; t < 60; t++) {
+        // Dash as the ring gets close.
+        const r = 800 * (1 - w.hazards[0]!.t / w.hazards[0]!.maxT);
+        step(w, [input({ dash: dash && Math.abs(200 - r) < 22 })]);
+        if (w.events.some((ev) => ev.type === "playerHurt")) hurt = true;
+        if (w.hazards.length === 0) break;
+      }
+      return hurt;
+    };
+    expect(ring(false)).toBe(true);
+    expect(ring(true)).toBe(false);
   });
 });

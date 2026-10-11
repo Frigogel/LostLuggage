@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import { matchMaker, Server, WebSocketTransport } from "colyseus";
-import { decodeSnapshot, EMPTY_INPUT, encodeInput, newGun, type Action, type EmoteInfo, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
+import { decodeSnapshot, EMPTY_INPUT, encodeInput, enterRoom, FINAL_ACT, newGun, roomSpec, type Action, type EmoteInfo, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
 import { mountApi } from "../src/api";
 import { Db, setDb } from "../src/db";
 import { cleanName, RunRoom } from "../src/RunRoom";
@@ -285,18 +285,25 @@ describe("accounts", () => {
     const room = matchMaker.getLocalRoomById(host.roomId) as unknown as { world: World };
     expect(room.world.players[0]!.heroId).toBe("gunslinger");
 
-    // Skip to an empty boss room: it clears on the next tick, which is a win. Make the drop roll lucky.
+    // Skip to an empty final boss room: it clears on the next tick, then fly home with the win. Make the drop roll lucky.
     const reward = nextMessage<RewardInfo>(host, "reward");
     const random = Math.random;
     Math.random = () => 0;
+    const w = room.world;
+    const home = setInterval(() => {
+      const door = w.run.room.doors.find((d) => d.kind === "home");
+      if (door) w.players[0]!.pos = { x: door.x, y: 8 };
+    }, 10);
     try {
-      const w = room.world;
-      w.run.room = { ...w.run.room, index: w.run.plans.length - 1, kind: "boss", waves: [], waveIdx: 0, cleared: false };
+      enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, mix: true }));
+      w.run.room.waves = [];
       w.enemies = [];
       const r = await reward;
+      expect(w.run.finale).toBe(true);
       expect(r.reward.signature).toBe("sig_sixshooter");
       expect(r.profile.signatures).toEqual(["sig_sixshooter"]);
     } finally {
+      clearInterval(home);
       Math.random = random;
     }
     await host.leave();

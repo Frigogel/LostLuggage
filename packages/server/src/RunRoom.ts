@@ -273,9 +273,9 @@ export class RunRoom extends Room {
     const helped = helpedNewer(w, p);
     const result = runResult(w, p, { mode: "coop", day: localDay(), helped });
     // The doc's extra loot roll for helping someone below the dungeon tier.
-    if (helped && w.run.victory) result.guns.push({ ...rollGun(w, 0.6, "rare"), id: randomId(), new: true });
+    if (helped && (w.run.victory || w.run.finale)) result.guns.push({ ...rollGun(w, 0.6, "rare"), id: randomId(), new: true });
     // Signature powers only drop in co-op, and only for a win.
-    if (w.run.victory && Math.random() < signatureChance(w.run.tier)) result.signature = signatureDrop(getDb().profile(seat.accountId), p.heroId, Math.random());
+    if ((w.run.victory || w.run.finale) && Math.random() < signatureChance(w.run.tier)) result.signature = signatureDrop(getDb().profile(seat.accountId), p.heroId, Math.random());
     const actionId = `coop-${randomId()}`;
     const { profile, rewards } = getDb().apply(seat.accountId, [{ type: "run", id: actionId, result }]);
     const reward = rewards[actionId];

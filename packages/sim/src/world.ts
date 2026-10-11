@@ -1,5 +1,5 @@
 import { DT } from "./combat";
-import { planRun } from "./director";
+import { firstRoom } from "./director";
 import { updateDomes } from "./domes";
 import { updateEnemies } from "./enemies";
 import { updateGadgets } from "./gadgets";
@@ -29,7 +29,7 @@ export function createWorld(opts: WorldOptions): World {
     time: 0,
     seed: opts.seed | 0,
     nextId: 1,
-    arena: { w: ARENA.w, h: ARENA.h, obstacles: [], ice: false, spikes: [] },
+    arena: { w: ARENA.w, h: ARENA.h, obstacles: [], ice: false, spikes: [], belts: [] },
     players: [],
     enemies: [],
     projectiles: [],
@@ -41,13 +41,15 @@ export function createWorld(opts: WorldOptions): World {
       biome: opts.biome && BIOMES[opts.biome] ? opts.biome : "foundry",
       plans: [],
       // Replaced by enterRoom below.
-      room: { index: 0, kind: "intro", waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exit: { x: 0, y: 0, w: 0, h: 0 }, exitT: -1, vents: [] },
+      room: { index: 0, kind: "intro", biome: "foundry", twist: "", doors: [], holdT: 0, twistT: 0, waves: [], waveIdx: 0, waveTimer: 0, cleared: false, exitT: -1, vents: [] },
       tier: opts.tier ?? 0,
       coop: opts.coop ?? false,
       kills: 0,
       gunsFound: 0,
       time: 0,
       victory: false,
+      finale: false,
+      bosses: 0,
     },
     events: [],
     gameOver: false,
@@ -55,8 +57,7 @@ export function createWorld(opts: WorldOptions): World {
 
   const party = (opts.players ?? [{ heroId: opts.heroId }]).slice(0, MAX_PLAYERS);
   party.forEach((o, i) => w.players.push(makePlayer(w, o, startPos(START, i, party.length), i)));
-  w.run.plans = planRun(w, w.run.tier, w.players.length);
-  enterRoom(w, 0);
+  enterRoom(w, firstRoom(w));
   return w;
 }
 

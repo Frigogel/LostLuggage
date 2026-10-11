@@ -2,7 +2,7 @@ import { GUNS } from "./data/guns";
 import { LEGENDARIES, LEGENDARY_IDS } from "./data/legendaries";
 import { MAKER_IDS, MAKERS } from "./data/makers";
 import { pick, rand } from "./math";
-import type { Archetype, BoostId, Element, Gun, GunData, GunStats, MakerId, PerkId, Rarity, World } from "./types";
+import type { Archetype, Element, Gun, GunData, GunStats, MakerId, PerkId, Player, Rarity, World } from "./types";
 
 export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
 export const ELEMENTS: Exclude<Element, "none">[] = ["fire", "shock", "frost", "acid"];
@@ -42,14 +42,6 @@ export const ELEMENT_INFO: Record<Element, { adjective: string; text: string }> 
   shock: { adjective: "Zappy", text: "Chains, strips shields" },
   frost: { adjective: "Chilly", text: "Slows, then freezes" },
   acid: { adjective: "Corrosive", text: "Melts armor" },
-};
-
-export const BOOSTS: Record<BoostId, { name: string; text: string }> = {
-  bounce: { name: "Shrine of Ricochet", text: "+1 bounce on every shot" },
-  burnSpread: { name: "Shrine of Arson", text: "Burning enemies spread fire on death" },
-  vampire: { name: "Shrine of Snacks", text: "Kills heal 2 HP" },
-  quickPips: { name: "Shrine of Haste", text: "All pips reload 15% faster" },
-  dashBurst: { name: "Shrine of Zoom", text: "Dashing releases a shock burst" },
 };
 
 function weighted<T extends string>(w: World, table: Record<T, { weight: number }>, luck = 0): T {
@@ -190,4 +182,22 @@ export function gunDps(gun: GunData): number {
 export function unpredictable(gun: GunData): boolean {
   const effect = gun.legendary ? LEGENDARIES[gun.legendary]?.effect : undefined;
   return gunStats(gun).homing > 0 || effect === "boomerang" || effect === "ricochet";
+}
+
+/**
+ * A gun's stats in a player's hands, with the run boosts that change how shots fly. The sim fires with these, and
+ * co-op clients predict their own shots with them, so the two agree.
+ */
+export function heldStats(gun: GunData, p: Pick<Player, "boosts">): GunStats {
+  const s = gunStats(gun);
+  const n = (id: string) => p.boosts[id] ?? 0;
+  s.bounces += n("bounce");
+  s.pierce += n("pierce");
+  s.projRadius += n("bigShots");
+  s.damage *= (1 + 0.1 * n("bigShots")) * (1 + 0.12 * n("heavy"));
+  const fast = 1 + 0.25 * n("fastShots");
+  s.speed *= fast;
+  s.range *= fast;
+  if (n("gps") > 0 && !s.lob) s.homing = Math.max(s.homing, 2.2);
+  return s;
 }

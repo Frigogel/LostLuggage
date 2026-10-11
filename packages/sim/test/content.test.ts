@@ -11,6 +11,8 @@ import {
   HEROES,
   newProfile,
   planCombatWaves,
+  planRoom,
+  roomSpec,
   playerOptions,
   SIGNATURES,
   SKILL_TREES,
@@ -284,7 +286,7 @@ describe("elite modifiers", () => {
     let elites = 0;
     for (let seed = 1; seed <= 30; seed++) {
       const w = createWorld({ seed });
-      for (const wave of planCombatWaves(w, 3, 0, 1)) {
+      for (const wave of planCombatWaves(w, roomSpec(w, "combat", { step: 3 }), 0, 1)) {
         for (const id of wave) {
           if (!id.includes("@")) continue;
           elites++;
@@ -304,8 +306,10 @@ describe("Frozen Caverns", () => {
     expect(w.run.biome).toBe("caverns");
     expect(w.arena.ice).toBe(true);
     expect(w.arena.spikes.length).toBeGreaterThan(0);
-    expect(w.run.plans.at(-1)!.waves).toEqual([[BIOMES.caverns.boss]]);
-    const ids = w.run.plans.flatMap((p) => p.waves.flat()).map((id) => id.replace("!", "").split("@")[0]!);
+    expect(planRoom(w, roomSpec(w, "boss"), 0, 1).waves).toEqual([[BIOMES.caverns.boss]]);
+    const rooms = [1, 2, 3, 4, 5].map((step) => planRoom(w, roomSpec(w, "combat", { step }), 0, 1));
+    expect(rooms.every((r) => w.run.plans.length > 0 && [6, 7, 13, 14, 15].includes(r.layout))).toBe(true);
+    const ids = [...w.run.plans, ...rooms].flatMap((p) => p.waves.flat()).map((id) => id.replace("!", "").split("@")[0]!);
     expect(ids.every((id) => ENEMIES[id]!.biomes.includes("caverns"))).toBe(true);
   });
 
@@ -350,7 +354,7 @@ describe("Frozen Caverns", () => {
 
   it("the dragon's breath hits the wedge in front, shoves, and leaves slush that slows", () => {
     const w = quiet([{}], 1, "caverns");
-    enterRoom(w, 4);
+    enterRoom(w, roomSpec(w, "boss"));
     w.enemies = [];
     w.run.room.waves = [];
     const p = w.players[0]!;

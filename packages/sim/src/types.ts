@@ -146,6 +146,8 @@ export type AttackDef =
       stunMs: number;
       /** Shoves the players it hits sideways, px/s. */
       push?: number;
+      /** Bosses: charges this many times in a row, re-aiming between them. */
+      chain?: number;
     })
   | (AttackBase & {
       type: "lobbedProjectile";
@@ -156,6 +158,8 @@ export type AttackDef =
       /** Extra shells land around the target. */
       count?: number;
       scatter?: number;
+      /** Boss rain: the extra shells land all over the arena (one always on each player) instead of around the target. */
+      rain?: boolean;
       /** Leaves a damaging puddle where it lands (or slippery slush, with `ice`). */
       puddle?: Puddle;
     })
@@ -187,6 +191,28 @@ export type AttackDef =
       radius: number;
       count: number;
       spreadDeg: number;
+    })
+  | (AttackBase & {
+      /** Boss: rings of bolts in every direction, a few volleys, each turned half a step so the gaps move. */
+      type: "nova";
+      telegraph: "channel";
+      count: number;
+      volleys: number;
+      gapMs: number;
+      speed: number;
+      damage: number;
+      radius: number;
+    })
+  | (AttackBase & {
+      /** Boss: shockwave rings that sweep the whole arena. Dash through them (or hide in a dome). */
+      type: "shockwave";
+      telegraph: "groundCircle";
+      rings: number;
+      gapMs: number;
+      /** px/s */
+      speed: number;
+      damage: number;
+      push?: number;
     })
   | (AttackBase & {
       /** Grants a blue shield bar to nearby allies. */
@@ -269,7 +295,8 @@ export interface PlayerInput {
   interact: boolean;
 }
 
-export type BoostId = "bounce" | "burnSpread" | "vampire" | "quickPips" | "dashBurst";
+/** Run boosts (see data/boosts): picked from three offers after most rooms, kept until the run ends. */
+export type BoostId = string;
 
 /** Permanent multipliers from souvenirs (small and hard-capped). 1 = no change. */
 export interface PlayerMods {
@@ -422,6 +449,10 @@ export interface Enemy {
   /** Teleporting: seconds to the next blink, then where it's about to appear. */
   blinkT: number;
   blinkTo?: Vec;
+  /** Multi-part attacks (nova volleys, chained charges, shockwave rings): how many are left. Server only. */
+  burst: number;
+  /** Ranged enemies: time until they think about dodging again. Server only. */
+  dodgeT: number;
 }
 
 /** Something a hero put on the field: a Tinker's turret or a Warden's drone. */
@@ -509,8 +540,8 @@ export interface Dome {
 /** Ground effects that hurt whoever stands in them. */
 export interface Hazard {
   id: number;
-  /** Acid and fire hurt; ice slush slows players down. */
-  kind: "acid" | "fire" | "ice";
+  /** Acid and fire hurt; ice slush slows players down; a wave is a boss shockwave ring growing out to `radius`. */
+  kind: "acid" | "fire" | "ice" | "wave";
   owner: "player" | "enemy";
   pos: Vec;
   radius: number;
@@ -520,6 +551,8 @@ export interface Hazard {
   /** Player hazards: who gets the credit, and when what's standing in it burns next. */
   ownerId?: number;
   tickT?: number;
+  /** Waves: the shove they give. */
+  push?: number;
 }
 
 /** Burning Foundry terrain rule: vents erupt on a timer, hurting players and enemies alike. */
@@ -535,7 +568,7 @@ export interface Vent {
   damage: number;
 }
 
-export type PickupKind = "gun" | "heal" | "shrine" | "chest";
+export type PickupKind = "gun" | "heal" | "shrine" | "chest" | "boost";
 
 export interface Pickup {
   id: number;
@@ -544,17 +577,48 @@ export interface Pickup {
   gun?: Gun;
   boost?: BoostId;
   heal?: number;
+  /** Boost offers belong to one player: nobody else sees or takes them. */
+  owner?: number;
+  /** Boost offers come in threes: taking one removes the rest of its group. */
+  group?: number;
   /** Spent shrines and opened chests stay as scenery. */
   used: boolean;
 }
 
-export type RoomKind = "intro" | "combat" | "breather" | "boss";
+/**
+ * intro: the hand-made first room. combat: a director fight. elite: a harder fight with better rewards.
+ * event: a fight with a twist. shrine: no fight, two boost picks. rest: heal up and open a suitcase. boss: end of an act.
+ */
+export type RoomKind = "intro" | "combat" | "elite" | "event" | "shrine" | "rest" | "boss";
+/** What a door can lead to: a room, or home (after the final boss). */
+export type DoorKind = RoomKind | "home";
+
+/** Room twists (see director TWISTS): one rule that changes how a fight plays. "" = none. */
+export type TwistId = "" | "rush" | "dark" | "hold" | "belts" | "overbooked" | "convention" | "luggage" | "surrounded";
 
 /** Each biome brings an enemy family and a terrain rule (design doc: Biomes). */
 export type Biome = "foundry" | "caverns";
 
-export interface RoomPlan {
+/** Where a door leads, decided when the doors appear. */
+export interface RoomSpec {
   kind: RoomKind;
+  biome: Biome;
+  twist: TwistId;
+  /** Mixed rooms draw enemies from every biome's family. */
+  mix: boolean;
+  /** 0-2 is the adventure; 3 and up is endless. */
+  act: number;
+  /** Room number within the act: 0 is the arrival, the boss comes last. */
+  step: number;
+}
+
+export interface Door extends Omit<RoomSpec, "kind"> {
+  kind: DoorKind;
+  /** Center of the door along the top wall. */
+  x: number;
+}
+
+export interface RoomPlan extends RoomSpec {
   layout: number;
   /** Enemy ids per wave. */
   waves: string[][];
@@ -565,19 +629,28 @@ export interface RoomPlan {
 export interface Room {
   index: number;
   kind: RoomKind;
+  biome: Biome;
+  twist: TwistId;
+  /** Where you can go next. Open once the room is clear; stand in one to vote for it. */
+  doors: Door[];
+  /** Hold the Line: seconds left to survive. 0 otherwise. */
+  holdT: number;
+  /** Falling Luggage drops and Hold the Line spawns: time to the next one. Server only. */
+  twistT: number;
   waves: string[][];
   waveIdx: number;
   /** Delay before the next wave arrives. */
   waveTimer: number;
   cleared: boolean;
-  exit: Rect;
-  /** Co-op: counts down while someone waits at the exit, so nobody gets yanked out mid-loot. -1 = idle. */
+  /** Co-op: counts down while someone waits at a door, so nobody gets yanked out mid-loot. -1 = idle. */
   exitT: number;
   vents: Vent[];
 }
 
 export interface Run {
+  /** The adventure picked in the lobby: where the run starts, and what first clears count for. */
   biome: Biome;
+  /** Every room entered so far, in order. The next one is planned when the party walks through a door. */
   plans: RoomPlan[];
   room: Room;
   /** Higher = bigger budgets and better loot. Normal = 0. */
@@ -587,7 +660,12 @@ export interface Run {
   kills: number;
   gunsFound: number;
   time: number;
+  /** The run ended well: the party beat the final boss and flew home. */
   victory: boolean;
+  /** The final boss is beaten. Going down in endless after this still counts as a win. */
+  finale: boolean;
+  /** Bosses beaten this run. */
+  bosses: number;
 }
 
 export interface Arena {
@@ -598,6 +676,13 @@ export interface Arena {
   ice: boolean;
   /** Frozen Caverns: spiky walls that hurt whoever gets shoved into them. */
   spikes: Rect[];
+  /** Baggage Claim twist: conveyor belts that carry whoever stands on them sideways. */
+  belts: Belt[];
+}
+
+export interface Belt extends Rect {
+  /** px/s, positive to the right. */
+  vx: number;
 }
 
 export interface World {
@@ -675,11 +760,16 @@ export type SimEvent =
   | { type: "pickup"; id: number; gun: Gun }
   | { type: "loot"; x: number; y: number; rarity: Rarity }
   | { type: "heal"; id: number; amount: number }
+  /** A player took a run boost. */
   | { type: "shrine"; id: number; boost: BoostId }
   | { type: "chestOpened"; x: number; y: number }
   | { type: "enemySpawn"; id: number }
   | { type: "waveStart"; wave: number; waves: number }
   | { type: "roomCleared"; index: number }
-  | { type: "roomEnter"; index: number; kind: RoomKind; rooms: number }
+  | { type: "roomEnter"; index: number; kind: RoomKind; act: number }
+  /** The final boss is down: fly home, or keep going in endless. */
+  | { type: "finale" }
+  /** A boss is winding up something that wants a dash (shockwaves) or a dodge (bolt rings, rain). */
+  | { type: "bossCall"; id: number; attack: AttackType }
   | { type: "victory" }
   | { type: "gameOver" };

@@ -1,4 +1,5 @@
-import { confine, dropGun, DT, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
+import { confine, dropGun, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
+import { BOOSTS } from "./data/boosts";
 import { GRENADE } from "./data/guns";
 import { DASH, HEROES, levelMultiplier, MAX_LEVEL, REVIVE, tierLevel } from "./data/heroes";
 import { LEGENDARIES, MOOD_CYCLE } from "./data/legendaries";
@@ -6,10 +7,11 @@ import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { souvenirMods, type SouvenirRanks } from "./data/souvenirs";
 import { ambulanceNear, detonateTurrets, useDrone, useTurret } from "./gadgets";
-import { gunFromData, gunStats, newGun, rollGun } from "./loot";
+import { gunFromData, gunStats, heldStats, newGun, rollGun } from "./loot";
 import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
-import type { Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
+import type { BoostId, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
+import { beltAt } from "./room";
 
 export const MAX_PLAYERS = 4;
 
@@ -93,6 +95,9 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
   return p;
 }
 
+/** Started a dash in the last `s` seconds. */
+export const dashedWithin = (p: Player, s: number): boolean => p.dashCd > 0 && (DASH.cooldownMs / 1000) * p.mods.dashCd - p.dashCd < s;
+
 /** Learned a skill node. */
 export const hasSkill = (p: Pick<Player, "skills">, id: string): boolean => p.skills.includes(id);
 
@@ -163,7 +168,7 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
   p.slowT = Math.max(0, p.slowT - DT);
   let vel: Vec;
   if (p.dashT > 0) {
-    vel = scale(p.dashDir, DASH.speed * (ice ? DASH.iceBoost : 1));
+    vel = scale(p.dashDir, DASH.speed * (ice ? DASH.iceBoost : 1) * (1 + 0.3 * (p.boosts.express ?? 0)));
     p.dashT -= DT;
   } else {
     const speed = hero.speed * p.mods.speed * (p.charging ? 0.45 : 1) * (p.slowT > 0 ? ICE.slush : 1);
@@ -171,7 +176,9 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
     // On ice you steer your momentum rather than set it: a dash keeps sliding, and stopping takes a moment.
     vel = ice ? add(p.vel, scale(sub(want, p.vel), Math.min(1, DT * ICE.grip))) : want;
   }
-  p.pos = add(p.pos, scale(add(vel, p.knock), DT));
+  // Baggage Claim: the belt under you carries you along (not while dashing).
+  const belt = w.arena.belts.length > 0 && p.dashT <= 0 ? beltAt(w.arena, p.pos) : undefined;
+  p.pos = add(p.pos, scale(add(add(vel, p.knock), { x: belt?.vx ?? 0, y: 0 }), DT));
   // Shoves fade fast on deck plating and slowly on ice.
   p.knock = scale(p.knock, ice ? ICE.knockKeep : 0.7);
   if (len(p.knock) < 2) p.knock = { x: 0, y: 0 };
@@ -246,6 +253,8 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     updateDowned(w, p);
     return;
   }
+  // In-Flight Meal: a little health back all the time.
+  if (p.boosts.meal && !p.away) p.hp = Math.min(p.maxHp, p.hp + p.boosts.meal * DT);
   if (p.away) {
     p.vel = { x: 0, y: 0 };
     return;
@@ -265,8 +274,17 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
 
   if (stepMovement(w, p, input)) {
     w.events.push({ type: "dash", id: p.id });
-    if (p.boosts.dashBurst) playerExplosion(w, p.pos, 34, 8 * p.boosts.dashBurst, 120, p.id, "shock");
-    if (hasSkill(p, "gs_spin")) refillPip(p);
+    if (p.boosts.dashBurst) playerExplosion(w, p.pos, 34, 8 * p.boosts.dashBurst * levelMultiplier(p.syncLevel), 120, p.id, "shock");
+    if (hasSkill(p, "gs_spin") || p.boosts.quickDraw) refillPip(p);
+    if (p.boosts.seatbelt) p.shield = Math.min(10 * p.boosts.seatbelt + 10, p.shield + 10);
+    if (p.boosts.jetLag) {
+      // Jet Lag: a line of fire along the dash.
+      const reach = DASH.speed * (DASH.durationMs / 1000);
+      for (let i = 0; i < 4; i++) {
+        const at = add(p.pos, scale(p.dashDir, (reach * i) / 3));
+        w.hazards.push({ id: newId(w), kind: "fire", owner: "player", ownerId: p.id, pos: at, radius: 10, t: 2.5, maxT: 2.5, damage: 5 * p.boosts.jetLag * levelMultiplier(p.syncLevel), tickT: 0 });
+      }
+    }
   }
   if (w.arena.spikes.length > 0) touchSpikes(w, p);
 
@@ -288,9 +306,10 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     w.projectiles.push({
       id: newId(w), owner: "player", ownerId: p.id, kind: "grenade", element: "none", pos: { ...p.pos }, vel: { x: 0, y: 0 },
       radius: 3, damage: GRENADE.damage * levelMultiplier(p.syncLevel) * p.mods.damage, pierce: 0, bounces: 0, knockback: GRENADE.knockback, life: 99, hitIds: [], gunUid: -1,
-      lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: GRENADE.radius },
+      lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: GRENADE.radius * (1 + 0.3 * (p.boosts.explosives ?? 0)) },
+      ...(p.boosts.partyPack ? { cluster: 3 } : {}),
     });
-    p.grenadeCd = GRENADE.cooldownMs / 1000;
+    p.grenadeCd = (GRENADE.cooldownMs / 1000) * Math.pow(0.7, p.boosts.explosives ?? 0);
     w.events.push({ type: "grenade", id: p.id });
   }
 
@@ -305,6 +324,8 @@ function refillPip(p: Player): void {
 
 /** The hero's action skill. */
 export function useSkill(w: World, p: Player): void {
+  if (p.boosts.grandOpening) playerExplosion(w, p.pos, 60, 30 * p.boosts.grandOpening * levelMultiplier(p.syncLevel), 220, p.id, "none", true);
+  if (p.boosts.spa) healPlayer(w, p, 15 * p.boosts.spa);
   switch (HEROES[p.heroId]!.skill.type) {
     case "dome":
       spawnDome(w, p);
@@ -334,12 +355,12 @@ function updateDowned(w: World, p: Player): void {
   if (helpers.length > 0 || owl) {
     // A second helper speeds it up a little; stacking the whole party doesn't trivialize it. Bedside Manner doubles yours.
     const n = helpers.length + (owl ? 1 : 0);
-    const fast = helpers.some((o) => hasSkill(o, "wd_hustle")) ? 2 : 1;
+    const fast = (helpers.some((o) => hasSkill(o, "wd_hustle")) ? 2 : 1) * (helpers.some((o) => o.boosts.firstAid) ? 2 : 1);
     p.reviveProgress += (DT * fast * (1 + 0.5 * (n - 1))) / REVIVE.seconds;
     if (p.reviveProgress >= 1) {
       const by = helpers.find((o) => hasSkill(o, "wd_getup")) ?? helpers[0];
       const credit = by ?? owl!;
-      revive(w, p, credit.id, hasSkill(credit, "wd_getup") ? 0.7 : REVIVE.hpFrac);
+      revive(w, p, credit.id, (hasSkill(credit, "wd_getup") ? 0.7 : REVIVE.hpFrac) + (helpers.some((o) => o.boosts.firstAid) ? 0.2 : 0));
     }
   } else {
     // Progress drains slowly, so stepping away to dodge doesn't throw it all away.
@@ -430,7 +451,7 @@ function updateShooting(w: World, p: Player, input: PlayerInput): void {
 const ROCKET = { speed: 190, damage: 30, radius: 24, homing: 5, life: 2.2 };
 
 function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
-  const s = gunStats(gun);
+  const s = heldStats(gun, p);
   const effect = gun.legendary ? LEGENDARIES[gun.legendary]?.effect : undefined;
   gun.count = (gun.count ?? 0) + 1;
   // Mood Ring changes element every shot.
@@ -457,7 +478,7 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
     return;
   }
 
-  const bounces = s.bounces + (p.boosts.bounce ?? 0);
+  const bounces = s.bounces;
   // While you have marks up, your shots seek them out.
   const seek = marksUp(w, p);
   const spread = (s.spreadDeg * Math.PI) / 180;
@@ -483,6 +504,17 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
     });
   }
 
+  // Buy One Get One: sometimes the shot comes out twice, a little off to the side. Drawn from the server in co-op.
+  if (p.boosts.twin && rand(w) < 0.2 * p.boosts.twin) {
+    for (let i = 0; i < s.pellets; i++) {
+      const a = base + (rand(w) < 0.5 ? -0.14 : 0.14) + (s.pellets > 1 ? (i / (s.pellets - 1) - 0.5) * spread : 0);
+      w.projectiles.push({
+        ...common, hitIds: [], id: newId(w), pos: { ...muzzle }, vel: fromAngle(a, s.speed), radius: s.projRadius, pierce: s.pierce, bounces,
+        life: (s.range / s.speed) * (bounces > 0 ? 1.4 : 1), special: true, ...(s.homing > 0 ? { homing: s.homing } : {}),
+      });
+    }
+  }
+
   if (effect === "rockets" && gun.count % 10 === 0) {
     w.projectiles.push({
       ...common, kind: "rocket", hitIds: [], id: newId(w), pos: { ...muzzle }, vel: fromAngle(base, ROCKET.speed), radius: 3, pierce: 0, bounces: 0,
@@ -501,7 +533,7 @@ export function interactable(w: World, p: Player): Pickup | undefined {
   let best: Pickup | undefined;
   let bestD = PICKUP_REACH;
   for (const pk of w.pickups) {
-    if (pk.used || pk.kind === "heal") continue;
+    if (pk.used || pk.kind === "heal" || (pk.owner !== undefined && pk.owner !== p.id)) continue;
     const d = dist(pk.pos, p.pos);
     if (d < bestD) {
       bestD = d;
@@ -537,10 +569,13 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       p.burstLeft = 0;
       p.charging = false;
       w.events.push({ type: "pickup", id: p.id, gun: p.guns[p.active]! });
+    } else if (pk.kind === "boost" && pk.boost) {
+      applyBoost(w, p, pk.boost);
+      // The other two offers go away.
+      w.pickups = w.pickups.filter((o) => !(o.kind === "boost" && o.group === pk.group));
     } else if (pk.kind === "shrine" && pk.boost) {
-      p.boosts[pk.boost] = (p.boosts[pk.boost] ?? 0) + 1;
+      applyBoost(w, p, pk.boost);
       pk.used = true;
-      w.events.push({ type: "shrine", id: p.id, boost: pk.boost });
     } else if (pk.kind === "chest") {
       pk.used = true;
       w.events.push({ type: "chestOpened", x: pk.pos.x, y: pk.pos.y });
@@ -548,4 +583,38 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       dropGun(w, add(pk.pos, { x: 22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
     }
   });
+}
+
+/** Takes a run boost: one more stack, and the boosts that change a stat right away do so now. */
+export function applyBoost(w: World, p: Player, id: BoostId): void {
+  const def = BOOSTS[id];
+  if (!def || (p.boosts[id] ?? 0) >= def.max) return;
+  p.boosts[id] = (p.boosts[id] ?? 0) + 1;
+  switch (id) {
+    case "vitamins":
+      p.maxHp += 20;
+      p.hp += 20;
+      break;
+    case "fragile":
+      p.mods.damage *= 1.35;
+      p.maxHp = Math.round(p.maxHp * 0.75);
+      p.hp = Math.min(p.hp, p.maxHp);
+      break;
+    case "insurance":
+      p.selfRevives++;
+      break;
+    case "espresso":
+      p.mods.speed *= 1.08;
+      break;
+    case "sneakers":
+      p.mods.dashCd *= 0.8;
+      break;
+    case "powerBank":
+      p.mods.charge *= 1.25;
+      break;
+    case "luckyTag":
+      p.mods.luck += 0.3;
+      break;
+  }
+  w.events.push({ type: "shrine", id: p.id, boost: id });
 }

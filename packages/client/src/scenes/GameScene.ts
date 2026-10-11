@@ -1,8 +1,16 @@
 import Phaser from "phaser";
 import {
+  BIOMES,
+  BOOSTS,
   createWorld,
   DEFAULT_OUTFIT,
+  DOOR,
+  doorAt,
+  doorVotes,
   enterRoom,
+  roomSpec,
+  ROOM_NAMES,
+  TWISTS,
   distToSegment,
   DT,
   EMPTY_INPUT,
@@ -12,6 +20,7 @@ import {
   angleOf,
   fromAngle,
   gunStats,
+  heldStats,
   interactable,
   len,
   REVIVE,
@@ -20,7 +29,10 @@ import {
   unpredictable,
   ventState,
   type Biome,
+  type Door,
   type Enemy,
+  type RoomKind,
+  type TwistId,
   type Gadget,
   type Outfit,
   type Pickup,
@@ -60,6 +72,12 @@ const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden"
 const textureFor = (e: Enemy) => (e.state === "hidden" && HIDDEN_TEXTURE[e.defId]) || e.defId;
 const heroKey = (p: Player) => `${p.heroId}_${p.slot}`;
 const BEAM_HEIGHT = { common: 0, uncommon: 14, rare: 24, epic: 36, legendary: 64 };
+/** Boost rarity colors: white, blue, orange. */
+export const BOOST_COLORS = { common: 0xe8e8f0, rare: 0x4aa3ff, epic: 0xff9a2a };
+/** Door label colors by what's behind them. */
+const DOOR_COLORS: Record<Door["kind"], number> = {
+  intro: 0xc9cfd6, combat: 0xe0533d, elite: 0xff9a2a, event: 0xb46cff, shrine: 0xf2c14e, rest: 0x5fd36a, boss: 0xff3030, home: 0x5fd3e8,
+};
 
 const D = {
   lava: -1000,
@@ -150,13 +168,23 @@ export class GameScene extends Phaser.Scene {
   private ventViews = new Map<number, { glow: Phaser.GameObjects.Image }>();
   private door?: Phaser.GameObjects.Image;
   private doorGlow?: Phaser.GameObjects.Image;
+  /** Doors out of a cleared room: sprite, glow and what's behind it. */
+  private doorViews: { door: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; label: Phaser.GameObjects.BitmapText; sub: Phaser.GameObjects.BitmapText }[] = [];
+  private doorKey = "";
+  /** The biome the floor and sea are drawn for; rebuilt when a room in another biome starts. */
+  private builtBiome?: Biome;
+  private biomeObjs: Phaser.GameObjects.GameObject[] = [];
+  private ambient?: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** Lights Out: the darkness, with holes cut around the heroes. */
+  private dark?: Phaser.GameObjects.RenderTexture;
+  private stamp?: Phaser.GameObjects.Image;
   private zaps: { x1: number; y1: number; x2: number; y2: number; t: number }[] = [];
 
   private ground!: Phaser.GameObjects.Graphics;
   private over!: Phaser.GameObjects.Graphics;
   private domeLights = new Map<number, Phaser.GameObjects.Image>();
   private gadgetViews = new Map<number, GadgetView>();
-  private lava!: Phaser.GameObjects.TileSprite;
+  private lava?: Phaser.GameObjects.TileSprite;
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private fire!: Phaser.GameObjects.Particles.ParticleEmitter;
   private flames!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -197,6 +225,12 @@ export class GameScene extends Phaser.Scene {
     this.roomObjs = [];
     this.zaps = [];
     this.door = this.doorGlow = undefined;
+    this.doorViews = [];
+    this.doorKey = "";
+    this.builtBiome = undefined;
+    this.biomeObjs = [];
+    this.ambient = undefined;
+    this.dark = undefined;
   }
 
   get ui(): UIScene | undefined {
@@ -215,43 +249,23 @@ export class GameScene extends Phaser.Scene {
       this.world = this.net.frame(0, 0)!.world;
       this.myId = this.net.myId;
     } else {
-      // Dev shortcuts: ?seed=123 replays a run, ?room=4 jumps straight to a room.
+      // Dev shortcuts: ?seed=123 replays a run; ?room=boss (or elite, event, shrine, rest) jumps to a room,
+      // with &act=2 for a later act and &twist=belts for a twist.
       const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
       this.world = createWorld({ seed, players: [this.profile], biome: this.biome });
-      const room = Number(params.get("room"));
-      if (room > 1 && room <= this.world.run.plans.length) enterRoom(this.world, room - 1);
+      const room = params.get("room") as RoomKind | null;
+      if (room && room in ROOM_NAMES) {
+        const act = Number(params.get("act")) || 0;
+        enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, ...(act === 2 ? { mix: true } : {}) }));
+      }
       this.myId = this.world.players[0]!.id;
     }
     const { w, h } = this.world.arena;
-    const caverns = this.world.run.biome === "caverns";
-    const art = BIOME_ART[this.world.run.biome];
-
-    // Lava (or icy water) under the deck, with glow along the rim: atmosphere for the price of one tile.
-    this.lava = this.add.tileSprite(-240, -240, w + 480, h + 480, caverns ? "sea-caverns" : "lava").setOrigin(0).setDepth(D.lava);
-    this.add.image(-FLOOR_PAD, -FLOOR_PAD, caverns ? "floor-caverns" : "floor").setOrigin(0).setDepth(D.floor);
-    for (let x = 0; x <= w; x += 60) {
-      for (const y of [-14, h + 14]) this.lavaGlow(x, y);
-    }
-    for (let y = 30; y < h; y += 60) {
-      for (const x of [-14, w + 14]) this.lavaGlow(x, y);
-    }
+    this.buildBiome();
 
     this.ground = this.add.graphics().setDepth(D.ground);
     this.over = this.add.graphics().setDepth(D.overlay);
-
-    // Ambient particles: embers rising in the foundry, snow drifting down in the caverns.
-    this.add.particles(0, 0, "px", {
-      emitZone: { type: "random", source: new Phaser.Geom.Rectangle(-200, -100, w + 400, h + 300) } as Phaser.Types.GameObjects.Particles.ParticleEmitterRandomZoneConfig,
-      lifespan: { min: 2000, max: 4500 },
-      speedY: caverns ? { min: 8, max: 24 } : { min: -26, max: -8 },
-      speedX: caverns ? { min: -14, max: 4 } : { min: -6, max: 6 },
-      scale: { start: caverns ? 0.9 : 0.6, end: 0 },
-      alpha: { start: 0.9, end: 0 },
-      tint: [...art.ambient],
-      frequency: caverns ? 30 : 45,
-      blendMode: Phaser.BlendModes.ADD,
-    }).setDepth(D.light);
     this.sparks = this.add.particles(0, 0, "px", {
       lifespan: 220,
       speed: { min: 40, max: 120 },
@@ -396,8 +410,46 @@ export class GameScene extends Phaser.Scene {
   }
 
   private lavaGlow(x: number, y: number): void {
-    const g = this.add.image(x, y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(BIOME_ART[this.world.run.biome].glow).setScale(3.5).setAlpha(0.35).setDepth(D.floor + 1);
+    const g = this.add.image(x, y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(BIOME_ART[this.world.run.room.biome].glow).setScale(3.5).setAlpha(0.35).setDepth(D.floor + 1);
     this.tweens.add({ targets: g, alpha: 0.18, duration: 900 + Math.random() * 900, yoyo: true, repeat: -1, ease: "Sine.inOut" });
+    this.biomeObjs.push(g);
+  }
+
+  /**
+   * The sea under the deck, the floor and the weather, for the current room's biome. Runs cross biomes now, so this
+   * is rebuilt whenever a room in a different one starts.
+   */
+  private buildBiome(): void {
+    const biome = this.world.run.room.biome;
+    if (biome === this.builtBiome) return;
+    this.builtBiome = biome;
+    for (const o of this.biomeObjs) o.destroy();
+    this.biomeObjs = [];
+    const { w, h } = this.world.arena;
+    const caverns = biome === "caverns";
+    const art = BIOME_ART[biome];
+    // Lava (or icy water) under the deck, with glow along the rim: atmosphere for the price of one tile.
+    this.lava = this.add.tileSprite(-240, -240, w + 480, h + 480, caverns ? "sea-caverns" : "lava").setOrigin(0).setDepth(D.lava);
+    this.biomeObjs.push(this.lava, this.add.image(-FLOOR_PAD, -FLOOR_PAD, caverns ? "floor-caverns" : "floor").setOrigin(0).setDepth(D.floor));
+    for (let x = 0; x <= w; x += 60) {
+      for (const y of [-14, h + 14]) this.lavaGlow(x, y);
+    }
+    for (let y = 30; y < h; y += 60) {
+      for (const x of [-14, w + 14]) this.lavaGlow(x, y);
+    }
+    // Ambient particles: embers rising in the foundry, snow drifting down in the caverns.
+    this.ambient = this.add.particles(0, 0, "px", {
+      emitZone: { type: "random", source: new Phaser.Geom.Rectangle(-200, -100, w + 400, h + 300) } as Phaser.Types.GameObjects.Particles.ParticleEmitterRandomZoneConfig,
+      lifespan: { min: 2000, max: 4500 },
+      speedY: caverns ? { min: 8, max: 24 } : { min: -26, max: -8 },
+      speedX: caverns ? { min: -14, max: 4 } : { min: -6, max: 6 },
+      scale: { start: caverns ? 0.9 : 0.6, end: 0 },
+      alpha: { start: 0.9, end: 0 },
+      tint: [...art.ambient],
+      frequency: caverns ? 30 : 45,
+      blendMode: Phaser.BlendModes.ADD,
+    }).setDepth(D.light);
+    this.biomeObjs.push(this.ambient);
   }
 
   /** Static room visuals: crates, vents and the exit hatch. Rebuilt on every room change. */
@@ -417,9 +469,19 @@ export class GameScene extends Phaser.Scene {
 
     const room = this.world.run.room;
     this.builtRoom = room.index;
+    this.buildBiome();
     this.bullets.forEach((b) => this.releaseProj(b.view));
     this.bullets = [];
-    const block = this.world.run.biome === "caverns" ? "ice" : "crate";
+    for (const v of this.doorViews) for (const o of [v.door, v.glow, v.label, v.sub]) o.destroy();
+    this.doorViews = [];
+    this.doorKey = "";
+    this.dark?.destroy();
+    this.dark = undefined;
+    if (room.twist === "dark") {
+      // Lights Out: a dark layer over the room, under the HUD bits (bars, telegraphs) that keep it fair.
+      this.dark = this.add.renderTexture(0, 0, this.scale.width, this.scale.height).setOrigin(0).setScrollFactor(0).setDepth(D.overlay - 10);
+    }
+    const block = room.biome === "caverns" ? "ice" : "crate";
     for (const o of this.world.arena.obstacles) {
       this.roomObjs.push(this.add.image(o.x, o.y - 8, `${block}-${o.w}x${o.h}`).setOrigin(0).setDepth(o.y + o.h));
     }
@@ -434,19 +496,104 @@ export class GameScene extends Phaser.Scene {
       this.roomObjs.push(glow);
       this.ventViews.set(v.id, { glow });
     }
-    const e = room.exit;
-    this.door = this.add.image(e.x, e.y - 6, "door-closed").setOrigin(0).setDepth(D.floor + 3);
-    this.doorGlow = this.add.image(e.x + e.w / 2, e.y + 4, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0x5fd36a).setScale(2.5, 1.2).setAlpha(0).setDepth(D.light);
-    this.roomObjs.push(this.door, this.doorGlow);
-    this.setDoor(room.cleared);
+    // A shut hatch in the middle of the top wall while the fight is on; the real doors appear once it's clear.
+    this.door = this.add.image(this.world.arena.w / 2 - DOOR.w / 2, -6, "door-closed").setOrigin(0).setDepth(D.floor + 3);
+    this.roomObjs.push(this.door);
+    this.syncDoors();
   }
 
-  private setDoor(open: boolean): void {
-    this.door?.setTexture(open && !this.world.run.victory ? "door-open" : "door-closed");
-    if (this.doorGlow) {
-      this.tweens.killTweensOf(this.doorGlow);
-      this.doorGlow.setAlpha(0);
-      if (open && !this.world.run.victory) this.tweens.add({ targets: this.doorGlow, alpha: { from: 0.7, to: 0.3 }, duration: 600, yoyo: true, repeat: -1 });
+  /** The doors out of a cleared room, with what's behind each. Rebuilt when the set of doors changes. */
+  private syncDoors(): void {
+    const room = this.world.run.room;
+    const doors = room.cleared && !this.world.run.victory ? room.doors : [];
+    const key = doors.map((d) => `${d.kind}${d.x}${d.twist}`).join("|");
+    if (key === this.doorKey) return;
+    this.doorKey = key;
+    for (const v of this.doorViews) for (const o of [v.door, v.glow, v.label, v.sub]) o.destroy();
+    this.doorViews = [];
+    this.door?.setVisible(doors.length === 0);
+    for (const d of doors) {
+      const color = DOOR_COLORS[d.kind];
+      const door = this.add.image(d.x - DOOR.w / 2, -6, "door-open").setOrigin(0).setDepth(D.floor + 3);
+      const glow = this.add.image(d.x, 4, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(color).setScale(2.5, 1.2).setDepth(D.light);
+      this.tweens.add({ targets: glow, alpha: { from: 0.7, to: 0.3 }, duration: 600, yoyo: true, repeat: -1 });
+      const label = this.add.bitmapText(d.x, 32, "pixel", this.doorLabel(d), 8).setOrigin(0.5).setLetterSpacing(-1).setTint(color).setDepth(D.text);
+      const sub = this.add.bitmapText(d.x, 42, "pixel", this.doorSub(d), 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6).setDepth(D.text);
+      this.doorViews.push({ door, glow, label, sub });
+    }
+  }
+
+  private doorLabel(d: Door): string {
+    const here = this.world.run.plans[this.world.run.room.index];
+    if (d.kind === "home") return "FLY HOME";
+    if (here && d.act > here.act) return d.act > 2 ? `ENDLESS ${d.act - 2}` : `ACT ${d.act + 1}`;
+    return ROOM_NAMES[d.kind].toUpperCase();
+  }
+
+  private doorSub(d: Door): string {
+    const here = this.world.run.plans[this.world.run.room.index];
+    if (d.kind === "home") return "TAKE THE WIN";
+    if (here && d.act > here.act) return d.mix ? "MIXED BAG" : BIOMES[d.biome].name.replace("The ", "").toUpperCase();
+    if (d.twist) return TWISTS[d.twist].name.toUpperCase();
+    if (d.mix || (here && d.biome !== here.biome)) return BIOMES[d.biome].name.replace("The ", "").toUpperCase();
+    return "";
+  }
+
+  /** Who's standing in which door: a little square in their color under the door. */
+  private renderDoors(): void {
+    this.syncDoors();
+    const room = this.world.run.room;
+    if (!room.cleared || this.doorViews.length === 0) return;
+    const { winner } = doorVotes(this.world);
+    const counts = room.doors.map(() => 0);
+    for (const p of this.world.players) {
+      const d = doorAt(room, p);
+      if (d < 0 || p.downed || p.away) continue;
+      const x = room.doors[d]!.x - 12 + counts[d]! * 8;
+      counts[d]!++;
+      this.over.fillStyle(0x1b1020).fillRect(x - 1, 15, 7, 7);
+      this.over.fillStyle(SLOT_COLORS[p.slot] ?? 0xffffff).fillRect(x, 16, 5, 5);
+    }
+    this.doorViews.forEach((v, i) => v.label.setScale(i === winner ? 1.25 : 1));
+  }
+
+  /** Lights Out: everything is dark except around the heroes (and a glint of enemy eyes). */
+  private renderDark(t: number): void {
+    const rt = this.dark;
+    if (!rt) return;
+    const cam = this.cameras.main;
+    rt.clear().fill(0x05030a, 0.9);
+    // A soft hole of light around each hero, and a little around your shots.
+    const stamp = (this.stamp ??= this.make.image({ key: "glow", add: false }).setOrigin(0.5));
+    for (const p of this.world.players) {
+      if (p.away) continue;
+      const r = p.downed ? 40 : 90 + Math.sin(t * 0.004 + p.id) * 3;
+      rt.erase(stamp.setScale((r * 2) / 32), p.pos.x - cam.scrollX, p.pos.y - cam.scrollY);
+    }
+    for (const pr of this.world.projectiles) {
+      if (pr.owner !== "player" || pr.lob) continue;
+      rt.erase(stamp.setScale(0.7), pr.pos.x - cam.scrollX, pr.pos.y - cam.scrollY);
+    }
+    // Eyes in the dark: you can always tell where they are, just not what they're doing.
+    for (const e of this.world.enemies) {
+      if (e.spawnT > 0 || e.state === "hidden") continue;
+      const c = e.state === "windup" ? 0xff3030 : 0xffe08a;
+      this.over.fillStyle(c, 0.9).fillRect(Math.round(e.pos.x - 2), Math.round(e.pos.y - e.radius * 1.4), 1, 1).fillRect(Math.round(e.pos.x + 1), Math.round(e.pos.y - e.radius * 1.4), 1, 1);
+    }
+  }
+
+  /** Baggage Claim: conveyor belts with chevrons sliding the way they carry you. */
+  private renderBelts(t: number): void {
+    const g = this.ground;
+    for (const b of this.world.arena.belts) {
+      g.fillStyle(0x1b1020, 0.55).fillRect(b.x, b.y, b.w, b.h);
+      g.fillStyle(0x3c3444, 0.6).fillRect(b.x, b.y, b.w, 2).fillRect(b.x, b.y + b.h - 2, b.w, 2);
+      const dir = Math.sign(b.vx);
+      const off = ((t / 1000) * b.vx) % 24;
+      for (let x = b.x - 24 + off; x < b.x + b.w + 24; x += 24) {
+        const cy = b.y + b.h / 2;
+        g.lineStyle(2, 0xf2c14e, 0.35).beginPath().moveTo(x - 4 * dir, cy - 8).lineTo(x + 4 * dir, cy).lineTo(x - 4 * dir, cy + 8).strokePath();
+      }
     }
   }
 
@@ -455,8 +602,7 @@ export class GameScene extends Phaser.Scene {
     if (this.net) this.updateOnline(dt);
     else this.updateSolo(dt);
 
-    this.lava.tilePositionX += dt * 4;
-    this.lava.tilePositionY += dt * 2;
+    this.lava?.setTilePosition((this.lava.tilePositionX + dt * 4) % 64, (this.lava.tilePositionY + dt * 2) % 64);
     this.render(this.alpha, dt);
   }
 
@@ -538,13 +684,13 @@ export class GameScene extends Phaser.Scene {
 
   /** Your shot, the moment you fire: flash, sound, kick and bullets that only look real. */
   private localShot(shot: LocalShot): void {
-    const s = gunStats(shot.gun);
     const me = this.me;
+    const s = heldStats(shot.gun, me);
     this.shotFx(me.id, shot.x, shot.y, s.archetype, shot.gun.element, true);
     // Lobbed shots are slow arcs, and curving or returning shots can't be guessed: the server's version shows up in time.
     // That includes a Gunslinger's shots while marks are up: they seek.
-    if (s.lob || unpredictable(shot.gun) || marksUp(this.world, me)) return;
-    const bounces = (shot.gun.perks.includes("bounce") ? 1 : 0) + (me.boosts.bounce ?? 0);
+    if (s.lob || s.homing > 0 || unpredictable(shot.gun) || marksUp(this.world, me)) return;
+    const bounces = s.bounces;
     const spread = (s.spreadDeg * Math.PI) / 180;
     for (let i = 0; i < s.pellets; i++) {
       let a = shot.angle;
@@ -784,14 +930,21 @@ export class GameScene extends Phaser.Scene {
         this.sparks.explode(2, ev.x, ev.y);
         break;
       case "enemyWindup": {
-        const map: Record<string, string> = { melee: "windupMelee", dash: "windupDash", lobbedProjectile: "windupLob", slam: "windupLob", cone: "windupBreath", projectile: "windupMelee", summon: "summon", shieldAllies: "summon" };
+        const map: Record<string, string> = {
+          melee: "windupMelee", dash: "windupDash", lobbedProjectile: "windupLob", slam: "windupLob", cone: "windupBreath", projectile: "windupMelee", summon: "summon", shieldAllies: "summon",
+          nova: "bossPhase", shockwave: "windupLob",
+        };
         sfx.play(map[ev.attack] ?? "windupMelee");
         break;
       }
       case "enemyAttack":
         if (ev.attack === "melee") sfx.play("bite");
         else if (ev.attack === "lobbedProjectile") sfx.play("mortarFire");
-        else if (ev.attack === "projectile") sfx.play("bolt");
+        else if (ev.attack === "projectile" || ev.attack === "nova") sfx.play("bolt");
+        else if (ev.attack === "shockwave") {
+          sfx.play("slam");
+          this.shake(250, 0.008);
+        }
         else if (ev.attack === "cone") {
           sfx.play("breath");
           const e = this.enemyById(ev.id);
@@ -1011,12 +1164,15 @@ export class GameScene extends Phaser.Scene {
       case "roomCleared":
         sfx.play("clear");
         this.time.delayedCall(500, () => {
-          this.setDoor(true);
           if (!this.world.run.victory) sfx.play("door");
         });
         break;
+      case "finale":
+        sfx.play("victory");
+        this.shake(400, 0.01);
+        break;
       case "roomEnter": {
-        const [r, g, b] = BIOME_ART[this.world.run.biome].fade;
+        const [r, g, b] = BIOME_ART[this.world.run.room.biome].fade;
         this.cameras.main.fadeIn(350, r, g, b);
         if (this.builtRoom !== this.world.run.room.index) this.buildRoom();
         this.cameras.main.centerOn(me.pos.x, me.pos.y);
@@ -1040,8 +1196,10 @@ export class GameScene extends Phaser.Scene {
     const player = this.me;
     const pp = this.lerpPos(player.id, player.pos, alpha);
 
+    this.renderBelts(t);
     this.renderVents(t);
     this.renderHazards(t);
+    this.renderDoors();
     this.renderPickups(t);
     this.renderDomes(t);
     this.renderGadgets(t);
@@ -1051,6 +1209,7 @@ export class GameScene extends Phaser.Scene {
     this.renderPlayers(alpha, dt, t);
     this.renderAimGuide(player, pp);
     this.renderZaps(dt);
+    this.renderDark(t);
 
     // Camera leads slightly toward where you're facing.
     const cam = this.cameras.main;
@@ -1092,6 +1251,14 @@ export class GameScene extends Phaser.Scene {
         g.fillStyle(0xff7a1a, 0.35 * k).fillEllipse(h.pos.x, h.pos.y, r * 2, r * 1.4);
         g.fillStyle(0xffe08a, (0.2 + 0.15 * Math.sin(t * 0.02 + h.id)) * k).fillEllipse(h.pos.x, h.pos.y, r, r * 0.7);
         if (Math.random() < 0.08 * k) this.flames.explode(1, h.pos.x + (Math.random() - 0.5) * r, h.pos.y);
+        continue;
+      }
+      if (h.kind === "wave") {
+        // A boss shockwave racing outward: a bright ring with a warning band just ahead of it.
+        const ring = h.radius * (1 - h.t / h.maxT);
+        g.lineStyle(6, 0xe0533d, 0.25).strokeCircle(h.pos.x, h.pos.y, ring + 10);
+        this.over.lineStyle(3, 0xff9a2a, 0.95).strokeCircle(h.pos.x, h.pos.y, ring);
+        this.over.lineStyle(1, 0xffe08a, 0.9).strokeCircle(h.pos.x, h.pos.y, Math.max(1, ring - 3));
         continue;
       }
       if (h.kind === "ice") {
@@ -1435,8 +1602,25 @@ export class GameScene extends Phaser.Scene {
   private drawTelegraph(e: Enemy, pos: Vec, k: number, t: number): void {
     const def = ENEMIES[e.defId]!;
     const atk = def.attacks[e.attackIdx]!;
-    const g = this.ground;
+    const g = this.dark ? this.over : this.ground;
     switch (atk.type) {
+      case "shockwave":
+        // A stomp coming: rings pulse out of the boss, faster as it gets close.
+        for (let i = 0; i < 3; i++) {
+          const r = ((t * 0.12 * (1 + k) + i * 30) % 90) + e.radius;
+          g.lineStyle(2, 0xff9a2a, 0.8 * (1 - (r - e.radius) / 90)).strokeCircle(pos.x, pos.y, r);
+        }
+        g.fillStyle(0xe0533d, 0.15 + 0.25 * k).fillCircle(pos.x, pos.y, e.radius + 10);
+        break;
+      case "nova":
+        // Bolts gathering: spokes all the way round.
+        for (let i = 0; i < atk.count; i++) {
+          const a = (i / atk.count) * Math.PI * 2;
+          const r0 = e.radius + 4;
+          const r1 = r0 + 6 + 20 * k;
+          g.lineStyle(1, 0xb46cff, 0.4 + 0.5 * k).lineBetween(pos.x + Math.cos(a) * r0, pos.y + Math.sin(a) * r0, pos.x + Math.cos(a) * r1, pos.y + Math.sin(a) * r1);
+        }
+        break;
       case "dash": {
         const length = (atk.dashSpeed * atk.dashMs) / 1000;
         const ang = angleOf(e.attackDir);
@@ -1475,7 +1659,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private groundCircle(at: Vec, r: number, k: number, t: number, color = 0xe0533d): void {
-    const g = this.ground;
+    const g = this.dark ? this.over : this.ground;
     g.fillStyle(color, 0.1).fillCircle(at.x, at.y, r);
     g.fillStyle(color, 0.3).fillCircle(at.x, at.y, Math.max(1, r * k));
     g.lineStyle(1, color === 0xe0533d ? 0xff6a5a : color, 0.7 + 0.3 * Math.sin(t * 0.03)).strokeCircle(at.x, at.y, r);
@@ -1663,6 +1847,8 @@ export class GameScene extends Phaser.Scene {
         return "shrine";
       case "chest":
         return pk.used ? "suitcase_open" : "suitcase";
+      case "boost":
+        return "orb";
     }
   }
 
@@ -1677,6 +1863,8 @@ export class GameScene extends Phaser.Scene {
     const player = this.me;
     const inReach = player.downed ? undefined : interactable(this.world, player);
     for (const pk of this.world.pickups) {
+      // Boost offers are personal: you only see your own.
+      if (pk.owner !== undefined && pk.owner !== this.myId) continue;
       seen.add(pk.id);
       const key = this.pickupKey(pk);
       let v = this.pickupViews.get(pk.id);
@@ -1687,7 +1875,7 @@ export class GameScene extends Phaser.Scene {
         v = undefined;
       }
       if (!v) {
-        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "heal" ? 0x5fd36a : 0xf2c14e;
+        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
         v = {
           key,
           sprite: this.add.image(pk.pos.x, pk.pos.y, key).setOrigin(0.5, pk.kind === "gun" ? 0.5 : 1),
@@ -1709,8 +1897,14 @@ export class GameScene extends Phaser.Scene {
       } else if (pk.kind === "heal") {
         v.sprite.setPosition(pk.pos.x, pk.pos.y + 3 + bob).setDepth(pk.pos.y);
         v.glow.setAlpha(0.3).setScale(0.6);
+      } else if (pk.kind === "boost") {
+        // A gem hovering over a little shadow, tinted by rarity.
+        const c = BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"];
+        v.sprite.setPosition(pk.pos.x, pk.pos.y - 4 + bob * 2).setDepth(pk.pos.y + 1).setTint(c);
+        v.glow.setAlpha(0.45 + bob * 0.15).setScale(1.1).setPosition(pk.pos.x, pk.pos.y - 8 + bob * 2);
+        this.ground.fillStyle(c, 0.25).fillEllipse(pk.pos.x, pk.pos.y + 3, 14, 5);
       } else {
-        v.sprite.setPosition(pk.pos.x, pk.pos.y + 6).setDepth(pk.pos.y + 6).setAlpha(pk.used && pk.kind === "shrine" ? 0.5 : 1);
+        v.sprite.setPosition(pk.pos.x, pk.pos.y + 6).setDepth(pk.pos.y + 6).setAlpha(pk.used && pk.kind === "shrine" && pk.boost ? 0.5 : 1);
         v.sprite.setTexture(key);
         v.glow.setAlpha(pk.used ? 0 : 0.35 + bob * 0.1).setScale(1.6).setPosition(pk.pos.x, pk.pos.y - 4);
       }

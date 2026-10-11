@@ -10,6 +10,9 @@ import {
   enterRoom,
   ENEMIES,
   EXIT_WAIT_S,
+  planCombatWaves,
+  planDoors,
+  roomSpec,
   levelMultiplier,
   removePlayer,
   step,
@@ -168,28 +171,62 @@ describe("co-op", () => {
     const boss4 = spawnEnemy(duo, "furnace_foreman", { x: 100, y: 100 }, 0);
     expect(boss4.maxHp / boss1.maxHp).toBeGreaterThan(rat4.maxHp / rat1.maxHp);
 
-    const count = (w: World, room: number) => w.run.plans[room]!.waves.flat().filter((id) => ENEMIES[id.replace("!", "")]).length;
     const a = createWorld({ seed: 9, players: [{}] });
     const b = createWorld({ seed: 9, players: [{}, {}, {}, {}] });
-    expect(count(b, 1)).toBeGreaterThan(count(a, 1));
-    expect(count(b, 0)).toBeGreaterThan(count(a, 0));
+    expect(b.run.plans[0]!.waves.flat().length).toBeGreaterThan(a.run.plans[0]!.waves.flat().length);
+    let one = 0;
+    let four = 0;
+    for (let i = 0; i < 10; i++) {
+      one += planCombatWaves(a, roomSpec(a, "combat", { step: 2 }), 0, 1).flat().length;
+      four += planCombatWaves(b, roomSpec(b, "combat", { step: 2 }), 0, 4).flat().length;
+    }
+    expect(four).toBeGreaterThan(one * 1.5);
   });
 
-  it("re-plans a combat room for whoever is actually there when the party changed", () => {
+  it("plans each room for whoever is actually there when the party walks in", () => {
     const w = createWorld({ seed: 4, coop: true, players: [{}] });
-    const before = w.run.plans[1]!.waves.flat().length;
     addPlayer(w, { name: "late" });
     addPlayer(w, { name: "later" });
-    enterRoom(w, 1);
-    expect(w.run.plans[1]!.party).toBe(3);
-    expect(w.run.plans[1]!.waves.flat().length).toBeGreaterThan(before);
+    enterRoom(w, roomSpec(w, "combat"));
+    expect(w.run.plans.at(-1)!.party).toBe(3);
+  });
+
+  it("doors go by vote: most votes wins, and the host breaks ties", () => {
+    const setup = () => {
+      const w = quietCoop(3);
+      w.run.victory = false;
+      w.run.room.doors = planDoors(w);
+      while (w.run.room.doors.length < 2) w.run.room.doors = planDoors(w);
+      return w;
+    };
+    const at = (w: World, i: number, door: number) => (w.players[i]!.pos = { x: w.run.room.doors[door]!.x, y: 4 });
+    // Two against the host: the two win.
+    const w = setup();
+    const [d0, d1] = w.run.room.doors;
+    at(w, 0, 0);
+    at(w, 1, 1);
+    at(w, 2, 1);
+    step(w, []);
+    expect(w.run.room.index).toBe(1);
+    expect(w.run.plans[1]!.kind).toBe(d1!.kind);
+    // One each and one undecided: when the wait runs out, the host's door wins.
+    const v = setup();
+    const [h0] = v.run.room.doors;
+    at(v, 0, 0);
+    at(v, 1, 1);
+    v.players[2]!.pos = { x: 360, y: 300 };
+    run(v, Math.ceil(EXIT_WAIT_S * 30) + 2);
+    expect(v.run.room.index).toBe(1);
+    expect(v.run.plans[1]!.kind).toBe(h0!.kind);
+    void d0;
   });
 
   it("the exit waits a few seconds for stragglers, or goes right away when everyone is there", () => {
     const w = quietCoop(2);
     w.run.victory = false;
     const [a, b] = w.players;
-    const door = { x: w.run.room.exit.x + w.run.room.exit.w / 2, y: 4 };
+    w.run.room.doors = planDoors(w);
+    const door = { x: w.run.room.doors[0]!.x, y: 4 };
     a!.pos = { ...door };
     step(w, []);
     expect(w.run.room.index).toBe(0);
@@ -199,6 +236,7 @@ describe("co-op", () => {
 
     const v = quietCoop(2);
     v.run.victory = false;
+    v.run.room.doors = planDoors(v);
     v.players[0]!.pos = { ...door };
     v.players[1]!.pos = { x: door.x + 4, y: 4 };
     step(v, []);
@@ -227,7 +265,7 @@ describe("co-op", () => {
 describe("net codec", () => {
   it("round-trips a busy world closely enough to render", () => {
     const w = createWorld({ seed: 77, coop: true, players: [{ name: "Ana", level: 4 }, { name: "Bo", level: 12 }] });
-    enterRoom(w, 4); // the boss room has everything going on
+    enterRoom(w, roomSpec(w, "boss")); // the boss room has everything going on
     w.players[0]!.guns[0] = newGun(w, "smg", "epic", "shock", ["bounce", "extraPip"], "megamart");
     w.players[1]!.guns[1] = { ...newGun(w, "pistol", "legendary", "none", ["pierce"], "wizard"), legendary: "show_off" };
     w.players[0]!.boosts = { vampire: 2 };
@@ -238,7 +276,9 @@ describe("net codec", () => {
 
     expect(acks.get(w.players[0]!.id)).toBe(41);
     expect(d.tick).toBe(w.tick);
-    expect(d.run.room.index).toBe(4);
+    expect(d.run.room.index).toBe(w.run.room.index);
+    expect(d.run.room.biome).toBe(w.run.room.biome);
+    expect(d.run.plans.map((p) => [p.act, p.step, p.biome, p.twist])).toEqual(w.run.plans.map((p) => [p.act, p.step, p.biome, p.twist]));
     expect(d.run.plans.map((p) => p.kind)).toEqual(w.run.plans.map((p) => p.kind));
     expect(d.arena.obstacles).toEqual(w.arena.obstacles);
     expect(d.players.length).toBe(2);
@@ -262,7 +302,15 @@ describe("net codec", () => {
       expect(q.attackPoints.length).toBe(e.attackPoints.length);
     });
     expect(d.projectiles.map((p) => [p.id, p.owner, p.kind, !!p.lob, !!p.special])).toEqual(w.projectiles.map((p) => [p.id, p.owner, p.kind, !!p.lob, !!p.special]));
-    expect(d.pickups.map((p) => [p.id, p.kind, p.used])).toEqual(w.pickups.map((p) => [p.id, p.kind, p.used]));
+    expect(d.pickups.map((p) => [p.id, p.kind, p.used, p.boost, p.owner, p.group])).toEqual(w.pickups.map((p) => [p.id, p.kind, p.used, p.boost, p.owner, p.group]));
+    // Doors, twists and boss shockwaves come through too.
+    w.run.room.cleared = true;
+    w.run.room.doors = planDoors(w);
+    w.hazards.push({ id: 999, kind: "wave", owner: "enemy", pos: { x: 360, y: 170 }, radius: 845, t: 3, maxT: 5.6, damage: 20 });
+    const again = decodeSnapshot(JSON.parse(JSON.stringify(encodeSnapshot(w, [], new Map())))).world;
+    expect(again.run.room.doors).toEqual(w.run.room.doors);
+    expect(again.run.finale).toBe(w.run.finale);
+    expect(again.hazards.find((h) => h.id === 999)!.kind).toBe("wave");
     expect(d.run.room.vents.map((v) => v.id)).toEqual(w.run.room.vents.map((v) => v.id));
   });
 
@@ -318,7 +366,9 @@ describe("net codec", () => {
       { type: "enemySpawn", id: 5 },
       { type: "waveStart", wave: 1, waves: 3 },
       { type: "roomCleared", index: 1 },
-      { type: "roomEnter", index: 2, kind: "breather", rooms: 5 },
+      { type: "roomEnter", index: 2, kind: "rest", act: 1 },
+      { type: "finale" },
+      { type: "bossCall", id: 5, attack: "shockwave" },
       { type: "victory" },
       { type: "gameOver" },
     ];

@@ -34,6 +34,8 @@ export {
   MAX_PLAYERS,
   PICKUP_REACH,
   addPlayer,
+  applyBoost,
+  dashedWithin,
   canAct,
   hasSkill,
   interactable,
@@ -42,9 +44,10 @@ export {
   updateFacing,
   type PlayerOptions,
 } from "./players";
-export { eliteShare, planWave, planRun, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
-export { BOOSTS, ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, newGun, rollGun, unpredictable } from "./loot";
-export { ARENA, EXIT, EXIT_WAIT_S, LAYOUTS, START, enterRoom, ventState, type VentState } from "./room";
+export { ACT_ROOMS, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, actDamage, actHaste, actHp, depthOf, eliteShare, firstRoom, planDoors, planRoom, planWave, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
+export { BOOSTS, BOOST_IDS, boostOffers, playerTags, stacks, type BoostDef, type BoostRarity, type BoostTag } from "./data/boosts";
+export { ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, heldStats, newGun, rollGun, unpredictable } from "./loot";
+export { ARENA, DOOR, EXIT_WAIT_S, HOLD_S, LAYOUTS, ROOM_NAMES, START, beltAt, beltsFor, doorAt, doorRect, doorVotes, enterRoom, offerBoosts, roomAct, roomSpec, ventState, type VentState } from "./room";
 export { createWorld, step, type WorldOptions } from "./world";
 export * from "./progress";
 export * from "./net";

@@ -74,6 +74,8 @@ export interface RunResult {
   victory: boolean;
   /** Rooms cleared. */
   rooms: number;
+  /** Bosses beaten (one per act). */
+  acts?: number;
   kills: number;
   /** Guns coming home (everything picked up), with fresh stash ids. */
   guns: StashGun[];
@@ -312,7 +314,8 @@ export function souvenirOffers(p: Profile): SouvenirId[] {
 
 export function runXp(r: RunResult, daily: boolean): { xp: number; bonuses: string[] } {
   const bonuses: string[] = [];
-  let xp = r.rooms * 12 + Math.min(r.kills, 400) * 0.25 + (r.victory ? 25 : 0);
+  // Runs are long and rarely won: every room and every act pays, and the win pays a lot.
+  let xp = r.rooms * 12 + Math.min(r.kills, 1500) * 0.25 + (r.acts ?? 0) * 40 + (r.victory ? 100 : 0);
   if (r.tier > 0) {
     xp *= 1 + 0.25 * r.tier;
     bonuses.push(`HARDER TIER +${25 * r.tier}%`);
@@ -328,7 +331,7 @@ export function runXp(r: RunResult, daily: boolean): { xp: number; bonuses: stri
   }
   if (daily) {
     xp *= 1.5;
-    bonuses.push("FIRST WIN OF THE DAY +50%");
+    bonuses.push("FIRST BOSS OF THE DAY +50%");
   }
   return { xp: Math.round(xp), bonuses };
 }
@@ -349,8 +352,10 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
     mode: opts.mode,
     heroId: p.heroId,
     tier: w.run.tier,
-    victory: w.run.victory,
+    // Beating the final boss is the win, even if endless got you afterwards.
+    victory: w.run.victory || w.run.finale,
     rooms: room.index + (room.cleared ? 1 : 0),
+    acts: w.run.bosses,
     kills: w.run.kills,
     guns,
     hand: p.guns.map((g) => g.sid ?? ids.get(g.uid) ?? ""),
@@ -408,10 +413,11 @@ function scrap(p: Profile, ids: readonly string[]): number {
 
 /** A win's cosmetics: the first clear of an adventure and tier, and sometimes a boss drop. */
 function runCosmetics(p: Profile, id: string, r: RunResult): string[] {
-  if (!r.victory) return [];
+  // A boss is enough for a chance at a drop; first-clear hats need the whole adventure.
+  if (!r.victory && !(r.acts && r.acts > 0)) return [];
   const got: string[] = [];
   const clear = `${r.biome}:${r.tier}`;
-  if (!p.clears.includes(clear)) {
+  if (r.victory && !p.clears.includes(clear)) {
     p.clears.push(clear);
     for (const cid of COSMETIC_IDS) {
       const u = COSMETICS[cid]!.unlock;
@@ -431,9 +437,10 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     heroId,
     tier: int(raw.tier, 0, 2),
     victory: raw.victory === true,
-    rooms: int(raw.rooms, 0, 12),
+    rooms: int(raw.rooms, 0, 300),
+    acts: int(raw.acts, 0, 60),
     kills: int(raw.kills, 0, 5000),
-    guns: (Array.isArray(raw.guns) ? raw.guns : []).slice(0, 30).map(cleanGun).filter((g): g is StashGun => !!g),
+    guns: (Array.isArray(raw.guns) ? raw.guns : []).slice(0, 80).map(cleanGun).filter((g): g is StashGun => !!g),
     hand: (Array.isArray(raw.hand) ? raw.hand : []).slice(0, 2).map((h) => String(h ?? "")),
     day: String(raw.day ?? "").slice(0, 10),
     helped: raw.helped === true,
@@ -443,7 +450,8 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   const sig = raw.mode === "coop" && typeof raw.signature === "string" && SIGNATURES[raw.signature] && !p.signatures.includes(raw.signature) ? raw.signature : undefined;
   if (sig) p.signatures.push(sig);
   const levelBefore = heroOf(p, heroId).level;
-  const daily = r.victory && !!r.day && r.day !== p.lastDailyWin;
+  // The daily bonus (and the guaranteed souvenir) comes from the first boss of the day: wins are rare now.
+  const daily = (r.acts ?? 0) > 0 && !!r.day && r.day !== p.lastDailyWin;
   if (daily) p.lastDailyWin = r.day;
   const { xp, bonuses } = runXp(r, daily);
 
@@ -471,9 +479,9 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     scrapped++;
   }
 
-  // Souvenirs come from solo adventures: always from the first win of the day, sometimes otherwise.
+  // Souvenirs come from solo adventures that beat a boss: always from the first of the day, sometimes otherwise.
   let souvenir = false;
-  if (r.mode === "solo" && r.victory && souvenirTotal(p.souvenirs) + p.pendingSouvenirs < SOUVENIR_CAP) {
+  if (r.mode === "solo" && ((r.acts ?? 0) > 0 || r.victory) && souvenirTotal(p.souvenirs) + p.pendingSouvenirs < SOUVENIR_CAP) {
     souvenir = daily || hash01(`souvenir:${id}`) < 0.35;
     if (souvenir) p.pendingSouvenirs++;
   }

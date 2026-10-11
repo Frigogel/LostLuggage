@@ -10,11 +10,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "swarmer",
     defense: "flesh",
     hp: 24,
-    speed: 72,
+    speed: 84,
     radius: 5,
     movement: { type: "chase" },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 380, range: 14, reach: 9, damage: 8, cooldownMs: 1100, recoverMs: 300 },
+      { type: "melee", telegraph: "redFlash", windupMs: 270, range: 14, reach: 9, damage: 8, cooldownMs: 750, recoverMs: 220 },
     ],
     biomes: ["foundry"],
     threatCost: 1,
@@ -27,13 +27,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "charger",
     defense: "armor",
     hp: 100,
-    speed: 38,
+    speed: 46,
     radius: 8,
     movement: { type: "chase" },
     attacks: [
       {
-        type: "dash", telegraph: "line", windupMs: 800, range: 150, dashSpeed: 330, dashMs: 550, damage: 22,
-        cooldownMs: 2600, recoverMs: 600, stunMs: 1300,
+        type: "dash", telegraph: "line", windupMs: 600, range: 150, dashSpeed: 380, dashMs: 550, damage: 22,
+        cooldownMs: 1800, recoverMs: 600, stunMs: 1300,
       },
     ],
     biomes: ["foundry"],
@@ -52,8 +52,8 @@ export const ENEMIES: Record<string, EnemyDef> = {
     movement: { type: "keepDistance", min: 120, max: 220 },
     attacks: [
       {
-        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 900, range: 260, radius: 26, damage: 15,
-        flightMs: 800, cooldownMs: 2500, recoverMs: 400,
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 750, range: 260, radius: 26, damage: 15,
+        flightMs: 800, cooldownMs: 2000, recoverMs: 400,
       },
     ],
     biomes: ["foundry", "caverns"],
@@ -67,11 +67,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "bruiser",
     defense: "armor",
     hp: 230,
-    speed: 30,
+    speed: 40,
     radius: 10,
     movement: { type: "chase" },
     attacks: [
-      { type: "slam", telegraph: "groundCircle", windupMs: 1100, range: 22, radius: 36, damage: 24, cooldownMs: 2200, recoverMs: 700 },
+      { type: "slam", telegraph: "groundCircle", windupMs: 800, range: 22, radius: 36, damage: 24, cooldownMs: 1500, recoverMs: 500 },
     ],
     biomes: ["foundry"],
     threatCost: 4,
@@ -91,7 +91,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     attacks: [
       {
         type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 700, range: 200, radius: 16, damage: 6,
-        flightMs: 700, cooldownMs: 3200, recoverMs: 400, puddle: { radius: 18, durationMs: 5000, damage: 5 },
+        flightMs: 700, cooldownMs: 2600, recoverMs: 400, puddle: { radius: 18, durationMs: 5000, damage: 5 },
       },
     ],
     trail: { intervalMs: 600, radius: 9, durationMs: 4000, damage: 4 },
@@ -112,8 +112,8 @@ export const ENEMIES: Record<string, EnemyDef> = {
     attacks: [
       { type: "shieldAllies", telegraph: "channel", windupMs: 1200, range: 999, radius: 100, amount: 35, cooldownMs: 5000, recoverMs: 500 },
       {
-        type: "projectile", telegraph: "redFlash", windupMs: 600, range: 200, speed: 110, damage: 10, radius: 3,
-        count: 3, spreadDeg: 30, cooldownMs: 2600, recoverMs: 400,
+        type: "projectile", telegraph: "redFlash", windupMs: 500, range: 200, speed: 130, damage: 10, radius: 3,
+        count: 3, spreadDeg: 30, cooldownMs: 2000, recoverMs: 400,
       },
     ],
     biomes: ["foundry"],
@@ -131,7 +131,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     radius: 10,
     movement: { type: "stationary" },
     attacks: [
-      { type: "summon", telegraph: "channel", windupMs: 900, range: 999, enemyId: "cone_rat", count: 2, maxAlive: 5, cooldownMs: 4500, recoverMs: 300 },
+      { type: "summon", telegraph: "channel", windupMs: 900, range: 999, enemyId: "cone_rat", count: 2, maxAlive: 5, cooldownMs: 3800, recoverMs: 300 },
     ],
     biomes: ["foundry"],
     threatCost: 4,
@@ -144,11 +144,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "ambusher",
     defense: "flesh",
     hp: 110,
-    speed: 85,
+    speed: 95,
     radius: 9,
     movement: { type: "ambush", trigger: 46, revealMs: 450 },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 420, range: 16, reach: 12, damage: 16, cooldownMs: 1400, recoverMs: 400 },
+      { type: "melee", telegraph: "redFlash", windupMs: 300, range: 16, reach: 12, damage: 16, cooldownMs: 1000, recoverMs: 400 },
     ],
     biomes: ["foundry"],
     threatCost: 3,
@@ -161,11 +161,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "splitter",
     defense: "flesh",
     hp: 80,
-    speed: 34,
+    speed: 44,
     radius: 9,
     movement: { type: "chase" },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 500, range: 14, reach: 8, damage: 10, cooldownMs: 1300, recoverMs: 400 },
+      { type: "melee", telegraph: "redFlash", windupMs: 340, range: 14, reach: 8, damage: 10, cooldownMs: 900, recoverMs: 400 },
     ],
     biomes: ["foundry"],
     threatCost: 3,
@@ -180,11 +180,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "splitter",
     defense: "flesh",
     hp: 20,
-    speed: 64,
+    speed: 74,
     radius: 5,
     movement: { type: "chase" },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 360, range: 12, reach: 7, damage: 5, cooldownMs: 1000, recoverMs: 300 },
+      { type: "melee", telegraph: "redFlash", windupMs: 260, range: 12, reach: 7, damage: 5, cooldownMs: 700, recoverMs: 300 },
     ],
     biomes: ["foundry"],
     threatCost: 0,
@@ -197,31 +197,41 @@ export const ENEMIES: Record<string, EnemyDef> = {
     flavor: "Would like to speak to the cruise line's manager.",
     role: "boss",
     defense: "armor",
-    hp: 2200,
-    speed: 34,
+    hp: 2400,
+    speed: 40,
     radius: 15,
     movement: { type: "chase" },
     attacks: [
-      // 0
-      { type: "slam", telegraph: "groundCircle", windupMs: 1000, range: 30, radius: 48, damage: 26, cooldownMs: 2600, recoverMs: 600 },
-      // 1
+      // 0: ground pound
+      { type: "slam", telegraph: "groundCircle", windupMs: 700, range: 34, radius: 58, damage: 26, push: 200, cooldownMs: 2000, recoverMs: 450 },
+      // 1: slag mortars
       {
-        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 1000, range: 300, radius: 24, damage: 16,
-        flightMs: 900, cooldownMs: 3800, recoverMs: 500, count: 4, scatter: 55,
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 750, range: 320, radius: 26, damage: 16,
+        flightMs: 900, cooldownMs: 3000, recoverMs: 400, count: 6, scatter: 70,
       },
-      // 2
+      // 2: the charge, three times in a row
       {
-        type: "dash", telegraph: "line", windupMs: 900, range: 220, dashSpeed: 300, dashMs: 800, damage: 28,
-        cooldownMs: 4200, recoverMs: 700, stunMs: 2000,
+        type: "dash", telegraph: "line", windupMs: 650, range: 260, dashSpeed: 360, dashMs: 750, damage: 28,
+        cooldownMs: 4200, recoverMs: 500, stunMs: 1600, chain: 3,
       },
-      // 3
-      { type: "summon", telegraph: "channel", windupMs: 1000, range: 999, enemyId: "cone_rat", count: 4, maxAlive: 6, cooldownMs: 9000, recoverMs: 400 },
+      // 3: calls in the rats
+      { type: "summon", telegraph: "channel", windupMs: 800, range: 999, enemyId: "cone_rat", count: 4, maxAlive: 6, cooldownMs: 9000, recoverMs: 400 },
+      // 4: shockwave stomp: rings that sweep the whole floor
+      { type: "shockwave", telegraph: "groundCircle", windupMs: 900, range: 999, rings: 2, gapMs: 750, speed: 150, damage: 22, push: 160, cooldownMs: 6500, recoverMs: 500 },
+      // 5: rivet storm: rings of bolts
+      { type: "nova", telegraph: "channel", windupMs: 800, range: 999, count: 18, volleys: 4, gapMs: 380, speed: 115, damage: 12, radius: 3, cooldownMs: 7000, recoverMs: 600 },
+      // 6: molten rain: the whole floor lights up with landing spots
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 900, range: 999, radius: 28, damage: 20,
+        flightMs: 1300, cooldownMs: 8000, recoverMs: 500, count: 16, rain: true,
+      },
     ],
     boss: {
       phases: [
-        { hpFrac: 1, attacks: [0, 1], haste: 1 },
-        { hpFrac: 0.65, attacks: [0, 1, 2], haste: 1.1 },
-        { hpFrac: 0.3, attacks: [0, 1, 2, 3], haste: 1.3 },
+        { hpFrac: 1, attacks: [0, 1, 4], haste: 1 },
+        { hpFrac: 0.7, attacks: [0, 1, 2, 4, 5], haste: 1.2 },
+        { hpFrac: 0.4, attacks: [0, 2, 3, 4, 5, 6], haste: 1.4 },
+        { hpFrac: 0.15, attacks: [2, 4, 5, 6], haste: 1.7 },
       ],
     },
     biomes: ["foundry"],
@@ -240,11 +250,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "swarmer",
     defense: "flesh",
     hp: 22,
-    speed: 76,
+    speed: 86,
     radius: 5,
     movement: { type: "chase" },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 380, range: 14, reach: 9, damage: 7, cooldownMs: 1100, recoverMs: 300 },
+      { type: "melee", telegraph: "redFlash", windupMs: 270, range: 14, reach: 9, damage: 7, cooldownMs: 750, recoverMs: 220 },
     ],
     biomes: ["caverns"],
     threatCost: 1,
@@ -258,11 +268,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "bruiser",
     defense: "armor",
     hp: 240,
-    speed: 30,
+    speed: 40,
     radius: 10,
     movement: { type: "chase" },
     attacks: [
-      { type: "slam", telegraph: "groundCircle", windupMs: 1100, range: 22, radius: 38, damage: 18, push: 280, cooldownMs: 2300, recoverMs: 700 },
+      { type: "slam", telegraph: "groundCircle", windupMs: 800, range: 22, radius: 38, damage: 18, push: 280, cooldownMs: 1600, recoverMs: 500 },
     ],
     biomes: ["caverns"],
     threatCost: 4,
@@ -276,13 +286,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "charger",
     defense: "armor",
     hp: 110,
-    speed: 34,
+    speed: 40,
     radius: 9,
     movement: { type: "chase" },
     attacks: [
       {
-        type: "dash", telegraph: "line", windupMs: 850, range: 170, dashSpeed: 300, dashMs: 750, damage: 20, push: 260,
-        cooldownMs: 2800, recoverMs: 600, stunMs: 1500,
+        type: "dash", telegraph: "line", windupMs: 620, range: 170, dashSpeed: 350, dashMs: 750, damage: 20, push: 260,
+        cooldownMs: 1900, recoverMs: 600, stunMs: 1500,
       },
     ],
     biomes: ["caverns"],
@@ -303,7 +313,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     attacks: [
       {
         type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 700, range: 200, radius: 16, damage: 6,
-        flightMs: 700, cooldownMs: 3000, recoverMs: 400, puddle: { radius: 22, durationMs: 5000, damage: 0, ice: true },
+        flightMs: 700, cooldownMs: 2500, recoverMs: 400, puddle: { radius: 22, durationMs: 5000, damage: 0, ice: true },
       },
     ],
     trail: { intervalMs: 500, radius: 10, durationMs: 4000, damage: 0 },
@@ -325,8 +335,8 @@ export const ENEMIES: Record<string, EnemyDef> = {
     attacks: [
       { type: "shieldAllies", telegraph: "channel", windupMs: 1200, range: 999, radius: 100, amount: 35, cooldownMs: 5000, recoverMs: 500 },
       {
-        type: "projectile", telegraph: "redFlash", windupMs: 600, range: 200, speed: 120, damage: 9, radius: 3,
-        count: 2, spreadDeg: 16, cooldownMs: 2200, recoverMs: 400,
+        type: "projectile", telegraph: "redFlash", windupMs: 500, range: 200, speed: 140, damage: 9, radius: 3,
+        count: 2, spreadDeg: 16, cooldownMs: 1800, recoverMs: 400,
       },
     ],
     biomes: ["caverns"],
@@ -344,7 +354,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     radius: 11,
     movement: { type: "stationary" },
     attacks: [
-      { type: "summon", telegraph: "channel", windupMs: 900, range: 999, enemyId: "waiter_penguin", count: 2, maxAlive: 5, cooldownMs: 4500, recoverMs: 300 },
+      { type: "summon", telegraph: "channel", windupMs: 900, range: 999, enemyId: "waiter_penguin", count: 2, maxAlive: 5, cooldownMs: 3800, recoverMs: 300 },
     ],
     biomes: ["caverns"],
     threatCost: 4,
@@ -358,11 +368,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "ambusher",
     defense: "armor",
     hp: 110,
-    speed: 85,
+    speed: 95,
     radius: 9,
     movement: { type: "ambush", trigger: 46, revealMs: 450 },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 420, range: 16, reach: 12, damage: 15, cooldownMs: 1400, recoverMs: 400 },
+      { type: "melee", telegraph: "redFlash", windupMs: 300, range: 16, reach: 12, damage: 15, cooldownMs: 1000, recoverMs: 400 },
     ],
     biomes: ["caverns"],
     threatCost: 3,
@@ -376,11 +386,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "splitter",
     defense: "flesh",
     hp: 85,
-    speed: 32,
+    speed: 42,
     radius: 9,
     movement: { type: "chase" },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 500, range: 14, reach: 8, damage: 10, cooldownMs: 1300, recoverMs: 400 },
+      { type: "melee", telegraph: "redFlash", windupMs: 340, range: 14, reach: 8, damage: 10, cooldownMs: 900, recoverMs: 400 },
     ],
     biomes: ["caverns"],
     threatCost: 3,
@@ -395,11 +405,11 @@ export const ENEMIES: Record<string, EnemyDef> = {
     role: "splitter",
     defense: "flesh",
     hp: 18,
-    speed: 66,
+    speed: 76,
     radius: 5,
     movement: { type: "chase" },
     attacks: [
-      { type: "melee", telegraph: "redFlash", windupMs: 360, range: 12, reach: 7, damage: 5, cooldownMs: 1000, recoverMs: 300 },
+      { type: "melee", telegraph: "redFlash", windupMs: 260, range: 12, reach: 7, damage: 5, cooldownMs: 700, recoverMs: 300 },
     ],
     biomes: ["caverns"],
     threatCost: 0,
@@ -412,36 +422,46 @@ export const ENEMIES: Record<string, EnemyDef> = {
     flavor: "Would like to file a complaint with the cruise line. Several.",
     role: "boss",
     defense: "armor",
-    hp: 2200,
-    speed: 30,
+    hp: 2400,
+    speed: 36,
     radius: 16,
     movement: { type: "chase" },
     attacks: [
       // 0: frost breath in a wedge, leaving slush
       {
-        type: "cone", telegraph: "cone", windupMs: 1000, range: 100, length: 120, angleDeg: 50, damage: 22, push: 140,
-        cooldownMs: 3200, recoverMs: 600, ice: { radius: 16, durationMs: 6000 },
+        type: "cone", telegraph: "cone", windupMs: 700, range: 110, length: 140, angleDeg: 60, damage: 22, push: 160,
+        cooldownMs: 2600, recoverMs: 450, ice: { radius: 16, durationMs: 6000 },
       },
       // 1: tail swipe that sends you sliding
-      { type: "slam", telegraph: "groundCircle", windupMs: 900, range: 30, radius: 46, damage: 22, push: 320, cooldownMs: 2800, recoverMs: 600 },
+      { type: "slam", telegraph: "groundCircle", windupMs: 650, range: 34, radius: 54, damage: 22, push: 340, cooldownMs: 2200, recoverMs: 450 },
       // 2: icicles from the ceiling
       {
-        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 1000, range: 300, radius: 20, damage: 14,
-        flightMs: 900, cooldownMs: 4200, recoverMs: 500, count: 5, scatter: 70,
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 750, range: 320, radius: 22, damage: 14,
+        flightMs: 900, cooldownMs: 3400, recoverMs: 400, count: 7, scatter: 80,
       },
-      // 3: belly slide
+      // 3: belly slide, again and again
       {
-        type: "dash", telegraph: "line", windupMs: 900, range: 220, dashSpeed: 300, dashMs: 800, damage: 26, push: 260,
-        cooldownMs: 4600, recoverMs: 700, stunMs: 2000,
+        type: "dash", telegraph: "line", windupMs: 650, range: 260, dashSpeed: 340, dashMs: 800, damage: 26, push: 280,
+        cooldownMs: 4400, recoverMs: 500, stunMs: 1700, chain: 3,
       },
       // 4: calls the waiters
-      { type: "summon", telegraph: "channel", windupMs: 1000, range: 999, enemyId: "waiter_penguin", count: 4, maxAlive: 6, cooldownMs: 9000, recoverMs: 400 },
+      { type: "summon", telegraph: "channel", windupMs: 800, range: 999, enemyId: "waiter_penguin", count: 4, maxAlive: 6, cooldownMs: 9000, recoverMs: 400 },
+      // 5: avalanche roar: shockwave rings
+      { type: "shockwave", telegraph: "groundCircle", windupMs: 900, range: 999, rings: 3, gapMs: 650, speed: 140, damage: 20, push: 220, cooldownMs: 7000, recoverMs: 500 },
+      // 6: hailstorm: rings of ice shards
+      { type: "nova", telegraph: "channel", windupMs: 800, range: 999, count: 16, volleys: 5, gapMs: 340, speed: 105, damage: 11, radius: 3, cooldownMs: 7000, recoverMs: 600 },
+      // 7: icicle rain that leaves slush everywhere
+      {
+        type: "lobbedProjectile", telegraph: "groundCircle", windupMs: 900, range: 999, radius: 26, damage: 18,
+        flightMs: 1300, cooldownMs: 8000, recoverMs: 500, count: 14, rain: true, puddle: { radius: 20, durationMs: 5000, damage: 0, ice: true },
+      },
     ],
     boss: {
       phases: [
-        { hpFrac: 1, attacks: [0, 1, 2], haste: 1 },
-        { hpFrac: 0.65, attacks: [0, 1, 2, 3], haste: 1.1 },
-        { hpFrac: 0.3, attacks: [0, 1, 2, 3, 4], haste: 1.3 },
+        { hpFrac: 1, attacks: [0, 1, 2, 5], haste: 1 },
+        { hpFrac: 0.7, attacks: [0, 1, 2, 3, 5, 6], haste: 1.2 },
+        { hpFrac: 0.4, attacks: [0, 1, 3, 4, 5, 6, 7], haste: 1.4 },
+        { hpFrac: 0.15, attacks: [0, 3, 5, 6, 7], haste: 1.7 },
       ],
     },
     biomes: ["caverns"],

@@ -3,9 +3,39 @@
 A casual, mobile-first co-op looter brawler. The full design lives in
 [Co-op Looter Brawler — Game Design Doc.md](Co-op%20Looter%20Brawler%20—%20Game%20Design%20Doc.md).
 
-**Current state: roadmap phase 5, content (first pass).** Two adventures, the Burning Foundry and the Frozen
-Caverns (each a hand-made intro room, two director-built combat rooms, a breather with a shrine and a suitcase, and a
-boss), playable solo or with up to 4 friends, with four heroes to choose from:
+**Current state: roadmap phase 5, content (first pass), plus long runs.** Two biomes, the Burning Foundry and the
+Frozen Caverns, playable solo or with up to 4 friends, with four heroes to choose from.
+
+**Runs** are long and meant to be lost a few times before they're won:
+
+- **Three acts.** Act 1 is the adventure you picked, act 2 is the other biome, act 3 mixes both (rooms from either
+  biome, enemies from both families) and ends with both bosses at once. Each act is an arrival room, five rooms you
+  choose, and a boss. Enemies get tougher, hit harder and attack faster every act.
+- **Branching doors.** A cleared room opens two or three doors along the top wall, labelled with what's behind them:
+  Fight, Elite Fight (harder, a rare gun each), Event (a fight with a twist), Shrine (two boosts each), Rest Stop
+  (half your health back and a suitcase). Stand in a door to vote. Most votes wins, the host breaks ties, and
+  stragglers get a few seconds.
+- **Events (twists):** Rush Hour (waves don't wait, double loot), Lights Out (dark except around the heroes), Hold the
+  Line (survive the timer), Baggage Claim (conveyor belts), Overbooked (every family at once), Elite Convention,
+  Falling Luggage (telegraphed suitcases rain down) and Ambush (spawns in a ring around you). From act 2 on, some
+  plain fights get a twist too.
+- **Run boosts, per player.** After most rooms each player gets their own three offers (gems only they can see) and
+  takes one. There are 50+ boosts across shots, crits, elements, kills, dashes, survival, skills, grenades and co-op,
+  with rarities, stacking and keystones (Wildfire, Shatter, Overload, Meltdown) that need the matching tag first.
+  Offers lean toward your build and away from what teammates took. The pause menu lists your build.
+- **Smarter, faster enemies.** Melee enemies wind up and recover much faster, track you during the windup and lunge.
+  Shooters lead their shots, packs surround you instead of queueing, enemies spread over the party, supports hide
+  behind their friends, ranged enemies sometimes sidestep your shots, and nobody stands in your fire.
+- **Bigger bosses.** Faster windups, four phases (an enrage at 15%), chained triple charges, shockwave rings that
+  sweep the whole arena (dash through them, or be inside a dome), rings of bolts, and rain that covers the floor.
+- **Endless.** Beat the final boss and choose: fly home with the win, or keep going. Each endless act is harder, and
+  every boss after that offers the way home again. Going down in endless still counts as a win.
+- **Rewards** count rooms, kills and bosses, so a lost run still pays. The first boss of the day gives the daily bonus
+  and the guaranteed souvenir; first-clear hats need the full win.
+- Dev shortcuts (solo, dev builds): `?seed=123`, `?room=boss` (or `elite`, `event`, `shrine`, `rest`), `&act=2`,
+  `&twist=dark`.
+
+Everything else from phase 5:
 
 - **Four heroes**, each with their own level, action skill and three five-node skill branches. Switch with the hero
   button in the lobby; switching is free.
@@ -50,7 +80,7 @@ boss), playable solo or with up to 4 friends, with four heroes to choose from:
   skins** (googly eyes, gold plating, "Property of the Cruise Line"...) and **emotes** (wave, dramatic bow, air guitar,
   the floss but worse...). Hats, trails and skins show in runs too, for everyone in the party.
   - The first win of each adventure on each tier gives that clear's hat.
-  - Wins sometimes drop one (12% solo, 20% co-op, more on harder tiers).
+  - Runs that beat a boss sometimes drop one (12% solo, 20% co-op, more on harder tiers).
   - Milestones: 10 and 25 wins, 50 runs, 2,000 kills, 3 legendaries, a level 30 hero.
   - Pick them in the **Wardrobe**. Guests wear the starter items only.
 
@@ -58,8 +88,9 @@ From phase 4:
 
 - **Accounts**: a name and password keep your hero, guns and souvenirs on every device. Guests can still play
   everything, but nothing is saved.
-- **Hero levels** on the design doc's curve (125 XP for level 2, 13,775 to the cap of 30). A solo win is worth
-  about 110 XP, co-op 30% more, and **the first win of the day** half again.
+- **Hero levels** on the design doc's curve (125 XP for level 2, 13,775 to the cap of 30). A solo run through
+  the first boss is worth about 150 XP and a full win several times that; co-op 30% more, and **the first boss of
+  the day** half again.
 - **Skill branches**: the Vanguard has three branches of five nodes (Bulkhead, Static, Return to Sender) that change
   what the dome does rather than adding percentages. One point per level, free respec, and even a maxed hero can't
   take everything.
@@ -72,7 +103,7 @@ From phase 4:
 - **Loot comes home**: every gun you pick up in a run goes to your armory, and the two in your hands become your
   loadout. Equip, compare (green arrows), scrap for XP, or scrap all commons in one tap. The intro room's
   try-out guns are loaners and stay behind.
-- **Souvenirs** (permanent boosts) from solo wins: always from the first win of the day, sometimes otherwise. Pick
+- **Souvenirs** (permanent boosts) from solo runs that beat a boss: always from the first of the day, sometimes otherwise. Pick
   one of three; each rank is about 1% of something, with a hard cap of 15 ranks.
 - **Helping newer players**: in co-op, being at or above the tier's level with someone below it gives +25% XP and
   an extra gun.

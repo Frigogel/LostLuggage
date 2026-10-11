@@ -5,7 +5,7 @@ import { hurtGadget, hurtGadgetsIn, magnetize } from "./gadgets";
 import { nearestMarked } from "./marks";
 import { levelMultiplier } from "./data/heroes";
 import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub } from "./math";
-import { hasSkill } from "./players";
+import { dashedWithin, hasSkill } from "./players";
 import type { Projectile, World } from "./types";
 
 /** Hot Take's burning line: one patch per tick of flight, each burning what stands in it twice a second. */
@@ -240,6 +240,20 @@ export function updateHazards(w: World): void {
       for (const e of [...w.enemies]) {
         if (!targetable(e) || dist(e.pos, h.pos) > h.radius + e.radius) continue;
         damageEnemy(w, e, h.damage, { dir: { x: 0, y: 0 }, knockback: 0, sourcePlayerId: h.ownerId ?? -1, element: "fire" });
+      }
+      continue;
+    }
+    if (h.kind === "wave") {
+      // A boss shockwave: a thin ring racing outward. Dash through it, or be inside a dome when it passes.
+      const r = h.radius * (1 - h.t / h.maxT);
+      for (const p of w.players) {
+        // Dashing over it counts if the dash started a moment before the ring got there.
+        if (p.downed || p.away || dashedWithin(p, 0.35) || Math.abs(dist(p.pos, h.pos) - r) > 5 + p.radius * 0.5) continue;
+        if (domeAt(w, p.pos)) {
+          w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
+          continue;
+        }
+        if (hurtPlayer(w, p, h.damage) && h.push) p.knock = add(p.knock, scale(norm(sub(p.pos, h.pos)), h.push));
       }
       continue;
     }

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { ARENA, EXIT, HERO_IDS } from "@lostluggage/sim";
+import { ARENA, DOOR, HERO_IDS } from "@lostluggage/sim";
 import { SLOT_PALETTES } from "../render/colors";
 import { cosmeticTextures, drawBelt, drawLobby } from "../render/cosmetics";
 import {
@@ -12,6 +12,7 @@ import {
   drawIceBlock,
   drawIceFloor,
   drawLava,
+  drawOrb,
   drawRing,
   drawShadow,
   drawSprite,
@@ -55,8 +56,9 @@ export class BootScene extends Phaser.Scene {
     add("floor", drawFloor(ARENA.w, ARENA.h, FLOOR_PAD));
     add("floor-caverns", drawIceFloor(ARENA.w, ARENA.h, FLOOR_PAD));
     add("vent", drawVent(18));
-    add("door-closed", drawDoor(EXIT.w, EXIT.h, false));
-    add("door-open", drawDoor(EXIT.w, EXIT.h, true));
+    add("door-closed", drawDoor(DOOR.w, DOOR.h, false));
+    add("door-open", drawDoor(DOOR.w, DOOR.h, true));
+    add("orb", drawOrb());
 
     const px = document.createElement("canvas");
     px.width = px.height = 2;

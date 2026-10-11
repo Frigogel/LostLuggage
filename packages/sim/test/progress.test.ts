@@ -257,6 +257,7 @@ describe("legendaries and manufacturers in play", () => {
     const w = quiet();
     const p = fireAt(w, "pistol", "common", "none", "wizard");
     const e = dummy(w, p.pos.x + 100, p.pos.y - 40, "cone_rat");
+    e.stunT = 99; // hold still: rats go around you now
     // Aim straight right: the enemy is off to the side.
     step(w, [input({ fire: true, aim: { x: 100, y: 0 } })]);
     run(w, 20);
@@ -303,19 +304,22 @@ describe("souvenirs", () => {
 
 describe("progression", () => {
   const gun = (id: string, rarity: StashGun["rarity"] = "rare", extra: Partial<StashGun> = {}): StashGun => ({ id, defId: "smg", element: "shock", rarity, perks: ["bounce"], maker: "wizard", ...extra });
-  const result = (over: Partial<RunResult> = {}): RunResult => ({ mode: "solo", heroId: "vanguard", tier: 0, victory: true, rooms: 5, kills: 100, guns: [], hand: [], day: "2026-10-10", ...over });
+  // A typical run: through the first act and its boss.
+  const result = (over: Partial<RunResult> = {}): RunResult => ({ mode: "solo", heroId: "vanguard", tier: 0, victory: false, rooms: 7, acts: 1, kills: 100, guns: [], hand: [], day: "2026-10-10", ...over });
   const act = (p: Profile, a: Action) => applyAction(p, a);
 
-  it("a solo win is worth about 100 XP, and the first win of the day half again", () => {
+  it("a run through the first boss is worth about 150 XP, the first boss of the day half again, and a win far more", () => {
     const p = newProfile("Ana");
     const first = act(p, { type: "run", id: "r1", result: result() });
-    expect(first.reward!.bonuses.join()).toMatch(/FIRST WIN/);
+    expect(first.reward!.bonuses.join()).toMatch(/FIRST BOSS/);
     const second = act(first.profile, { type: "run", id: "r2", result: result() });
-    expect(second.reward!.xp).toBeGreaterThan(90);
-    expect(second.reward!.xp).toBeLessThan(120);
+    expect(second.reward!.xp).toBeGreaterThan(120);
+    expect(second.reward!.xp).toBeLessThan(180);
+    const win = act(first.profile, { type: "run", id: "r4", result: result({ victory: true, rooms: 20, acts: 3, kills: 600 }) });
+    expect(win.reward!.xp).toBeGreaterThan(second.reward!.xp * 3);
     expect(first.reward!.xp).toBeCloseTo(second.reward!.xp * 1.5, -1);
     // A loss still pays for the rooms you cleared.
-    const loss = act(p, { type: "run", id: "r3", result: result({ victory: false, rooms: 2, kills: 30 }) });
+    const loss = act(p, { type: "run", id: "r3", result: result({ victory: false, rooms: 2, acts: 0, kills: 30 }) });
     expect(loss.reward!.xp).toBeGreaterThan(20);
     expect(loss.reward!.souvenir).toBe(false);
     expect(first.reward!.souvenir).toBe(true);

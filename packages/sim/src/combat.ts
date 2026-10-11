@@ -1,3 +1,4 @@
+import { actDamage, actHp } from "./director";
 import { ENEMIES } from "./data/enemies";
 import { HEROES, levelMultiplier } from "./data/heroes";
 import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
@@ -118,6 +119,22 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   const p = w.players.find((pl) => pl.id === o.sourcePlayerId);
   const mark = markBonus(w, e, p, !!o.secondary);
   dmg *= mark.mult;
+  if (e.status.acidT > 0 && def.defense === "armor" && p?.boosts.meltdown) dmg *= 1.6 / 1.25;
+  // Wildfire: anything burning takes more from everyone.
+  if (e.status.burnT > 0 && w.players.some((pl) => pl.boosts.wildfire)) dmg *= 1.4;
+  let crit = false;
+  if (p) {
+    const boost = boostDamage(w, p, e, def, weak, !!o.secondary);
+    dmg *= boost.mult;
+    crit = boost.crit;
+    // Shatter: a frozen enemy takes triple, and the freeze breaks in a burst of ice.
+    if (p.boosts.shatter && e.status.frozenT > 0 && !o.secondary) {
+      dmg *= 3;
+      e.status.frozenT = 0;
+      crit = true;
+      playerExplosion(w, e.pos, 30, 12, 120, p.id, "frost", true);
+    }
+  }
 
   // Support shields soak damage first; Shock tears through them.
   let hitShield = false;
@@ -142,10 +159,11 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   if (p && !p.downed && !o.noCharge) p.skillCharge = Math.min(1, p.skillCharge + (dealt * p.mods.charge) / HEROES[p.heroId]!.skillChargeDamage);
 
   if (!o.secondary) applyStatus(w, e, def, amount, o);
+  if (!o.secondary && p && e.hp > 0) procBoosts(w, e, def, amount, o, p);
 
   const kill = e.hp <= 0;
-  w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.max(1, Math.round(dmg || amount * 0.01)), kill, element: o.element, weak: weak || mark.crit, shield: hitShield && dmg === 0 });
-  if (mark.crit) w.events.push({ type: "crit", x: e.pos.x, y: e.pos.y });
+  w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.max(1, Math.round(dmg || amount * 0.01)), kill, element: o.element, weak: weak || mark.crit || crit, shield: hitShield && dmg === 0 });
+  if (mark.crit || crit) w.events.push({ type: "crit", x: e.pos.x, y: e.pos.y });
   if (kill) onKill(w, e, def, o, p);
 }
 
@@ -169,14 +187,12 @@ function applyStatus(w: World, e: Enemy, def: EnemyDef, amount: number, o: Damag
       }
       break;
     case "acid":
-      s.acidT = 4;
+      s.acidT = w.players.find((pl) => pl.id === o.sourcePlayerId)?.boosts.meltdown ? 8 : 4;
       break;
     case "shock": {
-      const next = nearestEnemy(w, e.pos, 55, e.id);
-      if (next) {
-        w.events.push({ type: "chain", x1: e.pos.x, y1: e.pos.y, x2: next.pos.x, y2: next.pos.y });
-        damageEnemy(w, next, amount * 0.5, { ...o, secondary: true, knockback: 0 });
-      }
+      // Overload: the chain keeps jumping.
+      const jumps = 1 + (w.players.find((pl) => pl.id === o.sourcePlayerId)?.boosts.overload ? 2 : 0);
+      chain(w, e, amount * 0.5, o, jumps);
       break;
     }
   }
@@ -203,7 +219,9 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
   // Loot: guns by the enemy's drop chance (elites twice as likely, and luckier), health snacks sometimes.
   if (!e.noLoot) {
     const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0) + (e.elite ? 0.4 : 0) + partyLuck(w);
-    const drops = def.boss ? 2 : rand(w) < def.dropChance * (e.elite ? 2 : 1) ? 1 : 0;
+    // Rush Hour pays double.
+    const rush = w.run.room.twist === "rush" ? 2 : 1;
+    const drops = def.boss ? 2 : rand(w) < def.dropChance * (e.elite ? 2 : 1) * rush ? 1 : 0;
     for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
     if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
   }
@@ -215,6 +233,13 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
   if (gun?.perks.includes("hotStreak")) p.streakT = 3;
   if (gun?.perks.includes("volatile")) playerExplosion(w, e.pos, 22, 10, 80, p.id, gun.element, true);
   if (p.boosts.vampire) p.hp = Math.min(p.maxHp, p.hp + 2 * p.boosts.vampire);
+  if (p.boosts.souvenirs) playerExplosion(w, e.pos, 30, 15 * p.boosts.souvenirs * levelMultiplier(p.syncLevel), 100, p.id, "none", true);
+  if (p.boosts.refill) {
+    const g = p.guns[p.active]!;
+    g.pips = Math.min(gunStats(g).pips, g.pips + 0.5 * p.boosts.refill);
+  }
+  if (p.boosts.miles) p.skillCharge = Math.min(1, p.skillCharge + 0.03 * p.boosts.miles);
+  if (p.boosts.rush) p.dashCd = Math.max(0, p.dashCd - 0.5 * p.boosts.rush);
   if (p.boosts.burnSpread && e.status.burnT > 0) {
     for (const other of w.enemies) {
       if (other === e || !targetable(other) || dist(other.pos, e.pos) > 40 + 10 * p.boosts.burnSpread) continue;
@@ -247,7 +272,8 @@ export function dropHeal(w: World, at: Vec, amount: number): void {
 
 export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number, elite?: EliteId): Enemy {
   const def = ENEMIES[defId]!;
-  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss) * (elite ? ELITE_HP : 1));
+  const act = w.run.plans[w.run.room.index]?.act ?? 0;
+  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss) * (elite ? ELITE_HP : 1) * actHp(act));
   const e: Enemy = {
     id: newId(w),
     defId,
@@ -288,14 +314,18 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
     linkT: 0,
     // Teleporters wait a few seconds before their first blink, so they're seen arriving.
     blinkT: elite === "teleporting" ? 3 + rand(w) * 2 : 0,
+    burst: 0,
+    dodgeT: 0,
   };
   if (elite) e.elite = elite;
   w.enemies.push(e);
   return e;
 }
 
-export function hurtPlayer(w: World, p: Player, amount: number): boolean {
+export function hurtPlayer(w: World, p: Player, raw: number): boolean {
   if (p.downed || p.away || p.iframes > 0) return false;
+  // Later acts hit harder; Bubble Wrap takes the edge off.
+  const amount = raw * actDamage(w.run.plans[w.run.room.index]?.act ?? 0) * Math.pow(0.9, p.boosts.bubbleWrap ?? 0);
   // Overheal shields soak the hit first.
   const soaked = Math.min(p.shield, amount);
   p.shield -= soaked;
@@ -303,6 +333,8 @@ export function hurtPlayer(w: World, p: Player, amount: number): boolean {
   p.iframes = 0.45;
   p.hurtT = 0.2;
   w.events.push({ type: "playerHurt", id: p.id, damage: amount });
+  // Do Not Disturb: getting hit zaps everything close.
+  if (p.boosts.dnd) playerExplosion(w, p.pos, 50, 20 * p.boosts.dnd * levelMultiplier(p.syncLevel), 200, p.id, "shock", true);
   // Guardian Owl: once per owl, a nearby ally who would go down stays up at 1 HP.
   if (p.hp <= 0) {
     const owl = w.gadgets.find((g) => g.kind === "drone" && !g.saved && dist(g.pos, p.pos) < 70 && w.players.find((o) => o.id === g.ownerId)?.skills.includes("wd_guardian"));
@@ -393,4 +425,61 @@ export function spawnDome(w: World, p: Player): Dome {
   w.domes.push(d);
   w.events.push({ type: "skill", id: p.id, x: p.pos.x, y: p.pos.y });
   return d;
+}
+
+/** Shock chains: hop to the nearest enemy not hit yet, `jumps` times. */
+function chain(w: World, from: Enemy, damage: number, o: DamageOpts, jumps: number): void {
+  const hit = [from.id];
+  let at = from;
+  for (let i = 0; i < jumps; i++) {
+    let next: Enemy | undefined;
+    let best = 55;
+    for (const e of w.enemies) {
+      if (!targetable(e) || hit.includes(e.id)) continue;
+      const d = dist(at.pos, e.pos) - e.radius;
+      if (d < best) {
+        best = d;
+        next = e;
+      }
+    }
+    if (!next) return;
+    w.events.push({ type: "chain", x1: at.pos.x, y1: at.pos.y, x2: next.pos.x, y2: next.pos.y });
+    damageEnemy(w, next, damage, { ...o, secondary: true, knockback: 0 });
+    hit.push(next.id);
+    at = next;
+  }
+}
+
+/** Run boosts that change how hard a player's hits land. */
+function boostDamage(w: World, p: Player, e: Enemy, def: EnemyDef, weak: boolean, secondary: boolean): { mult: number; crit: boolean } {
+  const n = (id: string) => p.boosts[id] ?? 0;
+  let mult = 1;
+  if (n("lastCall") && e.hp < e.maxHp * 0.3) mult *= 1 + 0.5 * n("lastCall");
+  if (n("priority") && (e.elite || def.boss)) mult *= 1 + 0.25 * n("priority");
+  const d = dist(p.pos, e.pos);
+  if (n("personal") && d < 70) mult *= 1 + 0.3 * n("personal");
+  if (n("window") && d > 150) mult *= 1 + 0.3 * n("window");
+  if (n("emergency") && p.hp < p.maxHp * 0.3) mult *= 1 + 0.4 * n("emergency");
+  if (n("adapter") && weak) mult *= 1 + 0.25 * n("adapter");
+  if (n("buddy") && w.players.some((o) => o !== p && !o.downed && !o.away && dist(o.pos, p.pos) < 90)) mult *= 1 + 0.15 * n("buddy");
+  let crit = false;
+  if (!secondary && n("firstClass") && rand(w) < 0.1 * n("firstClass")) {
+    crit = true;
+    mult *= n("upgrade") ? 3 : 2;
+  }
+  return { mult, crit };
+}
+
+/** On-hit chances from run boosts: set alight, chill, zap, melt. */
+function procBoosts(w: World, e: Enemy, def: EnemyDef, amount: number, o: DamageOpts, p: Player): void {
+  const n = (id: string) => p.boosts[id] ?? 0;
+  const s = e.status;
+  if (n("hotSauce") && !def.fireImmune && rand(w) < 0.15 * n("hotSauce")) {
+    s.burnT = 3;
+    s.burnDps = Math.max(s.burnDps, 3 + amount * 0.3);
+    s.burnSource = p.id;
+  }
+  if (n("extraIce") && rand(w) < 0.15 * n("extraIce")) applyStatus(w, e, def, Math.max(18, amount), { ...o, element: "frost" });
+  if (n("staticSocks") && rand(w) < 0.15 * n("staticSocks")) chain(w, e, amount * 0.5, { ...o, element: "shock" }, 1 + (n("overload") ? 2 : 0));
+  if (n("shampoo") && rand(w) < 0.15 * n("shampoo")) s.acidT = Math.max(s.acidT, n("meltdown") ? 8 : 4);
 }

@@ -5,8 +5,9 @@ import { eliteHaste, eliteSpeed, updateElite } from "./elites";
 import { hurtGadget, hurtGadgetsIn, tauntOf, tauntSlow, TURRET } from "./gadgets";
 import { MARK, tickMark } from "./marks";
 import { add, clamp, dist, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
-import type { AttackDef, Enemy, EnemyDef, World } from "./types";
-import { ventState } from "./room";
+import type { AttackDef, Enemy, EnemyDef, Player, World } from "./types";
+import { beltAt, ventState } from "./room";
+import { actHaste } from "./director";
 
 /** Whatever an enemy is going after: a player, or a turret that taunted it. */
 interface Target {
@@ -19,12 +20,30 @@ interface Target {
 /** Spike walls hurt enemies too, when they're shoved into them hard enough. */
 const SPIKES = { minKnock: 60, damage: 25, bounce: 180 };
 
+/** How many enemies are already after each player this tick, so packs spread over the party. */
+let pressure = new Map<number, number>();
+
 export function updateEnemies(w: World): void {
+  pressure = new Map();
   for (const e of [...w.enemies]) updateEnemy(w, e);
   separate(w);
+  // Baggage Claim belts carry enemies too.
+  if (w.arena.belts.length > 0) {
+    for (const e of w.enemies) {
+      if (e.state === "hidden" || e.spawnT > 0 || ENEMIES[e.defId]!.movement.type === "stationary" || e.state === "attack") continue;
+      const belt = beltAt(w.arena, e.pos);
+      if (belt) e.pos.x += belt.vx * DT;
+    }
+  }
   for (const e of w.enemies) {
     const def = ENEMIES[e.defId]!;
-    if (e.state === "hidden" || def.movement.type === "stationary") continue;
+    if (e.state === "hidden") continue;
+    if (def.movement.type === "stationary") {
+      // Props stay put: no shoving them around (or out of the room).
+      e.knock = { x: 0, y: 0 };
+      confine(w, e.pos, e.radius);
+      continue;
+    }
     for (const d of w.domes) {
       // Domes keep enemies out entirely (except the Black Hole Dome, which wants them in).
       if (isBlackHole(w, d)) continue;
@@ -57,15 +76,37 @@ function spikeEnemy(w: World, e: Enemy): void {
   }
 }
 
-function haste(e: Enemy, def: EnemyDef): number {
-  return (def.boss ? def.boss.phases[e.phase]!.haste : 1) * eliteHaste(e);
+/** Everything that speeds up an enemy's attack clock: boss phases, Hasted, and how deep into the run this is. */
+function haste(w: World, e: Enemy, def: EnemyDef): number {
+  const act = w.run.plans[w.run.room.index]?.act ?? 0;
+  return (def.boss ? def.boss.phases[e.phase]!.haste : 1) * eliteHaste(e) * actHaste(act);
 }
 
-/** A taunting turret wins over the nearest player. */
+/**
+ * A taunting turret wins. Otherwise the nearest player, but enemies spread over the party: a player who already has
+ * a crowd on them counts as a bit further away, so friends standing back still get company.
+ */
 function targetOf(w: World, e: Enemy): Target | undefined {
   const t = tauntOf(w, e);
   if (t) return { pos: t.pos, vel: { x: 0, y: 0 }, radius: TURRET.radius };
-  return nearestPlayer(w, e.pos);
+  const up = w.players.filter((p) => !p.downed && !p.away);
+  if (up.length <= 1) return up[0] ?? nearestPlayer(w, e.pos);
+  let best: Player | undefined;
+  let bestScore = Infinity;
+  for (const p of up) {
+    const score = dist(e.pos, p.pos) + 35 * Math.max(0, (pressure.get(p.id) ?? 0) - 2);
+    if (score < bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  }
+  if (best) pressure.set(best.id, (pressure.get(best.id) ?? 0) + 1);
+  return best;
+}
+
+/** Where a target will be in `t` seconds if it keeps going. Enemies aim at that, so strafing in a line doesn't work. */
+function lead(target: Target, t: number, k = 1): Vec {
+  return add(target.pos, scale(target.vel, t * k));
 }
 
 function updateEnemy(w: World, e: Enemy): void {
@@ -105,7 +146,7 @@ function updateEnemy(w: World, e: Enemy): void {
     return;
   }
 
-  const h = haste(e, def);
+  const h = haste(w, e, def);
   for (let i = 0; i < e.cooldowns.length; i++) e.cooldowns[i] = Math.max(0, e.cooldowns[i]! - DT * h);
 
   if (def.boss) {
@@ -150,13 +191,25 @@ function updateEnemy(w: World, e: Enemy): void {
       break;
     }
     case "windup": {
+      const atk = def.attacks[e.attackIdx]!;
+      // Melee and charges keep turning toward you for the first part of the windup: stepping aside early doesn't
+      // work, dodging at the last moment does.
+      const total = atk.windupMs / 1000 / h;
+      if (target && (atk.type === "melee" || atk.type === "dash") && e.stateT > total * 0.4) {
+        const want = norm(sub(atk.type === "dash" ? lead(target, 0.2) : target.pos, e.pos));
+        e.attackDir = norm(add(scale(e.attackDir, 0.82), scale(want, 0.18)));
+      }
       // Frost stretches windups too.
       e.stateT -= DT * slow;
-      if (e.stateT <= 0) executeAttack(w, e, def, def.attacks[e.attackIdx]!, target);
+      if (e.stateT <= 0) executeAttack(w, e, def, atk, target);
       break;
     }
     case "attack": {
       const atk = def.attacks[e.attackIdx]!;
+      if (atk.type === "nova" || atk.type === "shockwave") {
+        updateBurst(w, e, atk);
+        break;
+      }
       if (atk.type !== "dash") break;
       e.vel = scale(e.attackDir, atk.dashSpeed * slow);
       e.pos = add(e.pos, scale(e.vel, DT));
@@ -211,8 +264,12 @@ function move(w: World, e: Enemy, def: EnemyDef, target: Target, slow: number): 
   if (m.type === "chase" || m.type === "ambush" || e.taunt) {
     const stopAt = Math.max(0, attackRange(def) * 0.6);
     if (d > stopAt + target.radius + e.radius) {
-      // Fan out while far away so packs surround instead of queueing.
-      want = d > 50 ? rotate(dir, e.steer) : dir;
+      if (d > 70 && !def.boss) {
+        // Surround: each chaser heads for its own spot around the target, so packs come from several sides
+        // instead of queueing up in front of your gun.
+        const slot = add(target.pos, fromAngle(e.id * 2.39996 + e.steer, 46));
+        want = norm(sub(slot, e.pos));
+      } else want = d > 50 ? rotate(dir, e.steer) : dir;
     }
   } else {
     if (d < m.min) want = scale(dir, -1);
@@ -220,6 +277,27 @@ function move(w: World, e: Enemy, def: EnemyDef, target: Target, slow: number): 
     else {
       want = scale({ x: -dir.y, y: dir.x }, e.strafe * 0.6);
       if (rand(w) < 0.01) e.strafe *= -1;
+    }
+    // Supports hang back behind their friends instead of out in the open.
+    if (def.role === "support") {
+      const friends = w.enemies.filter((o) => o !== e && targetable(o) && ENEMIES[o.defId]!.role !== "support");
+      if (friends.length > 0) {
+        const c = scale(friends.reduce((acc, o) => add(acc, o.pos), { x: 0, y: 0 }), 1 / friends.length);
+        const behind = add(c, scale(norm(sub(c, target.pos)), 40));
+        if (dist(e.pos, behind) > 30) want = add(want, scale(norm(sub(behind, e.pos)), 0.8));
+      }
+    }
+    // Ranged enemies sidestep shots coming straight at them (not every time, or they'd be unhittable).
+    dodge(w, e, (v) => (want = add(want, v)));
+  }
+
+  // Nobody likes standing in fire: enemies step out of burning ground unless they're fire-immune.
+  if (!def.fireImmune) {
+    for (const hz of w.hazards) {
+      if (hz.owner !== "player") continue;
+      const off = sub(e.pos, hz.pos);
+      const l = len(off);
+      if (l < hz.radius + e.radius + 6) want = add(want, scale(norm(off), 0.8));
     }
   }
 
@@ -237,6 +315,26 @@ function move(w: World, e: Enemy, def: EnemyDef, target: Target, slow: number): 
   e.pos = add(e.pos, scale(e.vel, DT));
 }
 
+/** Sidestep the nearest player shot heading this way. Re-decided now and then, so it's a habit, not a guarantee. */
+function dodge(w: World, e: Enemy, push: (v: Vec) => void): void {
+  if (e.dodgeT > 0) {
+    e.dodgeT -= DT;
+    return;
+  }
+  for (const pr of w.projectiles) {
+    if (pr.owner !== "player" || pr.lob) continue;
+    const off = sub(e.pos, pr.pos);
+    const d = len(off);
+    if (d > 80 || d < 1) continue;
+    const v = norm(pr.vel);
+    if (dot(v, norm(off)) < 0.93) continue;
+    // Half the time it reacts; either way it won't think about it again for a moment.
+    e.dodgeT = 0.6;
+    if (rand(w) < 0.5) push(scale({ x: -v.y * e.strafe, y: v.x * e.strafe }, 2.2));
+    return;
+  }
+}
+
 function dropTrail(w: World, e: Enemy, def: EnemyDef): void {
   const t = def.trail;
   if (!t || len(e.vel) < 1) return;
@@ -249,7 +347,7 @@ function dropTrail(w: World, e: Enemy, def: EnemyDef): void {
 }
 
 function attackRange(def: EnemyDef): number {
-  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" ? m : Math.min(m, a.range)), Infinity);
+  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" || a.type === "nova" || a.type === "shockwave" ? m : Math.min(m, a.range)), Infinity);
 }
 
 function childrenAlive(w: World, e: Enemy): number {
@@ -267,28 +365,37 @@ function canUse(w: World, e: Enemy, atk: AttackDef, d: number): boolean {
   }
 }
 
+/** Boss attacks big enough to get their own call-out on screen. */
+const BIG = new Set(["nova", "shockwave"]);
+
 function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void {
   const d = dist(e.pos, target.pos) - target.radius - e.radius;
   const usable = def.boss ? def.boss.phases[e.phase]!.attacks : def.attacks.map((_, i) => i);
-  for (const i of usable) {
-    const atk = def.attacks[i]!;
-    if (e.cooldowns[i]! > 0 || !canUse(w, e, atk, d)) continue;
-    e.state = "windup";
-    e.stateT = atk.windupMs / 1000 / haste(e, def);
-    e.attackIdx = i;
-    e.attackDir = norm(sub(target.pos, e.pos));
-    if (atk.type === "lobbedProjectile") {
-      // Lead the target a little so standing still isn't enough, but walking sideways is.
-      const lead = add(target.pos, scale(target.vel, 0.25));
-      e.attackPoints = [clampToArena(w, lead, 8)];
+  const ready = usable.filter((i) => e.cooldowns[i]! <= 0 && canUse(w, e, def.attacks[i]!, d));
+  if (ready.length === 0) return;
+  // Bosses mix it up; everyone else uses their first ready attack.
+  const i = def.boss ? ready[Math.floor(rand(w) * ready.length)]! : ready[0]!;
+  const atk = def.attacks[i]!;
+  e.state = "windup";
+  e.stateT = atk.windupMs / 1000 / haste(w, e, def);
+  e.attackIdx = i;
+  e.attackDir = norm(sub(atk.type === "dash" ? lead(target, 0.25) : target.pos, e.pos));
+  if (atk.type === "lobbedProjectile") {
+    // Lead the target by most of the flight: walking in a straight line gets you hit, changing direction doesn't.
+    e.attackPoints = [clampToArena(w, lead(target, atk.flightMs / 1000, 0.55), 8)];
+    if (atk.rain) {
+      // Boss rain: one on every player, the rest all over the arena.
+      for (const p of w.players) if (!p.downed && !p.away && dist(p.pos, target.pos) > 1) e.attackPoints.push(clampToArena(w, lead(p, atk.flightMs / 1000, 0.4), 8));
+      while (e.attackPoints.length < (atk.count ?? 1)) e.attackPoints.push({ x: randRange(w, 30, w.arena.w - 30), y: randRange(w, 40, w.arena.h - 30) });
+    } else {
       for (let k = 1; k < (atk.count ?? 1); k++) {
         const a = rand(w) * Math.PI * 2;
         e.attackPoints.push(clampToArena(w, add(target.pos, fromAngle(a, randRange(w, 20, atk.scatter ?? 40))), 8));
       }
     }
-    w.events.push({ type: "enemyWindup", id: e.id, attack: atk.type });
-    return;
   }
+  w.events.push({ type: "enemyWindup", id: e.id, attack: atk.type });
+  if (BIG.has(atk.type) || (atk.type === "lobbedProjectile" && atk.rain)) w.events.push({ type: "bossCall", id: e.id, attack: atk.type });
 }
 
 /** Is a point inside an enemy's breath wedge? */
@@ -319,14 +426,16 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
         const off = sub(g.pos, e.pos);
         if (g.kind === "turret" && len(off) < e.radius + TURRET.radius + atk.reach && dot(norm(off), e.attackDir) > 0.2) hurtGadget(w, g, atk.damage, e);
       }
-      // A small lunge sells the bite.
-      e.knock = add(e.knock, scale(e.attackDir, 90));
+      // A lunge sells the bite (and closes the gap if you only just stepped back).
+      e.knock = add(e.knock, scale(e.attackDir, 150));
       break;
     }
     case "dash": {
       e.state = "attack";
       e.stateT = atk.dashMs / 1000;
       e.hitPlayers = [];
+      // The first charge of a chain sets how many more follow.
+      if (e.burst <= 0 && atk.chain) e.burst = atk.chain - 1;
       break;
     }
     case "lobbedProjectile": {
@@ -371,7 +480,8 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       break;
     }
     case "projectile": {
-      const aimAt = target ? norm(sub(target.pos, e.pos)) : e.attackDir;
+      // Aim where you're going: about how long the bolt takes to get there.
+      const aimAt = target ? norm(sub(lead(target, dist(e.pos, target.pos) / atk.speed, 0.7), e.pos)) : e.attackDir;
       const base = angleOf(aimAt);
       const spread = (atk.spreadDeg * Math.PI) / 180;
       for (let k = 0; k < atk.count; k++) {
@@ -382,6 +492,15 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
           life: 3, hitIds: [], gunUid: -1,
         });
       }
+      break;
+    }
+    case "nova":
+    case "shockwave": {
+      // Several volleys (or rings) in a row, handled in the attack state.
+      e.state = "attack";
+      e.burst = atk.type === "nova" ? atk.volleys : atk.rings;
+      e.stateT = 0;
+      e.attackPoints = [];
       break;
     }
     case "shieldAllies": {
@@ -408,10 +527,21 @@ function endDash(w: World, e: Enemy, hitWall: boolean): void {
   const def = ENEMIES[e.defId]!;
   const atk = def.attacks[e.attackIdx]!;
   if (atk.type !== "dash") return;
-  e.state = "recover";
-  e.stateT = (hitWall ? atk.stunMs : atk.recoverMs) / 1000;
   e.vel = { x: 0, y: 0 };
   if (hitWall) w.events.push({ type: "bonk", id: e.id, x: e.pos.x, y: e.pos.y });
+  // Chained charges: a short re-aim, then off again. A wall still stuns it out of the chain.
+  if (e.burst > 0 && !hitWall) {
+    e.burst--;
+    const target = targetOf(w, e);
+    e.state = "windup";
+    e.stateT = 0.45 / haste(w, e, def);
+    if (target) e.attackDir = norm(sub(lead(target, 0.3), e.pos));
+    w.events.push({ type: "enemyWindup", id: e.id, attack: "dash" });
+    return;
+  }
+  e.burst = 0;
+  e.state = "recover";
+  e.stateT = (hitWall ? atk.stunMs : atk.recoverMs) / 1000;
 }
 
 /** Pushes overlapping enemies apart, and out of players (players are never shoved by bodies). */
@@ -452,4 +582,35 @@ function separate(w: World): void {
       if (l < min) a.pos = add(p.pos, scale(l > 0.01 ? scale(off, 1 / l) : { x: 1, y: 0 }, min));
     }
   }
+}
+
+/** Nova volleys and shockwave rings: one part every `gapMs`, then recover. */
+function updateBurst(w: World, e: Enemy, atk: Extract<AttackDef, { type: "nova" | "shockwave" }>): void {
+  e.stateT -= DT;
+  if (e.stateT > 0) return;
+  if (e.burst <= 0) {
+    e.state = "recover";
+    e.stateT = atk.recoverMs / 1000;
+    return;
+  }
+  e.burst--;
+  e.stateT = atk.gapMs / 1000;
+  w.events.push({ type: "enemyAttack", id: e.id, attack: atk.type });
+  if (atk.type === "nova") {
+    // Each volley turns half a step, so the safe gaps move and you have to move with them.
+    const turn = (e.burst % 2) * (Math.PI / atk.count) + rand(w) * 0.2;
+    for (let k = 0; k < atk.count; k++) {
+      const a = turn + (k / atk.count) * Math.PI * 2;
+      w.projectiles.push({
+        id: newId(w), owner: "enemy", ownerId: e.id, kind: "bolt", element: "none", pos: add(e.pos, fromAngle(a, e.radius)),
+        vel: fromAngle(a, atk.speed), radius: atk.radius, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0, life: 4, hitIds: [], gunUid: -1,
+      });
+    }
+    return;
+  }
+  // A ring that sweeps out to the far corners. It moves fast enough that you can't outrun it: dash through.
+  const reach = Math.hypot(w.arena.w, w.arena.h);
+  const t = reach / atk.speed;
+  w.hazards.push({ id: newId(w), kind: "wave", owner: "enemy", pos: { ...e.pos }, radius: Math.round(reach), t, maxT: t, damage: atk.damage, push: atk.push });
+  w.events.push({ type: "explosion", x: e.pos.x, y: e.pos.y, radius: 40, owner: "enemy", element: "none" });
 }
