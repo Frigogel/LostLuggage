@@ -2,7 +2,8 @@ import type { Rect, Vec } from "./math";
 
 export type Archetype = "pistol" | "shotgun" | "smg" | "sniper" | "launcher";
 export type Element = "none" | "fire" | "shock" | "frost" | "acid";
-export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
+/** Mythic sits above legendary: legendary numbers, and one ability that breaks the game a little (see data/mythics). */
+export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary" | "mythic";
 export type Defense = "flesh" | "armor" | "shield";
 export type Role =
   | "swarmer"
@@ -67,6 +68,8 @@ export interface GunData {
   maker: MakerId;
   /** Named legendary id: one rule-breaking effect. */
   legendary?: string;
+  /** Named mythic id: an ability that breaks the game, never its damage. */
+  mythic?: string;
 }
 
 export interface Gun extends GunData {
@@ -100,6 +103,8 @@ export interface GrenadeDef {
   hazard?: { kind: "fire" | "acid" | "ice"; seconds: number; damage: number };
   /** Bursts into this many bomblets. */
   cluster?: number;
+  /** Mythic grenades only: the ability that breaks the rules. They never come from the regular grenade roll. */
+  mythic?: "snooze" | "rewind";
 }
 
 /** What makes a grenade that grenade: everything a stash saves. */
@@ -447,6 +452,8 @@ export interface Player {
   holsterCd: number;
   /** Bullseye skill: hits on marked enemies, every fourth is a crit. */
   markHits: number;
+  /** Bosses beaten since this player last brought a mythic home: slowly raises the mythic odds. Server only. */
+  mythicPity?: number;
 }
 
 export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";
@@ -503,6 +510,8 @@ export interface Enemy {
   noLoot: boolean;
   /** Stunned: can't move or attack (Gunslinger's Hands Up). */
   stunT: number;
+  /** Asleep (Snooze Button): like a stun, but any damage wakes it up. */
+  sleepT: number;
   /** Slowed by a Warden's drone: the fraction of speed taken away, refreshed while it's close. */
   slowT: number;
   slow: number;
@@ -599,6 +608,10 @@ export interface Projectile {
   seekMarks?: number;
   /** Damage from gadgets doesn't charge the action skill, or turrets would pay for themselves. */
   noCharge?: boolean;
+  /** Return to Sender: bats enemy shots it touches back at whoever fired them. */
+  swat?: boolean;
+  /** Customs Officer: hits take away an elite's modifier and any shield bar. */
+  confiscate?: boolean;
 }
 
 export interface Dome {
@@ -617,8 +630,11 @@ export interface Dome {
 /** Ground effects that hurt whoever stands in them. */
 export interface Hazard {
   id: number;
-  /** Acid and fire hurt; ice slush slows players down; a wave is a boss shockwave ring growing out to `radius`. */
-  kind: "acid" | "fire" | "ice" | "wave";
+  /**
+   * Acid and fire hurt; ice slush slows players down; a wave is a boss shockwave ring growing out to `radius`.
+   * A rewind is a Black Box counting down: when it runs out, everyone it caught goes back to the health they had.
+   */
+  kind: "acid" | "fire" | "ice" | "wave" | "rewind";
   owner: "player" | "enemy";
   pos: Vec;
   radius: number;
@@ -630,6 +646,8 @@ export interface Hazard {
   tickT?: number;
   /** Waves: the shove they give. */
   push?: number;
+  /** Rewinds: who was caught, and the health each had when it landed. Server only. */
+  rewind?: { id: number; hp: number }[];
 }
 
 /**
@@ -851,6 +869,11 @@ export type SimEvent =
   | { type: "blink"; id: number; x: number; y: number; done: boolean }
   /** A linked elite's partner came back because it wasn't killed in time. */
   | { type: "relink"; id: number }
+  /** Customs Officer took an elite's modifier (and its shield bar) away. */
+  | { type: "confiscate"; id: number; x: number; y: number }
+  /** Snooze Button put an enemy to sleep, or a Black Box rewound someone (`by` is who threw it). */
+  | { type: "asleep"; id: number }
+  | { type: "rewound"; id: number; by: number }
   /** A shielded elite's front shield stopped a shot. */
   | { type: "deflect"; x: number; y: number }
   | { type: "playerDowned"; id: number; canRevive: boolean }

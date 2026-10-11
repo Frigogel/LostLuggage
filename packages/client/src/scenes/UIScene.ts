@@ -18,6 +18,7 @@ import {
   HEROES,
   LEGENDARIES,
   MAKERS,
+  MYTHIC_GUNS,
   PERKS,
   gunDps,
   gunName,
@@ -34,6 +35,7 @@ import {
 } from "@lostluggage/sim";
 import { BUTTONS, Controls, SCREEN, STICK_R, WEAPON_SLOTS, stickValue, type ButtonId, type Stick } from "../controls";
 import { ELEMENT_COLORS, RARITY_COLORS, SLOT_COLORS } from "../render/colors";
+import { mythicArtId, mythicHue } from "../render/mythics";
 import { BOOST_COLORS, type GameScene } from "./GameScene";
 
 const BUTTON_LABELS: Record<ButtonId, { touch: string; keys: string }> = {
@@ -84,6 +86,11 @@ const ROOM_BANNERS: Partial<Record<RoomKind, [string, string, number]>> = {
   elite: ["ELITE FIGHT", "TOUGH CROWD. BETTER LOOT.", 0xff9a2a],
 };
 const SEEN_KEY = "lostluggage.seenEnemies";
+/** The pickup card: how wide its text may get before it wraps, and how many lines it can show. */
+const CARD_W = 330;
+const CARD_LINES = 10;
+/** The pause screen gear list: how wide its text may get before it wraps. */
+const GEAR_W = 380;
 
 type Text = Phaser.GameObjects.BitmapText;
 
@@ -110,6 +117,8 @@ export class UIScene extends Phaser.Scene {
   private buttonText = new Map<ButtonId, Text>();
   private banner!: Text;
   private subBanner!: Text;
+  /** Off screen: measures text for word wrapping. */
+  private measurer!: Text;
   private card!: Text[];
   private help!: Text;
   private exitLabel!: Text;
@@ -188,8 +197,10 @@ export class UIScene extends Phaser.Scene {
     WEAPON_SLOTS.forEach((s) => this.slotIcons.push(this.add.image(s.x + s.w / 2, s.y + 8, "gun_pistol")));
 
     this.banner = this.text(SCREEN.w / 2, 92, "", 16).setOrigin(0.5).setAlpha(0);
-    this.subBanner = this.text(SCREEN.w / 2, 112, "", 8).setOrigin(0.5).setAlpha(0).setTint(0xffe08a);
-    this.card = [0, 1, 2, 3, 4, 5, 6].map((i) => this.text(SCREEN.w / 2, SCREEN.h - 70 + i * 11, "").setOrigin(0.5, 0));
+    this.subBanner = this.text(SCREEN.w / 2, 108, "", 8).setOrigin(0.5, 0).setAlpha(0).setTint(0xffe08a).setCenterAlign();
+    // Room for a long mythic description wrapping onto a few extra lines.
+    this.card = Array.from({ length: CARD_LINES }, (_, i) => this.text(SCREEN.w / 2, SCREEN.h - 70 + i * 11, "").setOrigin(0.5, 0));
+    this.measurer = this.text(-1000, -1000, "").setVisible(false);
     this.help = this.text(SCREEN.w / 2, SCREEN.h - 4, DESKTOP_HELP(HEROES[game.me.heroId]!.skillName), 8).setOrigin(0.5, 1).setCenterAlign().setTint(0xc9cfd6);
     this.tweens.add({ targets: this.help, alpha: 0, delay: 12000, duration: 1500 });
     this.exitLabel = this.text(0, 0, "DOORS", 8).setOrigin(0.5).setTint(0x5fd36a);
@@ -258,6 +269,71 @@ export class UIScene extends Phaser.Scene {
     this.panelButtons = [];
   }
 
+  /** Splits `s` into lines no wider than `maxW` pixels in the HUD font, breaking at spaces. */
+  private wrap(s: string, maxW: number): string[] {
+    if (!s) return [];
+    const out: string[] = [];
+    let line = "";
+    for (const word of s.split(" ")) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && this.measurer.setText(next).width > maxW) {
+        out.push(line);
+        line = word;
+      } else line = next;
+    }
+    if (line) out.push(line);
+    return out;
+  }
+
+  /** What a gun is and does, line by line: name, kind, its effect, its perks. */
+  private gunInfo(gun: Gun): [string, number][] {
+    const st = gunStats(gun);
+    const elem = gun.element !== "none" ? `  ${ELEMENT_INFO[gun.element].adjective}: ${ELEMENT_INFO[gun.element].text}` : "";
+    const lines: [string, number][] = [
+      [gunName(gun).toUpperCase(), gun.mythic ? mythicHue(this.time.now) : RARITY_COLORS[gun.rarity]],
+      [`${gun.rarity} ${st.archetype} BY ${MAKERS[gun.maker].short}${elem}`.toUpperCase(), gun.element !== "none" ? ELEMENT_COLORS[gun.element] : 0xc9cfd6],
+    ];
+    const leg = gun.legendary ? LEGENDARIES[gun.legendary] : undefined;
+    const myth = gun.mythic ? MYTHIC_GUNS[gun.mythic] : undefined;
+    if (myth) lines.push([`MYTHIC: ${myth.text}`.toUpperCase(), mythicHue(this.time.now)]);
+    else if (leg) lines.push([leg.text.toUpperCase(), 0xff9a2a]);
+    else if (gun.maker !== "cruise") lines.push([MAKERS[gun.maker].quirk.toUpperCase(), 0xc9cfd6]);
+    for (const perk of gun.perks) lines.push([`+ ${PERKS[perk].text}`.toUpperCase(), 0xffffff]);
+    return lines;
+  }
+
+  /** The pause screen's look at what you carry: both guns and the grenade, with what each one does. Returns the y below it. */
+  private drawGear(c: Phaser.GameObjects.Container, p: Player, top: number): number {
+    const left = -GEAR_W / 2;
+    c.add(this.add.bitmapText(0, top, "pixel", "YOUR GEAR", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e));
+    let y = top + 8;
+    const item = (icon: string, label: string, lines: [string, number][]) => {
+      c.add(this.add.image(left - 14, y + 4, icon).setScale(icon.startsWith("mythic_") ? 0.75 : 1));
+      lines.forEach(([text, tint], i) => {
+        for (const part of this.wrap(i === 0 ? `${label}${text}` : text, GEAR_W)) {
+          c.add(this.add.bitmapText(left, y, "pixel", part, 8).setLetterSpacing(-1).setTint(tint));
+          y += 9;
+        }
+      });
+      y += 4;
+    };
+    p.guns.forEach((gun, i) => {
+      const myth = mythicArtId(gun);
+      const lines = this.gunInfo(gun);
+      lines[1]![0] += `  DPS ${Math.round(gunDps(gun))}`;
+      item(myth ? `mythic_${myth}` : "gun_" + gunStats(gun).archetype, `${i === p.active ? "> " : ""}GUN ${i + 1}: `, lines);
+    });
+    const st = heldGrenade(p);
+    const myth = mythicArtId(p.grenade);
+    const elem = st.def.element;
+    item(myth ? `mythic_${myth}` : "grenade", "GRENADE: ", [
+      [st.def.name.toUpperCase(), myth ? mythicHue(this.time.now) : RARITY_COLORS[p.grenade.rarity]],
+      [`${p.grenade.rarity} grenade${elem !== "none" ? `  ${ELEMENT_INFO[elem].adjective}` : ""}  DMG ${Math.round(st.damage)}  EVERY ${st.cooldown.toFixed(1)}S`.toUpperCase(), elem !== "none" ? ELEMENT_COLORS[elem] : 0xc9cfd6],
+      [st.def.text.toUpperCase(), myth ? mythicHue(this.time.now) : 0xffffff],
+    ]);
+    return y;
+  }
+
   /** A tappable text button inside a panel container centered on screen. */
   private panelButton(c: Phaser.GameObjects.Container, x: number, y: number, label: string, tint: number, action: () => void): void {
     const t = this.add.bitmapText(x, y, "pixel", label, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(tint);
@@ -281,7 +357,7 @@ export class UIScene extends Phaser.Scene {
 
   private showBanner(main: string, sub = "", tint = 0xffffff, ms = 1600): void {
     this.banner.setText(main).setTint(tint).setAlpha(1).setScale(1.6);
-    this.subBanner.setText(sub).setAlpha(sub ? 1 : 0);
+    this.subBanner.setText(this.wrap(sub, SCREEN.w - 130).join("\n")).setAlpha(sub ? 1 : 0);
     this.tweens.killTweensOf([this.banner, this.subBanner]);
     this.tweens.add({ targets: this.banner, scale: 1, duration: 260, ease: "Back.out" });
     this.tweens.add({ targets: [this.banner, this.subBanner], alpha: 0, delay: ms, duration: 400 });
@@ -432,11 +508,19 @@ export class UIScene extends Phaser.Scene {
           break;
         case "pickup":
           if (ev.id !== myId) break;
-          this.showBanner(gunName(ev.gun).toUpperCase(), `${ev.gun.rarity} ${gunStats(ev.gun).archetype}`.toUpperCase(), RARITY_COLORS[ev.gun.rarity]);
+          if (ev.gun.mythic) {
+            const m = MYTHIC_GUNS[ev.gun.mythic];
+            this.showBanner(gunName(ev.gun).toUpperCase(), `MYTHIC ${gunStats(ev.gun).archetype}: ${m?.text ?? ""}`.toUpperCase(), mythicHue(this.time.now), 3000);
+          } else this.showBanner(gunName(ev.gun).toUpperCase(), `${ev.gun.rarity} ${gunStats(ev.gun).archetype}`.toUpperCase(), RARITY_COLORS[ev.gun.rarity]);
           break;
         case "grenadePickup":
           if (ev.id !== myId) break;
-          this.showBanner(grenadeName(ev.grenade).toUpperCase(), `${ev.grenade.rarity} grenade: ${grenadeStats(ev.grenade).def.text}`.toUpperCase(), RARITY_COLORS[ev.grenade.rarity]);
+          this.showBanner(
+            grenadeName(ev.grenade).toUpperCase(),
+            `${ev.grenade.rarity} grenade: ${grenadeStats(ev.grenade).def.text}`.toUpperCase(),
+            ev.grenade.rarity === "mythic" ? mythicHue(this.time.now) : RARITY_COLORS[ev.grenade.rarity],
+            ev.grenade.rarity === "mythic" ? 3000 : 1600,
+          );
           break;
         case "shrine": {
           if (ev.id !== myId) break;
@@ -516,12 +600,13 @@ export class UIScene extends Phaser.Scene {
     const sig = r.signature ? SIGNATURES[r.signature] : undefined;
     const looks = (r.cosmetics ?? []).map((id) => COSMETICS[id]?.name.toUpperCase()).filter(Boolean);
     const news: [string, number][] = [];
+    if (r.mythics) news.push([`${r.mythics > 1 ? `${r.mythics} MYTHICS` : "A MYTHIC"} CAME HOME! THE RAREST THING THERE IS`, mythicHue(this.time.now)]);
     if (sig) news.push([`SIGNATURE POWER: ${sig.name.toUpperCase()}! EQUIP IT IN SKILLS`, 0xff9a2a]);
     if (looks.length) news.push([`NEW LOOK: ${looks.join(", ")}! TRY IT IN THE WARDROBE`, 0xe05a9a]);
     if (r.souvenir) news.push(["SOUVENIR FOUND! UNPACK IT IN THE MENU", 0xf2c14e]);
     if (up) news.push([news.length ? "NEW SKILL POINTS TOO" : "NEW SKILL POINTS: SPEND THEM IN THE MENU", 0xf2c14e]);
     news.slice(0, 2).forEach(([text, tint], i) => lines[3 + i]!.setText(text).setTint(tint));
-    if (up || r.souvenir || r.legendaries || sig || looks.length) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
+    if (up || r.souvenir || r.legendaries || r.mythics || sig || looks.length) this.tweens.add({ targets: lines[0], scale: { from: 1.4, to: 1 }, duration: 400, ease: "Back.out" });
   }
 
   update(): void {
@@ -542,29 +627,33 @@ export class UIScene extends Phaser.Scene {
     if (game.paused && !this.pausePanel && !world.gameOver) {
       const c = this.add.container(SCREEN.w / 2, SCREEN.h / 2);
       const net = game.net;
+      // Dark enough to read the gear list over the fight behind it.
       c.add([
-        this.add.rectangle(0, 0, SCREEN.w, SCREEN.h, 0x1b1020, 0.7),
-        this.add.bitmapText(0, -50, "pixel", net ? "MENU" : "PAUSED", 16).setOrigin(0.5).setLetterSpacing(-1),
-        this.add.bitmapText(0, -30, "pixel", this.controls.touchMode ? "TAP TO RESUME" : "CLICK OR P TO RESUME", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e),
+        this.add.rectangle(0, 0, SCREEN.w, SCREEN.h, 0x1b1020, 0.82),
+        this.add.bitmapText(0, -124, "pixel", net ? "MENU" : "PAUSED", 16).setOrigin(0.5).setLetterSpacing(-1),
+        this.add.bitmapText(0, -108, "pixel", this.controls.touchMode ? "TAP TO RESUME" : "CLICK OR P TO RESUME", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e),
       ]);
       if (net) {
         // The party keeps going while this is open.
-        c.add(this.add.bitmapText(0, -14, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
-        this.panelButton(c, 0, 26, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
+        c.add(this.add.bitmapText(0, -98, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        this.panelButton(c, 0, -82, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
       } else {
-        c.add(this.add.bitmapText(0, -14, "pixel", "QUITTING KEEPS THE GUNS IN YOUR HANDS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
-        this.panelButton(c, 0, 26, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
+        c.add(this.add.bitmapText(0, -98, "pixel", "QUITTING KEEPS THE GUNS IN YOUR HANDS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        this.panelButton(c, 0, -82, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
       }
-      // Your build so far, in two columns.
+      const gearEnd = this.drawGear(c, game.me, -64);
+      // Your build so far, in three columns under the gear.
       const entries = Object.entries(game.me.boosts);
-      entries.slice(0, 16).forEach(([id, n], i) => {
+      const top = gearEnd + 4;
+      const rows = Math.max(1, Math.floor((SCREEN.h / 2 - 6 - (top + 10)) / 9) + 1);
+      entries.slice(0, rows * 3).forEach(([id, n], i) => {
         const b = BOOSTS[id];
         if (!b) return;
-        const x = i < 8 ? -110 : 110;
-        const y = 58 + (i % 8) * 10;
+        const x = (Math.floor(i / rows) - 1) * 150;
+        const y = top + 10 + (i % rows) * 9;
         c.add(this.add.bitmapText(x, y, "pixel", `${b.name.toUpperCase()}${n! > 1 ? " X" + n : ""}`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(BOOST_COLORS[b.rarity]));
       });
-      if (entries.length > 0) c.add(this.add.bitmapText(0, 48, "pixel", "YOUR BOOSTS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e));
+      if (entries.length > 0) c.add(this.add.bitmapText(0, top, "pixel", "YOUR BOOSTS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e));
       this.pausePanel = c;
     }
 
@@ -581,7 +670,8 @@ export class UIScene extends Phaser.Scene {
     this.drawButton("skill", p.skillCharge, p.skillCharge >= 1, SKILL_COLORS[p.heroId] ?? 0x5fd3e8, touch, HEROES[p.heroId]!.skillName);
     this.drawButton("dash", 1 - p.dashCd / (DASH.cooldownMs / 1000), p.dashCd <= 0, 0xffffff, touch);
     const nade = heldGrenade(p);
-    this.drawButton("grenade", 1 - p.grenadeCd / nade.cooldown, p.grenadeCd <= 0, nade.def.element === "none" ? 0x8fd18f : ELEMENT_COLORS[nade.def.element], touch);
+    const nadeColor = p.grenade.rarity === "mythic" ? mythicHue(this.time.now) : nade.def.element === "none" ? 0x8fd18f : ELEMENT_COLORS[nade.def.element];
+    this.drawButton("grenade", 1 - p.grenadeCd / nade.cooldown, p.grenadeCd <= 0, nadeColor, touch);
 
     if (touch) {
       this.drawStick(this.controls.moveStick, 0xffffff);
@@ -593,7 +683,8 @@ export class UIScene extends Phaser.Scene {
     this.controls.interactAvailable = !!pk;
     if (pk) this.drawButton("interact", 1, true, 0xf2c14e, touch, PICKUP_VERBS[pk.kind]);
     else this.buttonText.get("interact")!.setText("");
-    this.drawCard(pk, p);
+    // The pause screen has its own gear list; the floor item's card would only clutter it.
+    this.drawCard(this.pausePanel ? undefined : pk, p);
     this.help.setVisible(!touch && !pk && !this.panel);
 
     // Live status lines borrow the sub-banner while they apply, and hand it back when they stop.
@@ -742,11 +833,14 @@ export class UIScene extends Phaser.Scene {
       const gun = p.guns[i]!;
       const st = gunStats(gun);
       const active = i === p.active;
-      const color = RARITY_COLORS[gun.rarity];
+      // Mythics get their own art, a little smaller to fit, and a frame that walks through the mythic colors.
+      const myth = mythicArtId(gun);
+      const color = myth ? mythicHue(this.time.now + i * 600) : RARITY_COLORS[gun.rarity];
       g.fillStyle(0x1b1020, 0.85).fillRect(s.x, s.y, s.w, s.h);
+      if (myth) g.fillStyle(color, 0.12).fillRect(s.x, s.y, s.w, s.h);
       g.lineStyle(active ? 2 : 1, color, active ? 1 : 0.5).strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
       if (gun.element !== "none") g.fillStyle(ELEMENT_COLORS[gun.element]).fillRect(s.x + 3, s.y + 3, 3, 3);
-      this.slotIcons[i]!.setTexture("gun_" + st.archetype).setAlpha(active ? 1 : 0.45);
+      this.slotIcons[i]!.setTexture(myth ? `mythic_${myth}` : "gun_" + st.archetype).setScale(myth ? 0.75 : 1).setAlpha(active ? 1 : 0.45);
       const pw = Math.floor((s.w - 8) / st.pips) - 1;
       for (let k = 0; k < st.pips; k++) {
         const fill = Math.max(0, Math.min(1, gun.pips - k));
@@ -789,14 +883,7 @@ export class UIScene extends Phaser.Scene {
     const lines: [string, number][] = [];
     if (pk?.kind === "gun" && pk.gun) {
       const gun = pk.gun;
-      const st = gunStats(gun);
-      lines.push([gunName(gun).toUpperCase(), RARITY_COLORS[gun.rarity]]);
-      const elem = gun.element !== "none" ? `  ${ELEMENT_INFO[gun.element].adjective}: ${ELEMENT_INFO[gun.element].text}` : "";
-      lines.push([`${gun.rarity} ${st.archetype} BY ${MAKERS[gun.maker].short}${elem}`.toUpperCase(), gun.element !== "none" ? ELEMENT_COLORS[gun.element] : 0xc9cfd6]);
-      const leg = gun.legendary ? LEGENDARIES[gun.legendary] : undefined;
-      if (leg) lines.push([leg.text.toUpperCase(), 0xff9a2a]);
-      else if (gun.maker !== "cruise") lines.push([MAKERS[gun.maker].quirk.toUpperCase(), 0xc9cfd6]);
-      for (const perk of gun.perks) lines.push([`+ ${PERKS[perk].text}`.toUpperCase(), 0xffffff]);
+      lines.push(...this.gunInfo(gun));
       if (gun.loaner) lines.push(["LOANER: PROPERTY OF THE CRUISE LINE. STAYS HERE.", 0xc9cfd6]);
       const dps = Math.round(gunDps(gun));
       const diff = dps - Math.round(gunDps(current));
@@ -805,7 +892,7 @@ export class UIScene extends Phaser.Scene {
       const st = grenadeStats(pk.grenade);
       const mine = grenadeStats(p.grenade);
       const elem = st.def.element;
-      lines.push([st.def.name.toUpperCase(), RARITY_COLORS[pk.grenade.rarity]]);
+      lines.push([st.def.name.toUpperCase(), pk.grenade.rarity === "mythic" ? mythicHue(this.time.now) : RARITY_COLORS[pk.grenade.rarity]]);
       lines.push([`${pk.grenade.rarity} grenade${elem !== "none" ? `  ${ELEMENT_INFO[elem].adjective}: ${ELEMENT_INFO[elem].text}` : ""}`.toUpperCase(), elem !== "none" ? ELEMENT_COLORS[elem] : 0xc9cfd6]);
       lines.push([st.def.text.toUpperCase(), 0xffffff]);
       lines.push([`YOURS: ${mine.def.name} (${p.grenade.rarity})`.toUpperCase(), RARITY_COLORS[p.grenade.rarity]]);
@@ -824,6 +911,9 @@ export class UIScene extends Phaser.Scene {
       lines.push([press("OPEN"), 0xffffff]);
     }
 
+    // Long descriptions wrap rather than run off the screen.
+    const shown = lines.flatMap(([text, tint]) => this.wrap(text, CARD_W).map((part): [string, number] => [part, tint]));
+    lines.splice(0, lines.length, ...shown.slice(0, CARD_LINES));
     const top = SCREEN.h - 8 - lines.length * 11;
     this.card.forEach((t, i) => {
       const line = lines[i];

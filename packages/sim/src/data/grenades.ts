@@ -83,6 +83,34 @@ export const GRENADES: Record<string, GrenadeDef> = {
     cooldown: 1.1,
     knockback: -220,
   },
+  // ---------------------------------------------------------------- mythics (see data/mythics)
+  snooze_button: {
+    id: "snooze_button",
+    name: "Snooze Button",
+    flavor: "Five more minutes. For everyone.",
+    text: "Enemies in the blast fall asleep until something hits them",
+    element: "none",
+    damage: 0.25,
+    radius: 1.5,
+    cooldown: 1.3,
+    knockback: 0,
+    mythic: "snooze",
+  },
+  black_box: {
+    id: "black_box",
+    name: "Black Box",
+    flavor: "Recovered from the wreckage. Of you.",
+    text: "4s later, allies it caught go back to the health they had, even if they went down",
+    element: "none",
+    damage: 0.5,
+    radius: 1.2,
+    cooldown: 1.4,
+    knockback: 60,
+    mythic: "rewind",
+  },
 };
 
-export const GRENADE_IDS = Object.keys(GRENADES);
+/** Every grenade kind, mythics included: what saves and the wire know. */
+export const GRENADE_KINDS = Object.keys(GRENADES);
+/** The kinds the regular grenade roll picks from. */
+export const GRENADE_IDS = GRENADE_KINDS.filter((id) => !GRENADES[id]!.mythic);

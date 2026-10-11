@@ -3,7 +3,7 @@ import { ENEMIES } from "./data/enemies";
 import { HEROES, levelMultiplier } from "./data/heroes";
 import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
 import { onTurretKill, TURRET_GUN } from "./gadgets";
-import { gunStats, rollGrenade, rollGun } from "./loot";
+import { gunStats, mythicChance, rollGrenade, rollGun, rollMythic } from "./loot";
 import { markBonus, onMarkedDeath } from "./marks";
 import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
 import type { Dome, Element, EliteId, Enemy, EnemyDef, HeroSkill, Player, Status, World } from "./types";
@@ -166,6 +166,9 @@ export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): 
   if (!o.secondary) applyStatus(w, e, def, amount, o);
   if (!o.secondary && p && e.hp > 0) procBoosts(w, e, def, amount, o, p);
 
+  // Snooze Button: anything that lands wakes it up.
+  e.sleepT = 0;
+
   const kill = e.hp <= 0;
   w.events.push({ type: "hit", x: e.pos.x, y: e.pos.y, targetId: e.id, damage: Math.max(1, Math.round(dmg || amount * 0.01)), kill, element: o.element, weak: weak || mark.crit || crit, shield: hitShield && dmg === 0 });
   if (mark.crit || crit) w.events.push({ type: "crit", x: e.pos.x, y: e.pos.y });
@@ -231,6 +234,7 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
     // Grenades: rarer than guns, and every boss leaves a good one.
     if (def.boss || rand(w) < def.dropChance * 0.5 * (e.elite ? 2 : 1) * rush) dropGrenade(w, add(e.pos, { x: 0, y: drops > 0 ? 16 : 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
     if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
+    if ((def.boss || e.elite) && rand(w) < partyMythicChance(w, !!def.boss)) dropMythic(w, add(e.pos, { x: 0, y: -18 }));
   }
 
   if (!p) return;
@@ -280,6 +284,23 @@ export function dropGrenade(w: World, at: Vec, luck: number, minRarity: Paramete
   w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: grenade.rarity });
 }
 
+/** Mythic odds for this party: the best pity in it, and double when someone newer is along in co-op. */
+function partyMythicChance(w: World, boss: boolean): number {
+  const helped = w.run.coop && w.players.some((p) => p.level < p.syncLevel);
+  const pity = Math.max(0, ...w.players.map((p) => p.mythicPity ?? 0));
+  return mythicChance(w.run.tier, boss, helped, pity);
+}
+
+export function dropMythic(w: World, at: Vec): void {
+  const m = rollMythic(w);
+  const pos = clampToArena(w, at, 16);
+  if ("gun" in m) {
+    w.pickups.push({ id: newId(w), kind: "gun", pos, gun: m.gun, used: false });
+    w.run.gunsFound++;
+  } else w.pickups.push({ id: newId(w), kind: "grenade", pos, grenade: m.grenade, used: false });
+  w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: "mythic" });
+}
+
 export function dropHeal(w: World, at: Vec, amount: number): void {
   w.pickups.push({ id: newId(w), kind: "heal", pos: clampToArena(w, at, 10), heal: amount, used: false });
 }
@@ -317,6 +338,7 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
     size: 1,
     noLoot: false,
     stunT: 0,
+    sleepT: 0,
     slowT: 0,
     slow: 0,
     markT: 0,

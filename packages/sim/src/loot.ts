@@ -1,11 +1,14 @@
 import { GRENADE_IDS, GRENADES } from "./data/grenades";
 import { GRENADE, GUNS } from "./data/guns";
 import { LEGENDARIES, LEGENDARY_IDS } from "./data/legendaries";
+import { MYTHIC, MYTHIC_GRENADE_IDS, MYTHIC_GUN_IDS, MYTHIC_GUNS } from "./data/mythics";
 import { MAKER_IDS, MAKERS } from "./data/makers";
 import { pick, rand } from "./math";
 import type { Archetype, Element, Grenade, GrenadeDef, Gun, GunData, GunStats, MakerId, PerkId, Player, Rarity, World } from "./types";
 
-export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
+export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
+/** The rarities the regular roll picks from. Mythics have their own roll (see `mythicChance`), which luck doesn't touch. */
+type RolledRarity = Exclude<Rarity, "mythic">;
 export const ELEMENTS: Exclude<Element, "none">[] = ["fire", "shock", "frost", "acid"];
 
 /** Rarity mostly adds perks. Raw stats grow at most ~10% from common to legendary (design rule). */
@@ -16,7 +19,10 @@ const RARITY = {
   epic: { weight: 5, perks: 2, elementChance: 0.85, statMult: 1.075 },
   // Legendaries trade a perk for their named effect.
   legendary: { weight: 1, perks: 2, elementChance: 1, statMult: 1.1 },
-} satisfies Record<Rarity, unknown>;
+} satisfies Record<RolledRarity, unknown>;
+
+/** A rarity's row in the table. Mythics get a legendary's numbers: their ability is the whole upgrade. */
+const rarityRow = (r: Rarity) => RARITY[r === "mythic" ? "legendary" : r];
 
 export interface PerkDef {
   name: string;
@@ -61,6 +67,7 @@ function weighted<T extends string>(w: World, table: Record<T, { weight: number 
 export function gunFromData(w: World, data: GunData, sid?: string): Gun {
   const gun: Gun = { uid: w.nextId++, defId: data.defId, element: data.element, rarity: data.rarity, perks: [...data.perks], maker: data.maker, pips: 0 };
   if (data.legendary) gun.legendary = data.legendary;
+  if (data.mythic) gun.mythic = data.mythic;
   if (sid) gun.sid = sid;
   gun.pips = gunStats(gun).pips;
   return gun;
@@ -74,6 +81,7 @@ export function newGun(w: World, defId: string, rarity: Rarity = "common", eleme
 export function gunData(g: GunData): GunData {
   const d: GunData = { defId: g.defId, element: g.element, rarity: g.rarity, perks: [...g.perks], maker: g.maker };
   if (g.legendary) d.legendary = g.legendary;
+  if (g.mythic) d.mythic = g.mythic;
   return d;
 }
 
@@ -90,8 +98,8 @@ function rollPerks(w: World, archetype: Archetype, n: number): PerkId[] {
   return perks;
 }
 
-export function rollGun(w: World, luck = 0, minRarity: Rarity = "common"): Gun {
-  let rarity = weighted(w, RARITY, luck);
+export function rollGun(w: World, luck = 0, minRarity: RolledRarity = "common"): Gun {
+  let rarity: RolledRarity = weighted(w, RARITY, luck);
   if (RARITIES.indexOf(rarity) < RARITIES.indexOf(minRarity)) rarity = minRarity;
   const r = RARITY[rarity];
 
@@ -113,14 +121,14 @@ export function rollGun(w: World, luck = 0, minRarity: Rarity = "common"): Gun {
 /** The gun's effective stats after manufacturer, rarity and perks. */
 export function gunStats(gun: GunData): GunStats {
   const base = GUNS[gun.defId]!;
-  const m = RARITY[gun.rarity].statMult;
+  const m = rarityRow(gun.rarity).statMult;
   const has = (p: PerkId) => gun.perks.includes(p);
   // Elemental guns trade a little base damage for their effect.
   const elementMult = gun.element === "none" ? 1 : 0.9;
   const s: GunStats = {
     ...base,
     lob: base.lob && { ...base.lob },
-    damage: base.damage * m * elementMult,
+    damage: base.damage * m * elementMult * (gun.rarity === "mythic" ? MYTHIC.damage : 1),
     pips: base.pips + (has("extraPip") ? 1 : 0),
     reloadMs: base.reloadMs / m / (has("quickReload") ? 1.2 : 1),
     pierce: base.pierce + (has("pierce") ? 1 : 0),
@@ -164,6 +172,7 @@ export function gunStats(gun: GunData): GunStats {
 }
 
 export function gunName(gun: GunData): string {
+  if (gun.mythic) return MYTHIC_GUNS[gun.mythic]?.name ?? GUNS[gun.defId]!.name;
   if (gun.legendary) return LEGENDARIES[gun.legendary]?.name ?? GUNS[gun.defId]!.name;
   const base = GUNS[gun.defId]!.name;
   const adj = ELEMENT_INFO[gun.element].adjective;
@@ -208,8 +217,8 @@ export function heldStats(gun: GunData, p: Pick<Player, "boosts">): GunStats {
 export const STARTER_GRENADE: Grenade = { defId: "frag", rarity: "common" };
 
 /** A random grenade. The effect is the fun part, so every kind is equally likely; rarity makes it hit harder. */
-export function rollGrenade(w: World, luck = 0, minRarity: Rarity = "common"): Grenade {
-  let rarity = weighted(w, RARITY, luck);
+export function rollGrenade(w: World, luck = 0, minRarity: RolledRarity = "common"): Grenade {
+  let rarity: RolledRarity = weighted(w, RARITY, luck);
   if (RARITIES.indexOf(rarity) < RARITIES.indexOf(minRarity)) rarity = minRarity;
   return { defId: pick(w, GRENADE_IDS), rarity };
 }
@@ -229,10 +238,11 @@ export interface GrenadeStats {
  */
 export function grenadeStats(g: Grenade): GrenadeStats {
   const def = GRENADES[g.defId] ?? GRENADES.frag!;
-  const r = RARITIES.indexOf(g.rarity);
+  // A mythic grenade has a legendary's radius and cooldown, and hits harder on top (MYTHIC.damage).
+  const r = Math.min(RARITIES.indexOf(g.rarity), RARITIES.indexOf("legendary"));
   return {
     def,
-    damage: GRENADE.damage * def.damage * (1 + 0.15 * r),
+    damage: GRENADE.damage * def.damage * (1 + 0.15 * r) * (g.rarity === "mythic" ? MYTHIC.damage : 1),
     radius: GRENADE.radius * def.radius * (1 + 0.06 * r),
     cooldown: (GRENADE.cooldownMs / 1000) * def.cooldown * (1 - 0.07 * r),
     range: GRENADE.range,
@@ -250,4 +260,31 @@ export function heldGrenade(p: Pick<Player, "grenade" | "boosts">): GrenadeStats
 
 export function grenadeName(g: Grenade): string {
   return (GRENADES[g.defId] ?? GRENADES.frag!).name;
+}
+
+// ---------------------------------------------------------------- mythics
+
+/**
+ * Odds that a boss (or elite) kill drops a mythic. Luck doesn't touch them; harder tiers, helping someone newer and
+ * a long dry spell (`pity`: bosses beaten since your last mythic) do.
+ */
+export function mythicChance(tier: number, boss: boolean, helped: boolean, pity = 0): number {
+  const base = boss ? MYTHIC.bossChance : MYTHIC.eliteChance;
+  const pityMult = boss ? 1 + MYTHIC.pityPerBoss * Math.max(0, pity) : 1;
+  return base * (1 + MYTHIC.tierStep * Math.max(0, tier)) * (helped ? MYTHIC.helped : 1) * pityMult;
+}
+
+/** A random mythic: any of the guns or grenades, all equally likely. */
+export function rollMythic(w: World): { gun: Gun } | { grenade: Grenade } {
+  return mythicItem(w, pick(w, [...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS]));
+}
+
+/** One particular mythic, by its gun or grenade id. The element and perk still roll. */
+export function mythicItem(w: World, id: string): { gun: Gun } | { grenade: Grenade } {
+  const def = MYTHIC_GUNS[id];
+  if (!def) return { grenade: { defId: id, rarity: "mythic" } };
+  const element = def.element ?? pick(w, ELEMENTS);
+  // One perk, not a legendary's two: the ability carries it.
+  const perks = rollPerks(w, GUNS[def.defId]!.archetype, 1);
+  return { gun: gunFromData(w, { defId: def.defId, rarity: "mythic", element, perks, maker: def.maker, mythic: def.id }) };
 }

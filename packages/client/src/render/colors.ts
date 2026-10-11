@@ -6,6 +6,8 @@ export const RARITY_COLORS: Record<Rarity, number> = {
   rare: 0x4aa3ff,
   epic: 0xb46cff,
   legendary: 0xff9a2a,
+  // Pearl teal; mythics also cycle through MYTHIC_HUES wherever they glow (see render/mythics).
+  mythic: 0x62f5e0,
 };
 
 export const ELEMENT_COLORS: Record<Element, number> = {

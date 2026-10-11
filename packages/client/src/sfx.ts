@@ -219,6 +219,25 @@ class Sfx {
       case "lootLegendary":
         if (this.ok(name, 200)) [523, 659, 784, 1046, 1318].forEach((f, i) => this.tone(f, f * 1.01, 0.25, "square", 0.18, i * 0.07));
         break;
+      case "lootMythic":
+        // A shimmering run up two octaves, then a chord that hangs in the air.
+        if (this.ok(name, 400)) {
+          [523, 659, 784, 988, 1175, 1318, 1568, 2093].forEach((f, i) => this.tone(f, f * 1.005, 0.18, "triangle", 0.16, i * 0.05));
+          [1046, 1318, 1568].forEach((f) => this.tone(f, f * 1.01, 1.1, "sine", 0.14, 0.45));
+          this.noise(0.6, 0.08, 9000, 6000, 0.4);
+        }
+        break;
+      case "confiscate":
+        // A rubber stamp coming down.
+        if (this.ok(name, 90)) { this.tone(160, 70, 0.12, "square", 0.35); this.noise(0.08, 0.35, 1800, 300); this.tone(1400, 1100, 0.08, "triangle", 0.12, 0.06); }
+        break;
+      case "snooze":
+        if (this.ok(name, 300)) [880, 740, 587, 440].forEach((f, i) => this.tone(f, f * 0.98, 0.22, "sine", 0.18, i * 0.12));
+        break;
+      case "rewind":
+        // Tape spooling backwards.
+        if (this.ok(name, 200)) { this.tone(1800, 300, 0.45, "sawtooth", 0.1); this.tone(300, 1200, 0.35, "sine", 0.25, 0.4); this.noise(0.4, 0.12, 5000, 2000); }
+        break;
       case "heal":
         if (this.ok(name, 100)) [660, 880].forEach((f, i) => this.tone(f, f, 0.1, "sine", 0.2, i * 0.07));
         break;

@@ -122,6 +122,27 @@ function blinkSpot(w: World, e: Enemy, target: { pos: Vec; facing?: Vec }): Vec 
   return undefined;
 }
 
+/**
+ * Customs Officer: the elite's modifier is confiscated, and so is any shield bar a support gave it. It keeps its
+ * health; it just plays like its plain kind from now on (no blinks, no death blast, no copies, no twin coming back).
+ */
+export function confiscate(w: World, e: Enemy): void {
+  if (!e.elite && e.shield <= 0) return;
+  if (e.elite === "linked") {
+    const partner = w.enemies.find((o) => o.id === e.link);
+    if (partner?.link === e.id) partner.link = 0;
+    e.link = 0;
+    e.linkT = 0;
+    e.linkGhost = undefined;
+  }
+  delete e.elite;
+  e.guard = 0;
+  e.blinkTo = undefined;
+  e.blinkT = 0;
+  e.shield = 0;
+  w.events.push({ type: "confiscate", id: e.id, x: e.pos.x, y: e.pos.y });
+}
+
 /** A shielded elite has its shield up: not while stunned, frozen, or swinging (it needs both hands to attack). */
 export const shieldUp = (e: Enemy): boolean => e.elite === "shielded" && e.guard > 0 && e.stunT <= 0 && e.status.frozenT <= 0 && (e.state === "move" || e.state === "reveal");
 

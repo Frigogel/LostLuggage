@@ -16,6 +16,9 @@ import {
   doorAt,
   doorVotes,
   enterRoom,
+  MYTHIC_GRENADE_IDS,
+  MYTHIC_GUN_IDS,
+  mythicItem,
   roomSpec,
   ROOM_NAMES,
   TWISTS,
@@ -57,6 +60,7 @@ import {
 import type { LocalShot, NetSession } from "../net";
 import { DEFENSE_COLORS, ELEMENT_COLORS, ELITE_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR, SLOT_COLORS } from "../render/colors";
 import { gunKey, HAT_ANCHOR, hatKey } from "../render/cosmetics";
+import { mythicArtId, mythicHue } from "../render/mythics";
 import { BIOME_ART, drawSpikes } from "../render/pixels";
 import { trailFx, trailGap, type FxHost } from "../render/trails";
 import { sfx } from "../sfx";
@@ -93,7 +97,7 @@ const BIOME_LOOK: Record<Biome, { sea: string; floor: string; block: string; amb
 const PAD_COLORS = [0x5fd3e8, 0xd29bff, 0x5fd36a];
 const textureFor = (e: Enemy) => (e.state === "hidden" && HIDDEN_TEXTURE[e.defId]) || e.defId;
 const heroKey = (p: Player) => `${p.heroId}_${p.slot}`;
-const BEAM_HEIGHT = { common: 0, uncommon: 14, rare: 24, epic: 36, legendary: 64 };
+const BEAM_HEIGHT = { common: 0, uncommon: 14, rare: 24, epic: 36, legendary: 64, mythic: 110 };
 /** Boost rarity colors: white, blue, orange. */
 export const BOOST_COLORS = { common: 0xe8e8f0, rare: 0x4aa3ff, epic: 0xff9a2a };
 /** Door label colors by what's behind them. */
@@ -127,6 +131,9 @@ interface PickupView {
   sprite: Phaser.GameObjects.Image;
   glow: Phaser.GameObjects.Image;
   beam?: Phaser.GameObjects.Image;
+  /** Mythics: rays turning behind the item, and a second, wider beam. */
+  rays?: Phaser.GameObjects.Image;
+  halo?: Phaser.GameObjects.Image;
   key: string;
 }
 
@@ -272,7 +279,8 @@ export class GameScene extends Phaser.Scene {
       this.myId = this.net.myId;
     } else {
       // Dev shortcuts: ?seed=123 replays a run; ?biome=sewers starts in that adventure; ?room=boss (or combat, elite,
-      // event, shrine, rest) jumps to a room, with &act=4 for a later act (in that act's biome) and &twist=belts.
+      // event, shrine, rest) jumps to a room, with &act=4 for a later act (in that act's biome) and &twist=belts;
+      // ?mythics lays every mythic out on the floor of the first room.
       const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
       const biome = params.get("biome") as Biome | null;
@@ -281,6 +289,15 @@ export class GameScene extends Phaser.Scene {
       if (room && room in ROOM_NAMES) {
         const act = Number(params.get("act")) || 0;
         enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, ...actBiome(this.world, act) }));
+      }
+      if (params.has("mythics")) {
+        const ids = [...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS];
+        const at = this.world.players[0]!.pos;
+        ids.forEach((id, i) => {
+          const m = mythicItem(this.world, id);
+          const pos = { x: at.x + (i - (ids.length - 1) / 2) * 44, y: at.y - 40 };
+          this.world.pickups.push({ id: this.world.nextId++, kind: "gun" in m ? "gun" : "grenade", pos, ...m, used: false });
+        });
       }
       this.myId = this.world.players[0]!.id;
     }
@@ -1186,6 +1203,28 @@ export class GameScene extends Phaser.Scene {
         sfx.play("relink");
         break;
       }
+      case "confiscate":
+        // Customs: a red stamp slams down over the elite.
+        this.ringFx(ev.x, ev.y, 26, 0xe0405a, 300);
+        this.flash(ev.x, ev.y, 0xffd34d, 40, 250);
+        this.floatText(ev.x, ev.y - 16, "CONFISCATED", 0xe0405a, 8, 900);
+        this.shake(80, 0.003);
+        sfx.play("confiscate");
+        break;
+      case "asleep": {
+        const e = this.enemyById(ev.id);
+        if (e) this.floatText(e.pos.x, e.pos.y - e.radius * 2 - 4, "Z", 0x7ff0ff, 8, 900);
+        sfx.play("snooze");
+        break;
+      }
+      case "rewound": {
+        const p = at(ev.id);
+        this.ringFx(p.x, p.y, 34, 0x5ff2ff, 500);
+        this.ringFx(p.x, p.y, 20, 0xff8a1f, 400);
+        this.floatText(p.x, p.y - 22, "REWOUND!", 0x5ff2ff, 8, 1100);
+        sfx.play("rewind");
+        break;
+      }
       case "deflect":
         this.flash(ev.x, ev.y, 0x5fb3ff, 20, 120);
         this.sparks.explode(3, ev.x, ev.y);
@@ -1210,6 +1249,17 @@ export class GameScene extends Phaser.Scene {
         sfx.play("pickup");
         break;
       case "loot": {
+        if (ev.rarity === "mythic") {
+          // The rarest thing in the game just dropped: everyone should know.
+          for (let i = 0; i < 4; i++) this.time.delayedCall(i * 120, () => this.ringFx(ev.x, ev.y, 40 + i * 25, mythicHue(i * 600), 700));
+          this.flash(ev.x, ev.y, 0xffffff, 200, 700);
+          this.flash(ev.x, ev.y, mythicHue(this.time.now), 140, 1200);
+          this.sparks.explode(24, ev.x, ev.y);
+          this.floatText(ev.x, ev.y - 24, "MYTHIC!", mythicHue(this.time.now), 10, 1600);
+          this.shake(450, 0.01);
+          sfx.play("lootMythic");
+          break;
+        }
         const c = RARITY_COLORS[ev.rarity];
         this.flash(ev.x, ev.y, c, ev.rarity === "legendary" ? 120 : 50, 500);
         if (ev.rarity === "legendary") {
@@ -1463,6 +1513,17 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(6, 0xe0533d, 0.25).strokeCircle(h.pos.x, h.pos.y, ring + 10);
         this.over.lineStyle(3, 0xff9a2a, 0.95).strokeCircle(h.pos.x, h.pos.y, ring);
         this.over.lineStyle(1, 0xffe08a, 0.9).strokeCircle(h.pos.x, h.pos.y, Math.max(1, ring - 3));
+        continue;
+      }
+      if (h.kind === "rewind") {
+        // Black Box: a cyan clock face with its hand sweeping backwards, its orange ring emptying as the rewind comes due.
+        const left = h.t / h.maxT;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 0.012);
+        g.fillStyle(0x5ff2ff, 0.08 + 0.05 * pulse).fillEllipse(h.pos.x, h.pos.y, h.radius * 2, h.radius * 1.4);
+        this.over.lineStyle(1, 0x5ff2ff, 0.8).strokeEllipse(h.pos.x, h.pos.y, h.radius * 2, h.radius * 1.4);
+        this.over.lineStyle(2, 0xff8a1f, 0.9).beginPath().arc(h.pos.x, h.pos.y, 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left).strokePath();
+        const a = -Math.PI / 2 - (1 - left) * Math.PI * 8;
+        this.over.lineStyle(1, 0xffffff, 0.9).lineBetween(h.pos.x, h.pos.y, h.pos.x + Math.cos(a) * 8, h.pos.y + Math.sin(a) * 8);
         continue;
       }
       if (h.kind === "ice") {
@@ -1801,7 +1862,16 @@ export class GameScene extends Phaser.Scene {
         o.lineBetween(pos.x + Math.cos(ang) * (r - 3), cy + Math.sin(ang) * (r - 3), pos.x + Math.cos(ang) * (r + 3), cy + Math.sin(ang) * (r + 3));
       }
     }
-    if (e.stunT > 0) {
+    if (e.sleepT > 0) {
+      // Asleep (Snooze Button): little z's drifting up off its head.
+      for (let i = 0; i < 3; i++) {
+        const k = (t * 0.0007 + i / 3 + e.id * 0.13) % 1;
+        const zx = Math.round(pos.x + 3 + k * 6 + Math.sin(k * 6 + i) * 2);
+        const zy = Math.round(pos.y - e.radius * 2 - 2 - k * 12);
+        const sz = k < 0.5 ? 2 : 3;
+        o.lineStyle(1, 0x7ff0ff, 1 - k).lineBetween(zx, zy, zx + sz, zy).lineBetween(zx + sz, zy, zx, zy + sz).lineBetween(zx, zy + sz, zx + sz, zy + sz);
+      }
+    } else if (e.stunT > 0) {
       // Stunned: stars circling its head.
       for (let i = 0; i < 3; i++) {
         const ang = t * 0.008 + (i * Math.PI * 2) / 3;
@@ -2099,8 +2169,10 @@ export class GameScene extends Phaser.Scene {
 
   private pickupKey(pk: Pickup): string {
     switch (pk.kind) {
-      case "gun":
-        return "gun_" + gunStats(pk.gun!).archetype;
+      case "gun": {
+        const myth = mythicArtId(pk.gun!);
+        return myth ? `mythic_${myth}` : "gun_" + gunStats(pk.gun!).archetype;
+      }
       case "heal":
         return "snack";
       case "shrine":
@@ -2109,8 +2181,10 @@ export class GameScene extends Phaser.Scene {
         return pk.used ? "suitcase_open" : "suitcase";
       case "boost":
         return "orb";
-      case "grenade":
-        return "grenade";
+      case "grenade": {
+        const myth = mythicArtId(pk.grenade!);
+        return myth ? `mythic_${myth}` : "grenade";
+      }
     }
   }
 
@@ -2118,6 +2192,38 @@ export class GameScene extends Phaser.Scene {
     v.sprite.destroy();
     v.glow.destroy();
     v.beam?.destroy();
+    v.rays?.destroy();
+    v.halo?.destroy();
+  }
+
+  /**
+   * A mythic on the floor: the item floats higher, over turning rays and a tall beam that walk through the mythic
+   * colors, with sparkles orbiting it. You should be able to spot one from across the room.
+   */
+  private renderMythicPickup(pk: Pickup, v: PickupView, t: number, bob: number): void {
+    const hue = mythicHue(t + pk.id * 300);
+    const y = pk.pos.y - 8 + bob * 2;
+    v.sprite.setPosition(pk.pos.x, y).setDepth(pk.pos.y + 1).setAngle(Math.sin(t * 0.002 + pk.id) * 6).clearTint();
+    // Rays and glow sit just behind the item, not over it, so the art stays crisp.
+    v.rays!.setPosition(pk.pos.x, y).setDepth(pk.pos.y).setRotation(t * 0.0012).setTint(hue).setAlpha(0.5 + bob * 0.1).setScale(0.9 + 0.08 * Math.sin(t * 0.003));
+    v.glow.setPosition(pk.pos.x, y).setDepth(pk.pos.y - 1).setTint(hue).setAlpha(0.45 + bob * 0.1).setScale(1.5);
+    v.beam?.setTint(hue).setAlpha(0.45 + bob * 0.15);
+    v.halo!.setPosition(pk.pos.x, pk.pos.y).setScale(3, (BEAM_HEIGHT.mythic * 0.7) / 2).setTint(mythicHue(t + 1200 + pk.id * 300)).setAlpha(0.18 + 0.08 * Math.sin(t * 0.005));
+    this.ground.fillStyle(hue, 0.3).fillEllipse(pk.pos.x, pk.pos.y + 3, 22 + bob * 2, 7);
+    this.ground.lineStyle(1, 0xffffff, 0.35).strokeEllipse(pk.pos.x, pk.pos.y + 3, 26 + bob * 2, 9);
+    // Three sparkles orbiting, each blinking on its own beat.
+    for (let i = 0; i < 3; i++) {
+      const a = t * 0.0025 + (i * Math.PI * 2) / 3;
+      const sx = Math.round(pk.pos.x + Math.cos(a) * 13);
+      const sy = Math.round(y + Math.sin(a) * 5);
+      const on = (t * 0.004 + i * 0.37 + pk.id) % 1;
+      if (on > 0.6) continue;
+      const r = on < 0.3 ? 2 : 1;
+      this.over.fillStyle(mythicHue(t + i * 800), 0.95).fillRect(sx - r, sy, r * 2 + 1, 1).fillRect(sx, sy - r, 1, r * 2 + 1);
+      this.over.fillStyle(0xffffff, 1).fillRect(sx, sy, 1, 1);
+    }
+    // Now and then a mote drifts up the beam.
+    if (Math.random() < 0.15) this.flash(pk.pos.x + (Math.random() - 0.5) * 8, pk.pos.y - Math.random() * BEAM_HEIGHT.mythic, mythicHue(t + Math.random() * 2400), 6, 500);
   }
 
   private renderPickups(t: number): void {
@@ -2145,10 +2251,16 @@ export class GameScene extends Phaser.Scene {
         };
         const beamH = pk.kind === "gun" ? BEAM_HEIGHT[pk.gun!.rarity] : pk.kind === "grenade" ? BEAM_HEIGHT[pk.grenade!.rarity] * 0.6 : 0;
         if (beamH > 0) v.beam = this.add.image(pk.pos.x, pk.pos.y, "px").setOrigin(0.5, 1).setScale(1, beamH / 2).setTint(color).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.5).setDepth(D.light);
+        if (key.startsWith("mythic_")) {
+          v.rays = this.add.image(pk.pos.x, pk.pos.y, "mythic-rays").setBlendMode(Phaser.BlendModes.ADD).setDepth(D.light);
+          v.halo = this.add.image(pk.pos.x, pk.pos.y, "px").setOrigin(0.5, 1).setBlendMode(Phaser.BlendModes.ADD).setDepth(D.light);
+        }
         this.pickupViews.set(pk.id, v);
       }
       const bob = Math.sin(t * 0.004 + pk.id);
-      if (pk.kind === "gun") {
+      if (v.rays) {
+        this.renderMythicPickup(pk, v, t, bob);
+      } else if (pk.kind === "gun") {
         const rarity = pk.gun!.rarity;
         v.sprite.setPosition(pk.pos.x, pk.pos.y - 5 + bob * 1.5).setDepth(pk.pos.y + 1);
         if (pk.gun!.element !== "none" && Math.floor(t / 500) % 2 === 0) v.sprite.setTint(ELEMENT_COLORS[pk.gun!.element]);

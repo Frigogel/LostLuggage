@@ -13,6 +13,7 @@ import { GRENADES } from "./data/grenades";
 import { GUNS } from "./data/guns";
 import { HEROES, MAX_LEVEL, tierLevel } from "./data/heroes";
 import { LEGENDARIES } from "./data/legendaries";
+import { MYTHIC_GUNS } from "./data/mythics";
 import { MAKERS } from "./data/makers";
 import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
@@ -27,7 +28,7 @@ export const STASH_CAP = 40;
 /** Grenades kept at home. Overflow scraps the worst unequipped ones, like guns. */
 export const GRENADE_CAP = 20;
 /** XP for scrapping a gun, by rarity. Recycling is good for you. */
-export const SCRAP_XP: Record<Rarity, number> = { common: 4, uncommon: 8, rare: 15, epic: 30, legendary: 60 };
+export const SCRAP_XP: Record<Rarity, number> = { common: 4, uncommon: 8, rare: 15, epic: 30, legendary: 60, mythic: 250 };
 
 export interface StashGun extends GunData {
   id: string;
@@ -70,7 +71,9 @@ export interface Profile {
   offerSeed: number;
   /** Local date (YYYY-MM-DD) of the last first-win-of-the-day bonus. */
   lastDailyWin: string;
-  stats: { runs: number; wins: number; kills: number; legendaries: number };
+  stats: { runs: number; wins: number; kills: number; legendaries: number; mythics: number };
+  /** Bosses beaten since a mythic last came home: bad-luck protection for the mythic roll. */
+  mythicPity: number;
   /** Cosmetics earned (starters aren't listed: everyone has them). */
   cosmetics: string[];
   /** Earned but not looked at in the wardrobe yet. */
@@ -121,6 +124,8 @@ export interface RunReward {
   /** A new grenade came home. */
   grenade?: boolean;
   legendaries: number;
+  /** Mythic guns and grenades that came home. */
+  mythics?: number;
   souvenir: boolean;
   /** A new signature power was found. */
   signature?: string;
@@ -202,7 +207,8 @@ export function newProfile(name = ""): Profile {
     pendingSouvenirs: 0,
     offerSeed: 1,
     lastDailyWin: "",
-    stats: { runs: 0, wins: 0, kills: 0, legendaries: 0 },
+    stats: { runs: 0, wins: 0, kills: 0, legendaries: 0, mythics: 0 },
+    mythicPity: 0,
     cosmetics: [],
     newCosmetics: [],
     outfit: { ...DEFAULT_OUTFIT },
@@ -261,6 +267,7 @@ export function playerOptions(p: Profile): PlayerOptions {
     grenade: { defId: loadoutGrenade(p).defId, rarity: loadoutGrenade(p).rarity, sid: loadoutGrenade(p).id },
     souvenirs: p.souvenirs,
     signature: hero.signature && p.signatures.includes(hero.signature) ? hero.signature : undefined,
+    mythicPity: p.mythicPity,
   };
 }
 
@@ -282,6 +289,12 @@ export function cleanGun(raw: unknown): StashGun | undefined {
   const out: StashGun = { id, defId, element, rarity, perks, maker };
   const leg = typeof g.legendary === "string" ? LEGENDARIES[g.legendary] : undefined;
   if (leg) Object.assign(out, { legendary: leg.id, defId: leg.defId, maker: leg.maker, rarity: "legendary" });
+  // A mythic is always the real thing too, and nothing else gets to call itself one.
+  const myth = typeof g.mythic === "string" ? MYTHIC_GUNS[g.mythic] : undefined;
+  if (myth) {
+    delete out.legendary;
+    Object.assign(out, { mythic: myth.id, defId: myth.defId, maker: myth.maker, rarity: "mythic" });
+  } else if (out.rarity === "mythic") out.rarity = "common";
   if (g.new === true) out.new = true;
   return out;
 }
@@ -293,7 +306,10 @@ export function cleanGrenade(raw: unknown): StashGrenade | undefined {
   const id = typeof g.id === "string" ? g.id.slice(0, 40) : "";
   const defId = String(g.defId);
   if (!id || !GRENADES[defId]) return undefined;
-  const rarity = RARITIES.includes(g.rarity as Rarity) ? (g.rarity as Rarity) : "common";
+  let rarity = RARITIES.includes(g.rarity as Rarity) ? (g.rarity as Rarity) : "common";
+  // Mythic kinds are always mythic, and only they are.
+  if (GRENADES[defId]!.mythic) rarity = "mythic";
+  else if (rarity === "mythic") rarity = "common";
   const out: StashGrenade = { id, defId, rarity };
   if (g.new === true) out.new = true;
   return out;
@@ -340,7 +356,8 @@ export function cleanProfile(raw: unknown, name = ""): Profile {
   p.offerSeed = int(r.offerSeed, 0, 2 ** 31);
   p.lastDailyWin = typeof r.lastDailyWin === "string" ? r.lastDailyWin.slice(0, 10) : "";
   const s = r.stats;
-  if (s) p.stats = { runs: int(s.runs, 0, 1e9), wins: int(s.wins, 0, 1e9), kills: int(s.kills, 0, 1e9), legendaries: int(s.legendaries, 0, 1e9) };
+  if (s) p.stats = { runs: int(s.runs, 0, 1e9), wins: int(s.wins, 0, 1e9), kills: int(s.kills, 0, 1e9), legendaries: int(s.legendaries, 0, 1e9), mythics: int(s.mythics, 0, 1e9) };
+  p.mythicPity = int(r.mythicPity, 0, 1e6);
   const known = (x: unknown): x is string => typeof x === "string" && !!COSMETICS[x] && !isStarter(x);
   if (Array.isArray(r.cosmetics)) p.cosmetics = [...new Set(r.cosmetics.filter(known))];
   if (Array.isArray(r.newCosmetics)) p.newCosmetics = [...new Set(r.newCosmetics.filter((x) => known(x) && p.cosmetics.includes(x)))];
@@ -529,11 +546,13 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   // Only the guns in your hands come home.
   let kept = 0;
   let legendaries = 0;
+  let mythics = 0;
   for (const g of r.guns) {
     if (p.stash.some((s) => s.id === g.id)) continue;
     p.stash.push({ ...g, new: true });
     kept++;
     if (g.legendary) legendaries++;
+    if (g.mythic) mythics++;
   }
   // You keep playing with whatever you were holding.
   r.hand.forEach((gid, slot) => {
@@ -545,7 +564,10 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   if (newNade && !p.grenades.some((g) => g.id === newNade.id)) {
     p.grenades.push({ ...newNade, new: true });
     grenade = true;
+    if (newNade.rarity === "mythic") mythics++;
   }
+  // Bad-luck protection: every boss without a mythic makes the next one a little likelier; one coming home resets it.
+  p.mythicPity = mythics > 0 ? 0 : Math.min(1e6, p.mythicPity + (r.acts ?? 0));
   if (r.grenadeHand && p.grenades.some((g) => g.id === r.grenadeHand)) p.grenade = r.grenadeHand;
   // A full stash scraps its worst unequipped guns, oldest first.
   let scrapped = 0;
@@ -578,9 +600,11 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   if (r.victory) p.stats.wins++;
   p.stats.kills += r.kills;
   p.stats.legendaries += legendaries;
+  p.stats.mythics += mythics;
   const cosmetics = [...runCosmetics(p, id, r), ...grantMilestones(p)];
   const reward: RunReward = { xp: xp + scrapXp, bonuses, levelBefore, levelAfter: heroOf(p, heroId).level, kept, scrapped, legendaries, souvenir };
   if (sig) reward.signature = sig;
+  if (mythics) reward.mythics = mythics;
   if (grenade) reward.grenade = true;
   if (cosmetics.length) reward.cosmetics = cosmetics;
   return reward;

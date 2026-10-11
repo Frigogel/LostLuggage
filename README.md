@@ -40,7 +40,8 @@ choose from.
 - **Rewards** count rooms, kills and bosses, so a lost run still pays. The first boss of the day gives the daily bonus
   and the guaranteed souvenir; first-clear hats need the full win.
 - Dev shortcuts (solo, dev builds): `?seed=123`, `?biome=sewers` (or `foundry`, `caverns`, `orbital`), `?room=boss`
-  (or `combat`, `elite`, `event`, `shrine`, `rest`), `&act=4` (a later act, in that act's biome), `&twist=dark`.
+  (or `combat`, `elite`, `event`, `shrine`, `rest`), `&act=4` (a later act, in that act's biome), `&twist=dark`, `?mythics`
+  (every mythic on the floor of the first room).
 
 Everything else from phase 5:
 

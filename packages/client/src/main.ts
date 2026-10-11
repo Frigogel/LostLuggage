@@ -37,9 +37,9 @@ addEventListener("focusout", (e) => {
 
 const menu = new Menu(game);
 game.events.once("booted", () => {
-  // Dev shortcuts (?seed=, ?room=) skip the menu straight into a solo run.
+  // Dev shortcuts (?seed=, ?room=, ?mythics) skip the menu straight into a solo run.
   const params = new URLSearchParams(location.search);
-  if (import.meta.env.DEV && (params.has("seed") || params.has("room"))) menu.startSolo();
+  if (import.meta.env.DEV && (params.has("seed") || params.has("room") || params.has("mythics"))) menu.startSolo();
   else menu.show();
 });
 

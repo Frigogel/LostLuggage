@@ -153,6 +153,21 @@
       #menu .guns li .act .icon { width: 16px; height: 16px; }
       #menu .offers button .thumb { margin: 2px auto 8px; width: 64px; height: 64px; }
       #menu .offers button .thumb canvas { transform: scale(5); }
+      /* Mythics: the framed icon inside a turning rainbow ring, a shine sweeping over it, and a pearly moving title. */
+      @keyframes mythic-spin { to { transform: rotate(1turn); } }
+      @keyframes mythic-shine { 0%, 60% { transform: translateX(-160%) skewX(-20deg); } 100% { transform: translateX(320%) skewX(-20deg); } }
+      @keyframes mythic-pearl { to { background-position: 200% 0; } }
+      @keyframes mythic-edge { 0%, 100% { border-color: #62f5e0; } 25% { border-color: #b46cff; } 50% { border-color: #ff6ad5; } 75% { border-color: #ffd34d; } }
+      #menu .thumb.mythic { position: relative; overflow: hidden; background: #0c0716; }
+      #menu .thumb.mythic::before { content: ""; position: absolute; inset: -40%; background: conic-gradient(#62f5e0, #b46cff, #ff6ad5, #ffd34d, #62f5e0); animation: mythic-spin 2.6s linear infinite; }
+      #menu .thumb.mythic::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 35%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent); animation: mythic-shine 2.8s ease-in-out infinite; pointer-events: none; }
+      #menu .thumb.mythic canvas { position: relative; transform: none; width: 48px; height: 48px; }
+      #menu li.mythic { animation: mythic-edge 3s linear infinite; background: linear-gradient(100deg, rgba(98, 245, 224, 0.1), rgba(180, 108, 255, 0.12), rgba(255, 106, 213, 0.1)); }
+      #menu li.mythic > div > b:first-child { background: linear-gradient(90deg, #62f5e0, #b46cff, #ff6ad5, #ffd34d, #62f5e0); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent !important; animation: mythic-pearl 3s linear infinite; }
+      #menu .mythic-text { color: #62f5e0; }
+      @media (prefers-reduced-motion: reduce) {
+        #menu .thumb.mythic::before, #menu .thumb.mythic::after, #menu li.mythic, #menu li.mythic > div > b:first-child { animation: none; }
+      }
       /* Hero preview and the wardrobe. Sprites are tiny, so they're scaled up with crisp pixels. */
       #menu canvas.px { image-rendering: pixelated; image-rendering: crisp-edges; }
       #menu .me { display: flex; gap: 10px; align-items: center; }

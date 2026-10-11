@@ -8,10 +8,11 @@
 import { BIOME_IDS, ENEMIES } from "./data/enemies";
 import { BOOST_IDS } from "./data/boosts";
 import { TWIST_IDS } from "./director";
-import { GRENADE_IDS } from "./data/grenades";
+import { GRENADE_KINDS } from "./data/grenades";
 import { GUNS } from "./data/guns";
 import { HEROES } from "./data/heroes";
 import { LEGENDARY_IDS } from "./data/legendaries";
+import { MYTHIC_GUN_IDS } from "./data/mythics";
 import { MAKER_IDS } from "./data/makers";
 import { SIGNATURE_IDS } from "./data/signatures";
 import { ELITE_IDS } from "./elites";
@@ -64,7 +65,7 @@ const DOOR_KINDS: DoorKind[] = [...ROOM_KINDS, "home"];
 const TWISTS: TwistId[] = ["", ...TWIST_IDS];
 const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost", "grenade"];
 const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush"];
-const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave"];
+const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave", "rewind"];
 const TRAP_KINDS: TrapKind[] = ["vent", "pipe", "laser"];
 
 const POS = 4; // quarter pixels
@@ -103,12 +104,12 @@ export interface Snapshot {
 
 // ---------------------------------------------------------------- guns
 
-/** [uid, gun, element, rarity, perks, pips, maker, legendary or -1, loaner]. */
-type GunWire = [number, number, number, number, number[], number, number, number, number];
+/** [uid, gun, element, rarity, perks, pips, maker, legendary or -1, loaner, mythic or -1]. */
+type GunWire = [number, number, number, number, number[], number, number, number, number, number];
 
 const encodeGun = (g: Gun): GunWire => [
   g.uid, idx(GUN_IDS, g.defId), idx(ELEMENT_IDS, g.element), idx(RARITIES, g.rarity), g.perks.map((p) => idx(PERK_IDS, p)), q(g.pips, T),
-  idx(MAKER_IDS, g.maker), g.legendary ? LEGENDARY_IDS.indexOf(g.legendary) : -1, b(!!g.loaner),
+  idx(MAKER_IDS, g.maker), g.legendary ? LEGENDARY_IDS.indexOf(g.legendary) : -1, b(!!g.loaner), g.mythic ? MYTHIC_GUN_IDS.indexOf(g.mythic) : -1,
 ];
 
 function decodeGun(a: GunWire): Gun {
@@ -124,6 +125,8 @@ function decodeGun(a: GunWire): Gun {
   const leg = LEGENDARY_IDS[a[7]];
   if (leg) g.legendary = leg;
   if (a[8]) g.loaner = true;
+  const myth = MYTHIC_GUN_IDS[a[9]];
+  if (myth) g.mythic = myth;
   return g;
 }
 
@@ -132,8 +135,8 @@ function decodeGun(a: GunWire): Gun {
 /** [kind, rarity]. */
 type GrenadeWire = [number, number];
 
-const encodeGrenade = (g: Grenade): GrenadeWire => [idx(GRENADE_IDS, g.defId), idx(RARITIES, g.rarity)];
-const decodeGrenade = (a: GrenadeWire): Grenade => ({ defId: GRENADE_IDS[a[0]] ?? "frag", rarity: RARITIES[a[1]] ?? "common" });
+const encodeGrenade = (g: Grenade): GrenadeWire => [idx(GRENADE_KINDS, g.defId), idx(RARITIES, g.rarity)];
+const decodeGrenade = (a: GrenadeWire): Grenade => ({ defId: GRENADE_KINDS[a[0]] ?? "frag", rarity: RARITIES[a[1]] ?? "common" });
 
 // ---------------------------------------------------------------- players
 
@@ -221,12 +224,12 @@ function encodeEnemy(e: Enemy): (number | number[])[] {
   ];
 }
 
-/** Elites, marks, stuns, slows and split copies, or just 0 for the plain enemies that make up most of a room. */
+/** Elites, marks, stuns, sleep, slows and split copies, or just 0 for the plain enemies that make up most of a room. */
 function encodeExtras(e: Enemy): number[] | 0 {
-  if (!e.elite && e.size === 1 && e.stunT <= 0 && e.markT <= 0 && e.slow <= 0) return 0;
+  if (!e.elite && e.size === 1 && e.stunT <= 0 && e.sleepT <= 0 && e.markT <= 0 && e.slow <= 0) return 0;
   return [
     e.elite ? ELITE_IDS.indexOf(e.elite) + 1 : 0, q(e.size, 100), q(e.stunT, T), q(e.markT, T), e.markBy, qa(angleOf(e.facing)),
-    e.link, q(e.linkT, T), e.blinkTo ? q(e.blinkTo.x, POS) : -1, e.blinkTo ? q(e.blinkTo.y, POS) : -1, q(e.slow, 100), q(e.guard, 1),
+    e.link, q(e.linkT, T), e.blinkTo ? q(e.blinkTo.x, POS) : -1, e.blinkTo ? q(e.blinkTo.y, POS) : -1, q(e.slow, 100), q(e.guard, 1), q(e.sleepT, T),
   ];
 }
 
@@ -234,7 +237,7 @@ function encodeExtras(e: Enemy): number[] | 0 {
 const ENEMY_POINTS = 21;
 
 function decodeEnemy(raw: (number | number[])[]): Enemy {
-  const x = (Array.isArray(raw[20]) ? raw[20] : [0, 100, 0, 0, 0, 0, 0, 0, -1, -1, 0, 0]) as number[];
+  const x = (Array.isArray(raw[20]) ? raw[20] : [0, 100, 0, 0, 0, 0, 0, 0, -1, -1, 0, 0, 0]) as number[];
   const a = raw.map((v) => (Array.isArray(v) ? 0 : v));
   const defId = ENEMY_IDS[a[1]!] ?? "cone_rat";
   const points: Vec[] = [];
@@ -268,6 +271,7 @@ function decodeEnemy(raw: (number | number[])[]): Enemy {
     size,
     noLoot: false,
     stunT: x[2]! / T,
+    sleepT: (x[12] ?? 0) / T,
     slowT: x[10]! > 0 ? 0.1 : 0,
     slow: x[10]! / 100,
     markT: x[3]! / T,
@@ -421,6 +425,9 @@ const EVENT_KEYS: EventKeys = {
   blink: ["id", "x", "y", "done"],
   relink: ["id"],
   deflect: ["x", "y"],
+  confiscate: ["id", "x", "y"],
+  asleep: ["id"],
+  rewound: ["id", "by"],
   playerDowned: ["id", "canRevive"],
   secondWind: ["id"],
   playerRevived: ["id", "by"],

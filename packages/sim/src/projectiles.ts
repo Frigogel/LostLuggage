@@ -1,15 +1,17 @@
 import { damageEnemy, domeAt, DT, hurtPlayer, insideArenaSolid, nearestEnemy, newId, playerExplosion, targetable } from "./combat";
 import { domeBlocked, reflect } from "./domes";
-import { shieldBlocks } from "./elites";
+import { confiscate, shieldBlocks } from "./elites";
 import { hurtGadget, hurtGadgetsIn, magnetize } from "./gadgets";
 import { nearestMarked } from "./marks";
 import { levelMultiplier } from "./data/heroes";
-import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub } from "./math";
-import { dashedWithin, hasSkill } from "./players";
+import { MYTHIC } from "./data/mythics";
+import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub, type Vec } from "./math";
+import { ENEMIES } from "./data/enemies";
+import { dashedWithin, hasSkill, revive } from "./players";
 import { GRENADES } from "./data/grenades";
-import type { Element, Hazard, Projectile, World } from "./types";
+import type { Element, Hazard, Player, Projectile, World } from "./types";
 
-const HAZARD_ELEMENT: Record<Hazard["kind"], Element> = { fire: "fire", acid: "acid", ice: "frost", wave: "none" };
+const HAZARD_ELEMENT: Record<Hazard["kind"], Element> = { fire: "fire", acid: "acid", ice: "frost", wave: "none", rewind: "none" };
 
 /** Hot Take's burning line: one patch per tick of flight, each burning what stands in it twice a second. */
 const FIRE_LINE = { radius: 9, seconds: 3, damage: 4, maxHazards: 90 };
@@ -20,6 +22,20 @@ export function updateProjectiles(w: World): void {
   w.projectiles = [];
   const kept = current.filter((pr) => (pr.lob ? updateLob(w, pr) : updateStraight(w, pr)));
   w.projectiles = [...kept, ...w.projectiles];
+  swatShots(w);
+}
+
+/** Return to Sender: pellets bat the enemy shots they touch back at whoever fired them, and keep going. */
+function swatShots(w: World): void {
+  for (const bat of w.projectiles) {
+    if (!bat.swat || bat.owner !== "player" || bat.lob) continue;
+    const by = w.players.find((p) => p.id === bat.ownerId);
+    if (!by) continue;
+    for (const pr of w.projectiles) {
+      if (pr.owner !== "enemy" || pr.lob || dist(pr.pos, bat.pos) > pr.radius + bat.radius + MYTHIC.swatReach) continue;
+      reflect(w, pr, by);
+    }
+  }
 }
 
 /** Returns false when the projectile is done. */
@@ -32,8 +48,11 @@ function updateLob(w: World, pr: Projectile): boolean {
 
   if (pr.owner === "player") {
     playerExplosion(w, lob.to, lob.radius, pr.damage, pr.knockback, pr.ownerId, pr.element, false, pr.gunUid);
+    const nade = pr.grenade ? GRENADES[pr.grenade] : undefined;
+    if (nade?.mythic === "snooze") snooze(w, lob.to, lob.radius);
+    if (nade?.mythic === "rewind") blackBox(w, lob.to, lob.radius, pr.ownerId);
     // Grenades that leave something behind: burning floor, frost, acid.
-    const hz = pr.grenade ? GRENADES[pr.grenade]?.hazard : undefined;
+    const hz = nade?.hazard;
     if (hz) {
       w.hazards.push({ id: newId(w), kind: hz.kind, owner: "player", ownerId: pr.ownerId, pos: { ...lob.to }, radius: lob.radius * 0.8, t: hz.seconds, maxT: hz.seconds, damage: pr.damage * hz.damage, tickT: 0.5 });
     }
@@ -165,6 +184,8 @@ function updateStraight(w: World, pr: Projectile): boolean {
         detonate(w, pr);
         return false;
       }
+      // Customs Officer goes through the shield: it confiscates it, with the rest.
+      if (pr.confiscate) confiscate(w, e);
       // Shielded elites: a shot into the shield just bounces off.
       if (shieldBlocks(w, e, pr)) {
         w.events.push({ type: "deflect", x: pr.pos.x, y: pr.pos.y });
@@ -237,9 +258,48 @@ function updateStraight(w: World, pr: Projectile): boolean {
   return true;
 }
 
+/** Snooze Button: everything in the blast falls asleep until something hits it. Bosses only nod off. */
+function snooze(w: World, at: Vec, radius: number): void {
+  for (const e of w.enemies) {
+    if (!targetable(e) || dist(at, e.pos) > radius + e.radius) continue;
+    if (ENEMIES[e.defId]!.boss) e.stunT = Math.max(e.stunT, MYTHIC.bossDozeS);
+    else e.sleepT = MYTHIC.sleepS;
+    w.events.push({ type: "asleep", id: e.id });
+  }
+}
+
+/** Black Box: notes the health of every ally in the blast. When it runs out, they all get it back (see `rewind`). */
+function blackBox(w: World, at: Vec, radius: number, ownerId: number): void {
+  const caught = w.players.filter((p) => !p.downed && !p.away && dist(at, p.pos) < radius + p.radius);
+  if (caught.length === 0) return;
+  const t = MYTHIC.rewindS;
+  w.hazards.push({ id: newId(w), kind: "rewind", owner: "player", ownerId, pos: { ...at }, radius, t, maxT: t, damage: 0, rewind: caught.map((p) => ({ id: p.id, hp: p.hp })) });
+}
+
+/** The Black Box runs out: whoever is below the health it noted goes back up to it, and the downed get back up. */
+function rewind(w: World, h: Hazard): void {
+  for (const r of h.rewind ?? []) {
+    const p = w.players.find((o) => o.id === r.id);
+    if (!p || p.away) continue;
+    if (p.downed) revive(w, p, h.ownerId ?? -1, r.hp / p.maxHp);
+    else if (p.hp < r.hp) {
+      w.events.push({ type: "heal", id: p.id, amount: r.hp - p.hp });
+      p.hp = r.hp;
+    } else continue;
+    w.events.push({ type: "rewound", id: p.id, by: h.ownerId ?? -1 });
+  }
+}
+
+/** A Black Box that will bring this player back up is still counting down. */
+export const rewindPending = (w: World, p: Player): boolean => w.hazards.some((h) => h.kind === "rewind" && h.t > 0 && !!h.rewind?.some((r) => r.id === p.id));
+
 export function updateHazards(w: World): void {
   for (const h of w.hazards) {
     h.t -= DT;
+    if (h.kind === "rewind") {
+      if (h.t <= 0) rewind(w, h);
+      continue;
+    }
     if (h.owner === "player") {
       // Burning ground (or frost, or acid): hits whatever stands in it a few times a second with its element.
       h.tickT = (h.tickT ?? 0) - DT;

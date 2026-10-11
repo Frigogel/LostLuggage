@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { ARENA, DOOR, HERO_IDS, PAD } from "@lostluggage/sim";
 import { SLOT_PALETTES } from "../render/colors";
 import { cosmeticTextures, drawBelt, drawLobby } from "../render/cosmetics";
+import { drawMythicArt, drawMythicRays, MYTHIC_ART } from "../render/mythics";
 import {
   BIOME_ART,
   drawCargoPod,
@@ -46,6 +47,8 @@ export class BootScene extends Phaser.Scene {
       SLOT_PALETTES.forEach((pal, i) => add(`${hero}_${i}`, drawSprite({ ...s, palette: { ...s.palette, ...pal } })));
     }
     for (const [key, c] of Object.entries(cosmeticTextures())) add(key, c);
+    for (const id of Object.keys(MYTHIC_ART)) add(`mythic_${id}`, drawMythicArt(id));
+    add("mythic-rays", drawMythicRays());
     add("lobby-bg", drawLobby(480, 270));
     add("belt", drawBelt());
     add("font", drawFont());

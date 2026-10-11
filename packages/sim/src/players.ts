@@ -3,6 +3,7 @@ import { BOOSTS } from "./data/boosts";
 import { GRENADE } from "./data/guns";
 import { DASH, HEROES, levelMultiplier, MAX_LEVEL, REVIVE, tierLevel } from "./data/heroes";
 import { LEGENDARIES, MOOD_CYCLE } from "./data/legendaries";
+import { MYTHIC_GUNS } from "./data/mythics";
 import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { souvenirMods, type SouvenirRanks } from "./data/souvenirs";
@@ -10,6 +11,7 @@ import { ambulanceNear, detonateTurrets, useDrone, useTurret } from "./gadgets";
 import { GRENADES } from "./data/grenades";
 import { gunFromData, gunStats, heldGrenade, heldStats, newGun, RARITIES, rollGun, STARTER_GRENADE } from "./loot";
 import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
+import { rewindPending } from "./projectiles";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
 import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
 import { beltAt, padAt, waterAt } from "./room";
@@ -30,6 +32,8 @@ export interface PlayerOptions {
   souvenirs?: SouvenirRanks;
   /** Equipped signature power. Ignored unless it belongs to this hero. */
   signature?: string;
+  /** Bosses beaten since the last mythic came home: bad-luck protection for the mythic roll. */
+  mythicPity?: number;
 }
 
 /** A saved grenade the sim knows, or the starter frag. */
@@ -99,6 +103,7 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     holsterCd: 0,
     markHits: 0,
   };
+  if (opts.mythicPity) p.mythicPity = Math.max(0, Math.floor(opts.mythicPity));
   // Second Opinion: one more Second Wind.
   if (p.skills.includes("wd_opinion")) p.selfRevives = 2;
   return p;
@@ -417,6 +422,8 @@ export function revive(w: World, p: Player, by: number, hpFrac: number): void {
 export function checkWipe(w: World): void {
   const present = w.players.filter((p) => !p.away);
   if (present.length === 0 || present.some((p) => !p.downed || p.reviveT !== Infinity)) return;
+  // A Black Box is still counting down for someone: the wipe waits to see if it brings them back.
+  if (present.some((p) => rewindPending(w, p))) return;
   const lucky = present.find((p) => p.selfRevives > 0);
   if (lucky) {
     lucky.selfRevives--;
@@ -489,6 +496,7 @@ const ROCKET = { speed: 190, damage: 30, radius: 24, homing: 5, life: 2.2 };
 function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
   const s = heldStats(gun, p);
   const effect = gun.legendary ? LEGENDARIES[gun.legendary]?.effect : undefined;
+  const mythic = gun.mythic ? MYTHIC_GUNS[gun.mythic]?.effect : undefined;
   gun.count = (gun.count ?? 0) + 1;
   // Mood Ring changes element every shot.
   const element = effect === "moodRing" ? MOOD_CYCLE[(gun.count - 1) % MOOD_CYCLE.length]! : gun.element;
@@ -537,6 +545,8 @@ function fireGun(w: World, p: Player, gun: Gun, aim: Vec): void {
       ...(effect === "boomerang" ? { turnT: life, pierce: pr.pierce + 2, special: true } : {}),
       ...(effect === "ricochet" ? { ricochet: 3, special: true } : {}),
       ...(effect === "fireLine" ? { fireLine: true } : {}),
+      ...(mythic === "swat" ? { swat: true } : {}),
+      ...(mythic === "confiscate" ? { confiscate: true } : {}),
     });
   }
 

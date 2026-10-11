@@ -143,9 +143,10 @@ function updateEnemy(w: World, e: Enemy): void {
 
   e.pos = add(e.pos, scale(e.knock, DT));
   e.knock = scale(e.knock, w.arena.ice ? 0.88 : 0.8);
-  if (s.frozenT > 0 || e.stunT > 0) {
+  if (s.frozenT > 0 || e.stunT > 0 || e.sleepT > 0) {
     s.frozenT = Math.max(0, s.frozenT - DT);
     e.stunT = Math.max(0, e.stunT - DT);
+    e.sleepT = Math.max(0, e.sleepT - DT);
     e.vel = { x: 0, y: 0 };
     return;
   }

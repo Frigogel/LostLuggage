@@ -156,6 +156,17 @@ Loot is the Borderlands heart of the game: every gun is archetype + manufacturer
 
 **Legendaries** each have one rule-breaking effect with flavor text, Borderlands style. Examples: a shotgun whose pellets come back like boomerangs; an SMG that fires a homing rocket every 10th bullet; a sniper that leaves a damaging line on the ground.
 
+**Mythics** sit above legendary and are the rarest drops in the game. They're the one place the golden rule bends: a mythic hits 1.5x harder than a legendary, and carries an ability that breaks a rule everyone else plays by. They come as guns or grenades, each with its own hand-drawn icon, a prismatic beam on the floor and a fanfare when one drops.
+
+| Mythic | Kind | The rule it breaks |
+| --- | --- | --- |
+| Return to Sender | Shotgun | Pellets bat enemy shots back at whoever fired them |
+| Customs Officer | Pistol | Hits confiscate an elite's modifier and strip shield bars |
+| Snooze Button | Grenade | Enemies in the blast sleep until something hits them; bosses only nod off |
+| Black Box | Grenade | 4s later, allies it caught get back the health they had, even if they went down, and the wipe waits for it |
+
+They drop from bosses (and, ten times more rarely, elites) in solo and co-op: about 0.3% per boss on Normal, up to 2.5x on Nightmare, doubled in co-op when someone below the tier's level is along. Luck doesn't touch the roll. Bad-luck protection: every boss beaten since your last mythic adds 1% of the base chance.
+
 **Mobile-friendly management.** Green up-arrows on better gear, one-tap compare, auto-pickup for materials, and one-tap "scrap all commons".
 
 **Run boosts.** Shrines in rooms give temporary boosts for the current run only (+1 bounce, burn spreads on kill). They stack into flashy combos and reset each run.
