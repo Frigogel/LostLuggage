@@ -516,6 +516,30 @@ describe("Orbital Deck", () => {
     expect(snap.arena.pads).toEqual(w.arena.pads);
   });
 
+  it("pads need a few seconds to recharge before they take you again", () => {
+    const w = quiet([{}], 1, "orbital");
+    const p = w.players[0]!;
+    const pad = w.arena.pads[0]!;
+    const warpsStepping = (ticks: number) => {
+      let warps = 0;
+      for (let t = 0; t < ticks; t++) {
+        // Step off whichever pad you're on, then straight back onto it.
+        const on = dist(p.pos, pad.a) < dist(p.pos, pad.b) ? pad.a : pad.b;
+        p.pos = { x: on.x - PAD.radius - 4, y: on.y };
+        step(w, [input({ move: { x: 1, y: 0 } })]);
+        step(w, [input({ move: { x: 1, y: 0 } })]);
+        warps += w.events.filter((ev) => ev.type === "warp").length;
+      }
+      return warps;
+    };
+    expect(warpsStepping(1)).toBe(1);
+    expect(p.padCd).toBeGreaterThan(0);
+    expect(warpsStepping(5)).toBe(0);
+    p.padCd = 0;
+    expect(warpsStepping(1)).toBe(1);
+    expect(decodeSnapshot(encodeSnapshot(w, [], new Map())).world.players[0]!.padCd).toBeCloseTo(p.padCd, 2);
+  });
+
   it("laser fences hurt while they're on, and a dash goes through", () => {
     const fence = (dash: boolean) => {
       const w = quiet([{}], 1, "orbital");

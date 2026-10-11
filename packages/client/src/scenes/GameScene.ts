@@ -213,6 +213,8 @@ export class GameScene extends Phaser.Scene {
   private dark?: Phaser.GameObjects.RenderTexture;
   /** Drowned Crypt: each candle's glow, by its place in the room's list. */
   private candleGlows: Phaser.GameObjects.Image[] = [];
+  /** Orbital Deck: each teleporter pad and its glow, so they can dim while yours recharge. */
+  private padViews: { pad: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image }[] = [];
   private stamp?: Phaser.GameObjects.Image;
   private zaps: { x1: number; y1: number; x2: number; y2: number; t: number }[] = [];
 
@@ -509,6 +511,7 @@ export class GameScene extends Phaser.Scene {
   private buildRoom(): void {
     for (const o of this.roomObjs) o.destroy();
     this.roomObjs = [];
+    this.padViews = [];
     this.ventViews.clear();
     for (const v of this.enemyViews.values()) {
       v.body.destroy();
@@ -560,10 +563,11 @@ export class GameScene extends Phaser.Scene {
     this.world.arena.pads.forEach((pd, i) => {
       const c = PAD_COLORS[i % PAD_COLORS.length]!;
       for (const at of [pd.a, pd.b]) {
-        this.roomObjs.push(this.add.image(at.x, at.y, "pad").setTint(c).setDepth(D.floor + 2));
+        const pad = this.add.image(at.x, at.y, "pad").setTint(c).setDepth(D.floor + 2);
         const glow = this.add.image(at.x, at.y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(c).setScale(1.4).setAlpha(0.5).setDepth(D.light);
         this.tweens.add({ targets: glow, alpha: 0.2, scale: 1.1, duration: 700, yoyo: true, repeat: -1, ease: "Sine.inOut" });
-        this.roomObjs.push(glow);
+        this.roomObjs.push(pad, glow);
+        this.padViews.push({ pad, glow });
       }
     });
     // A shut hatch in the middle of the top wall while the fight is on; the real doors appear once it's clear.
@@ -672,6 +676,20 @@ export class GameScene extends Phaser.Scene {
    * Drowned Crypt candles: a stub of wax on a little dish. Lit ones flicker and glow; out ones show a wisp of smoke
    * and a faint ring now and then, so you know they're worth a shot.
    */
+  /** Teleporter pads go dark while yours recharge, with a ring that fills back up. */
+  private renderPads(): void {
+    const cd = this.me.padCd;
+    const left = cd > 0 ? cd / PAD.cooldown : 0;
+    for (const { pad, glow } of this.padViews) {
+      pad.setAlpha(left > 0 ? 0.35 : 1);
+      glow.setVisible(left <= 0);
+      if (left > 0) {
+        const start = -Math.PI / 2;
+        this.ground.lineStyle(2, 0x8a8aa0, 0.6).beginPath().arc(pad.x, pad.y, PAD.radius + 4, start, start + (1 - left) * Math.PI * 2).strokePath();
+      }
+    }
+  }
+
   private renderCandles(t: number): void {
     const g = this.ground;
     const o = this.over;
@@ -1516,6 +1534,7 @@ export class GameScene extends Phaser.Scene {
     this.renderBelts(t);
     this.renderVents(t);
     this.renderCandles(t);
+    this.renderPads();
     this.renderHazards(t);
     this.renderDoors();
     this.renderPickups(t);

@@ -296,8 +296,8 @@ export const LAYOUTS: Layout[] = [
   },
 ];
 
-/** Teleporter pads: how close to the middle counts as standing on one. */
-export const PAD = { radius: 12 };
+/** Teleporter pads: how close to the middle counts as standing on one, and the seconds before they take you again. */
+export const PAD = { radius: 12, cooldown: 3 };
 
 /** The pad a point is standing on and where it leads, if any. */
 export function padAt(arena: { pads: Pad[] }, p: Vec): { from: Vec; to: Vec } | undefined {

@@ -510,6 +510,8 @@ export interface Player {
   pinnedBy: number;
   /** 0..1 while pinned: teammates standing close (or mashing dash) fill it, and at 1 they're free. */
   freeProgress: number;
+  /** Orbital Deck: seconds until teleporter pads take you again. */
+  padCd: number;
 }
 
 export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";

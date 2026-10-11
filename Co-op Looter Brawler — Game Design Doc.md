@@ -328,7 +328,7 @@ Each biome brings an enemy family and a terrain rule, and its enemies are design
 | Drowned Crypt (always the final act) | Dark: you see what your glow, the owl and candles light. Shoot a candle to light it; enemies in candlelight take more damage | Ambushers striking from the dark, stone gargoyles that shrug off hits until lit, a bell ringer that blows the candles out | Flesh |
 | Storm Peaks | Wind gusts push players and projectiles | Artillery firing with the wind | Shields |
 | Bilge Sewers | Deep water slows you and its current carries you; sludge pipes blast a lane on a timer | Swimming through the channels at full speed while you wade | Flesh |
-| Orbital Deck | Laser fences switch on and off; teleporter pads link two spots | Cornering you against fences (the robots can't use the pads, so you can) | Shields |
+| Orbital Deck | Laser fences switch on and off; teleporter pads link two spots, then need 3s to recharge | Cornering you against fences (the robots can't use the pads, so you can) | Shields |
 
 Each biome's boss has one signature attack built around that biome: the Foreman's Slag Cross (lines of burning
 slag), the Dragon's frost breath, the Gator's Submerge (dives under and surfaces beneath you), the Autopilot's

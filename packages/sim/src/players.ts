@@ -17,7 +17,7 @@ import { rewindPending } from "./projectiles";
 import { updatePinned } from "./grabs";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
 import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, Relic, World } from "./types";
-import { beltAt, padAt, waterAt } from "./room";
+import { PAD, beltAt, padAt, waterAt } from "./room";
 
 export const MAX_PLAYERS = 4;
 
@@ -143,6 +143,7 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     markHits: 0,
     pinnedBy: 0,
     freeProgress: 0,
+    padCd: 0,
   };
   if (opts.mythicPity) p.mythicPity = Math.max(0, Math.floor(opts.mythicPity));
   equipRelic(p, savedRelic(opts.relic));
@@ -253,10 +254,15 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
     if (Math.abs(before.x - p.pos.x) > 0.01) vel = { x: 0, y: vel.y };
     if (Math.abs(before.y - p.pos.y) > 0.01) vel = { x: vel.x, y: 0 };
   }
-  // Orbital Deck: stepping onto a pad puts you on its partner. Only stepping on counts, so you don't bounce back.
-  if (w.arena.pads.length > 0 && !padAt(w.arena, from)) {
+  // Orbital Deck: stepping onto a pad puts you on its partner. Only stepping on counts, so you don't bounce back,
+  // and the pads won't take you again until they've recharged.
+  if (p.padCd > 0) p.padCd = Math.max(0, p.padCd - DT);
+  if (w.arena.pads.length > 0 && p.padCd <= 0 && !padAt(w.arena, from)) {
     const pad = padAt(w.arena, p.pos);
-    if (pad) p.pos = { x: pad.to.x + (p.pos.x - pad.from.x), y: pad.to.y + (p.pos.y - pad.from.y) };
+    if (pad) {
+      p.pos = { x: pad.to.x + (p.pos.x - pad.from.x), y: pad.to.y + (p.pos.y - pad.from.y) };
+      p.padCd = PAD.cooldown;
+    }
   }
   p.vel = vel;
   return dashed;

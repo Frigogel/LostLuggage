@@ -166,6 +166,7 @@ function encodePlayer(p: Player): unknown[] {
     q(p.mods.speed, 1000), q(p.mods.dashCd, 1000),
     SIGNATURE_IDS.indexOf(p.signature), q(p.shield, 10), Math.round(p.knock.x), Math.round(p.knock.y), q(p.slowT, T),
     encodeGrenade(p.grenade), p.pinnedBy, q(p.freeProgress, 100), p.relic ? encodeRelic(p.relic) : 0,
+    q(p.padCd, T),
   ];
 }
 
@@ -223,6 +224,7 @@ function decodePlayer(a: unknown[]): Player {
     markHits: 0,
     pinnedBy: (a[41] as number | undefined) ?? 0,
     freeProgress: ((a[42] as number | undefined) ?? 0) / 100,
+    padCd: ((a[44] as number | undefined) ?? 0) / T,
     ...(relic ? { relic } : {}),
   };
 }
