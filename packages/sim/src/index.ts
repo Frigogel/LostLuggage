@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./math";
 export { DT, TICK_HZ, elementMultiplier, partyHpMultiplier } from "./combat";
 export { GUNS, GRENADE } from "./data/guns";
+export { GRENADES, GRENADE_IDS } from "./data/grenades";
 export { BIOMES, BIOME_IDS, ENEMIES } from "./data/enemies";
 export { HEROES, HERO_IDS, DASH, MAX_LEVEL, REVIVE, TIER_LEVELS, levelMultiplier, tierLevel } from "./data/heroes";
 export { SIGNATURES, SIGNATURE_IDS, signaturesFor, type SignatureDef } from "./data/signatures";
@@ -46,7 +47,7 @@ export {
 } from "./players";
 export { ACT_ROOMS, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, actDamage, actHaste, actHp, depthOf, eliteShare, firstRoom, planDoors, planRoom, planWave, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
 export { BOOSTS, BOOST_IDS, boostOffers, playerTags, stacks, type BoostDef, type BoostRarity, type BoostTag } from "./data/boosts";
-export { ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, heldStats, newGun, rollGun, unpredictable } from "./loot";
+export { ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, grenadeName, grenadeStats, heldGrenade, heldStats, newGun, rollGrenade, rollGun, STARTER_GRENADE, unpredictable, type GrenadeStats } from "./loot";
 export { ARENA, DOOR, EXIT_WAIT_S, HOLD_S, LAYOUTS, ROOM_NAMES, START, beltAt, beltsFor, doorAt, doorRect, doorVotes, enterRoom, offerBoosts, roomAct, roomSpec, ventState, type VentState } from "./room";
 export { createWorld, step, type WorldOptions } from "./world";
 export * from "./progress";

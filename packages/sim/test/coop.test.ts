@@ -359,6 +359,7 @@ describe("net codec", () => {
       { type: "grenade", id: 1 },
       { type: "swap", id: 1 },
       { type: "pickup", id: 1, gun },
+      { type: "grenadePickup", id: 1, grenade: { defId: "vortex", rarity: "epic" } },
       { type: "loot", x: 1, y: 2, rarity: "epic" },
       { type: "heal", id: 1, amount: 15 },
       { type: "shrine", id: 1, boost: "vampire" },

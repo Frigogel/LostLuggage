@@ -1,4 +1,4 @@
-import { confine, dropGun, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
+import { confine, dropGrenade, dropGun, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
 import { BOOSTS } from "./data/boosts";
 import { GRENADE } from "./data/guns";
 import { DASH, HEROES, levelMultiplier, MAX_LEVEL, REVIVE, tierLevel } from "./data/heroes";
@@ -7,10 +7,11 @@ import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { souvenirMods, type SouvenirRanks } from "./data/souvenirs";
 import { ambulanceNear, detonateTurrets, useDrone, useTurret } from "./gadgets";
-import { gunFromData, gunStats, heldStats, newGun, rollGun } from "./loot";
+import { GRENADES } from "./data/grenades";
+import { gunFromData, gunStats, heldGrenade, heldStats, newGun, RARITIES, rollGun, STARTER_GRENADE } from "./loot";
 import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
-import type { BoostId, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
+import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
 import { beltAt } from "./room";
 
 export const MAX_PLAYERS = 4;
@@ -22,11 +23,19 @@ export interface PlayerOptions {
   level?: number;
   /** Saved loadout. `sid` is the stash id, so the run knows which guns are already at home. Defaults to the starter kit. */
   guns?: (GunData & { sid?: string })[];
+  /** Saved grenade, with its stash id. Defaults to a common frag. */
+  grenade?: Grenade;
   /** Learned skill nodes. Anything the level can't afford is dropped. */
   skills?: string[];
   souvenirs?: SouvenirRanks;
   /** Equipped signature power. Ignored unless it belongs to this hero. */
   signature?: string;
+}
+
+/** A saved grenade the sim knows, or the starter frag. */
+function savedGrenade(g: Grenade | undefined): Grenade {
+  if (!g || !GRENADES[g.defId] || !RARITIES.includes(g.rarity)) return { ...STARTER_GRENADE };
+  return g.sid ? { defId: g.defId, rarity: g.rarity, sid: g.sid } : { defId: g.defId, rarity: g.rarity };
 }
 
 /** Level sync: co-op sets everyone to the dungeon tier's level; solo uses your own. */
@@ -71,6 +80,7 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     iframes: 0,
     hurtT: 0,
     skillCharge: 0,
+    grenade: savedGrenade(opts.grenade),
     grenadeCd: 0,
     downed: false,
     reviveT: 0,
@@ -292,27 +302,33 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     useSkill(w, p);
   } else if (input.skill && hasSkill(p, "tk_early")) detonateTurrets(w, p);
 
-  if (input.grenade && p.grenadeCd <= 0) {
-    let offset: Vec;
-    if (len(input.grenadeAim) > 1) {
-      offset = clampLen(input.grenadeAim, GRENADE.range);
-    } else {
-      const target = nearestEnemy(w, p.pos, GRENADE.range);
-      offset = target ? sub(target.pos, p.pos) : scale(p.facing, GRENADE.range * 0.6);
-    }
-    const to = add(p.pos, offset);
-    const d = Math.max(16, len(offset));
-    w.projectiles.push({
-      id: newId(w), owner: "player", ownerId: p.id, kind: "grenade", element: "none", pos: { ...p.pos }, vel: { x: 0, y: 0 },
-      radius: 3, damage: GRENADE.damage * levelMultiplier(p.syncLevel) * p.mods.damage, pierce: 0, bounces: 0, knockback: GRENADE.knockback, life: 99, hitIds: [], gunUid: -1,
-      lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: GRENADE.radius * (1 + 0.3 * (p.boosts.explosives ?? 0)) },
-      ...(p.boosts.partyPack ? { cluster: 3 } : {}),
-    });
-    p.grenadeCd = (GRENADE.cooldownMs / 1000) * Math.pow(0.7, p.boosts.explosives ?? 0);
-    w.events.push({ type: "grenade", id: p.id });
-  }
+  if (input.grenade && p.grenadeCd <= 0) throwGrenade(w, p, input);
 
   updateShooting(w, p, input);
+}
+
+/** Lobs the grenade on the player's belt. Its kind decides what the blast does when it lands (see updateLob). */
+function throwGrenade(w: World, p: Player, input: PlayerInput): void {
+  const s = heldGrenade(p);
+  let offset: Vec;
+  if (len(input.grenadeAim) > 1) {
+    offset = clampLen(input.grenadeAim, s.range);
+  } else {
+    const target = nearestEnemy(w, p.pos, s.range);
+    offset = target ? sub(target.pos, p.pos) : scale(p.facing, s.range * 0.6);
+  }
+  const to = add(p.pos, offset);
+  const d = Math.max(16, len(offset));
+  const cluster = Math.max(s.def.cluster ?? 0, p.boosts.partyPack ? 3 : 0);
+  w.projectiles.push({
+    id: newId(w), owner: "player", ownerId: p.id, kind: "grenade", element: s.def.element, pos: { ...p.pos }, vel: { x: 0, y: 0 },
+    radius: 3, damage: s.damage * levelMultiplier(p.syncLevel) * p.mods.damage, pierce: 0, bounces: 0, knockback: s.def.knockback, life: 99, hitIds: [], gunUid: -1,
+    lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: s.radius },
+    grenade: s.def.id,
+    ...(cluster ? { cluster } : {}),
+  });
+  p.grenadeCd = s.cooldown;
+  w.events.push({ type: "grenade", id: p.id });
 }
 
 /** One pip back on the gun in hand. */
@@ -547,7 +563,7 @@ export function interactable(w: World, p: Player): Pickup | undefined {
   return best;
 }
 
-/** Health snacks are grabbed on touch; guns, shrines and suitcases wait for the pickup button. */
+/** Health snacks are grabbed on touch; guns, grenades, shrines and suitcases wait for the pickup button. */
 export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
   w.players.forEach((p, i) => {
     if (!canAct(p)) return;
@@ -570,6 +586,12 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       p.burstLeft = 0;
       p.charging = false;
       w.events.push({ type: "pickup", id: p.id, gun: p.guns[p.active]! });
+    } else if (pk.kind === "grenade" && pk.grenade) {
+      // Same deal for grenades: the old one stays on the floor.
+      const old = p.grenade;
+      p.grenade = pk.grenade;
+      pk.grenade = old;
+      w.events.push({ type: "grenadePickup", id: p.id, grenade: p.grenade });
     } else if (pk.kind === "boost" && pk.boost) {
       applyBoost(w, p, pk.boost);
       // The other two offers go away.
@@ -582,6 +604,7 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       w.events.push({ type: "chestOpened", x: pk.pos.x, y: pk.pos.y });
       dropGun(w, add(pk.pos, { x: -22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
       dropGun(w, add(pk.pos, { x: 22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
+      dropGrenade(w, add(pk.pos, { x: 0, y: 40 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
     }
   });
 }

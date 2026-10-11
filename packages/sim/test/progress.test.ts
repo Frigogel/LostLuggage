@@ -6,6 +6,7 @@ import {
   decodeSnapshot,
   EMPTY_INPUT,
   encodeSnapshot,
+  GRENADE_CAP,
   gunDps,
   gunStats,
   HEROES,
@@ -407,6 +408,62 @@ describe("progression", () => {
     p = act(p, { type: "run", id: "x", result: r }).profile;
     expect(p.loadout).toEqual(["starter-pistol", "new0"]);
     expect(createWorld({ seed: 6, players: [playerOptions(p)] }).players[0]!.guns[1]!.defId).toBe("launcher");
+  });
+
+  it("brings home the grenade on your belt, keeps it equipped, and the next run starts with it", () => {
+    let p = newProfile("Cy");
+    expect(p.grenades.map((g) => g.id)).toEqual(["starter-frag"]);
+    const w = createWorld({ seed: 5, players: [playerOptions(p)] });
+    const me = w.players[0]!;
+    expect(me.grenade).toEqual({ defId: "frag", rarity: "common", sid: "starter-frag" });
+    // Keeping the starter brings nothing new home.
+    expect(runResult(w, me, { mode: "solo", day: "2026-10-10" }).grenade).toBeUndefined();
+    me.pos = { x: 100, y: 100 };
+    w.pickups.push({ id: 7777, kind: "grenade", pos: { ...me.pos }, grenade: { defId: "vortex", rarity: "epic" }, used: false });
+    step(w, [input({ interact: true })]);
+    const r = runResult(w, me, { mode: "solo", day: "2026-10-10", newId: () => "nade1" });
+    expect(r.grenade).toMatchObject({ id: "nade1", defId: "vortex", rarity: "epic" });
+    const { profile, reward } = act(p, { type: "run", id: "x", result: r });
+    p = profile;
+    expect(reward!.grenade).toBe(true);
+    expect(p.grenades.map((g) => g.id)).toEqual(["starter-frag", "nade1"]);
+    expect(p.grenade).toBe("nade1");
+    expect(createWorld({ seed: 6, players: [playerOptions(p)] }).players[0]!.grenade).toEqual({ defId: "vortex", rarity: "epic", sid: "nade1" });
+    // Replaying it doesn't duplicate it.
+    expect(act(p, { type: "run", id: "y", result: r }).profile.grenades.length).toBe(2);
+  });
+
+  it("equips and scraps grenades, never the one on your belt", () => {
+    let p = newProfile();
+    p.grenades.push({ id: "g1", defId: "fire", rarity: "rare" });
+    p = act(p, { type: "equipGrenade", id: "e1", grenadeId: "g1" }).profile;
+    expect(p.grenade).toBe("g1");
+    expect(act(p, { type: "equipGrenade", id: "e2", grenadeId: "nope" }).profile.grenade).toBe("g1");
+    const r = act(p, { type: "scrap", id: "s1", gunIds: [], grenadeIds: ["g1", "starter-frag"] });
+    expect(r.xp).toBe(SCRAP_XP.common);
+    expect(r.profile.grenades.map((g) => g.id)).toEqual(["g1"]);
+  });
+
+  it("a full grenade stash scraps its worst unequipped grenades", () => {
+    const p = newProfile();
+    for (let i = 0; i < GRENADE_CAP; i++) p.grenades.push({ id: `g${i}`, defId: "shock", rarity: "rare" });
+    const r = act(p, { type: "run", id: "r", result: result({ grenade: { id: "new", defId: "acid", rarity: "epic" }, grenadeHand: "new" }) });
+    expect(r.profile.grenades.length).toBe(GRENADE_CAP);
+    // The common starter goes first; the new one is equipped and stays.
+    expect(r.profile.grenades.some((g) => g.id === "starter-frag")).toBe(false);
+    expect(r.profile.grenade).toBe("new");
+  });
+
+  it("old saves without grenades get the starter frag; broken grenades are dropped", () => {
+    const old = JSON.parse(JSON.stringify(newProfile())) as Record<string, unknown>;
+    delete old.grenades;
+    delete old.grenade;
+    const p = cleanProfile(old);
+    expect(p.grenades.map((g) => g.id)).toEqual(["starter-frag"]);
+    expect(p.grenade).toBe("starter-frag");
+    const bad = cleanProfile({ grenades: [{ id: "x", defId: "nuke", rarity: "common" }, { id: "y", defId: "frost", rarity: "mythic" }, { id: "y", defId: "fire" }], grenade: "y" });
+    expect(bad.grenades).toEqual([{ id: "y", defId: "frost", rarity: "common" }]);
+    expect(bad.grenade).toBe("y");
   });
 
   it("cleans hostile or broken saves", () => {

@@ -100,6 +100,12 @@ From phase 4:
 - **Legendaries**: six named guns, each with one rule-breaking effect (The Ex's pellets come back, Overachiever fires
   a homing rocket every 10th bullet, Hot Take leaves a line of fire, Show-Off ricochets between enemies, Party Favor
   bursts into bomblets, Mood Ring changes element every shot).
+- **Grenades**: enemies and suitcases also drop grenades (every boss leaves a rare-or-better one). Seven kinds:
+  Carry-On Frag (plain boom), Hot Pocket (burning floor), Snow Globe (big frost blast, lingering frost that freezes),
+  Static Cling (shock chains, faster cooldown), Sour Candy (armor-melting acid puddle), Party Popper (4 bomblets) and
+  Lint Trap (pulls enemies into the middle). Higher rarity means more damage, a bigger blast and a shorter cooldown.
+  The grenade on your belt at the end of a run comes home to the armory's Grenades tab (up to 20; overflow scraps
+  the worst spare), where you can equip or scrap them like guns. Everyone starts with a common frag.
 - **Loot comes home**: the two guns in your hands at the end of a run go to your armory and become your
   loadout. Equip, compare (green arrows), scrap for XP, or scrap all commons in one tap. The intro room's
   try-out guns are loaners and stay behind.
@@ -192,8 +198,8 @@ stragglers, or opens right away once everyone who can walk is at the door.
 | Pause (solo) / menu (co-op) / mute | Background the app | P or Esc / M |
 | Quit a solo run / leave a co-op room | Pause, then QUIT TO MENU / LEAVE ROOM | Esc, then L |
 
-Walk up to a dropped gun and press the pickup button to swap it for the one in your hands (your old gun stays on
-the floor). The card at the bottom compares its DPS with yours. The same button prays at shrines and opens
+Walk up to a dropped gun or grenade and press the pickup button to swap it for yours (your old one stays on
+the floor). The card at the bottom compares it with yours. The same button prays at shrines and opens
 suitcases. Health snacks are still grabbed just by touching them.
 
 In development, `?room=4` jumps straight to a solo room, `?seed=123` replays a solo run, and `?level=25` pretends
@@ -205,11 +211,11 @@ a guest's hero is level 25.
 packages/
   sim/      Pure TypeScript game rules: fixed 30 Hz tick, seeded RNG, no rendering code.
             Runs in the browser for solo and on the server for co-op.
-    src/data/   Guns, enemies and biomes, heroes, manufacturers, legendaries, skill trees, signatures, souvenirs,
+    src/data/   Guns, grenades, enemies and biomes, heroes, manufacturers, legendaries, skill trees, signatures, souvenirs,
                 cosmetics
     src/director.ts  Encounter director: threat budgets, role templates, pacing curve, party scaling
     src/room.ts      Room layouts, lava vents, waves, exits
-    src/loot.ts      Rarity, manufacturers, legendaries, elements, perks, shrine boosts
+    src/loot.ts      Rarity, manufacturers, legendaries, elements, perks, grenades
     src/domes.ts     The Vanguard's dome skills: zaps, shoves, healing, reflections
     src/marks.ts     The Gunslinger's marks: seeking shots, crits, marks that spread
     src/gadgets.ts   The Tinker's turrets and the Warden's owl drone

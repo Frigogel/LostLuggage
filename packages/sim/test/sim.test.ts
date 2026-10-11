@@ -11,6 +11,9 @@ import {
   ENEMIES,
   enterRoom,
   FINAL_ACT,
+  GRENADES,
+  GRENADE_IDS,
+  grenadeStats,
   GUNS,
   gunDps,
   gunName,
@@ -20,6 +23,7 @@ import {
   planDoors,
   planRoom,
   planWave,
+  rollGrenade,
   rollGun,
   roomSpec,
   step,
@@ -279,6 +283,86 @@ describe("loot", () => {
     expect(w.pickups.filter((k) => k.kind === "gun").length).toBe(0);
     step(w, [input({ interact: true })]);
     expect(w.pickups.filter((k) => k.kind === "gun").length).toBe(2);
+    expect(w.pickups.filter((k) => k.kind === "grenade").length).toBe(1);
+  });
+});
+
+describe("grenades", () => {
+  it("everyone starts with a plain frag; better rarities hit harder and come back sooner", () => {
+    const w = quiet();
+    expect(w.players[0]!.grenade).toEqual({ defId: "frag", rarity: "common" });
+    const common = grenadeStats({ defId: "frag", rarity: "common" });
+    const legendary = grenadeStats({ defId: "frag", rarity: "legendary" });
+    expect(legendary.damage).toBeGreaterThan(common.damage);
+    expect(legendary.radius).toBeGreaterThan(common.radius);
+    expect(legendary.cooldown).toBeLessThan(common.cooldown);
+    for (const id of GRENADE_IDS) expect(GRENADES[id]!.id).toBe(id);
+  });
+
+  it("drop as loot and swap with the pickup button, leaving the old one on the floor", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    w.pickups.push({ id: 5000, kind: "grenade", pos: { ...p.pos }, grenade: { defId: "shock", rarity: "rare" }, used: false });
+    step(w, [input({ interact: true })]);
+    expect(p.grenade).toEqual({ defId: "shock", rarity: "rare" });
+    expect(w.pickups.find((k) => k.id === 5000)!.grenade).toEqual({ defId: "frag", rarity: "common" });
+    expect(w.events.some((e) => e.type === "grenadePickup")).toBe(true);
+    // Static Cling comes back faster than a frag.
+    step(w, [input({ grenade: true, grenadeAim: { x: 60, y: 0 } })]);
+    expect(p.grenadeCd).toBeCloseTo(grenadeStats(p.grenade).cooldown, 5);
+    expect(w.projectiles.find((pr) => pr.kind === "grenade")!.element).toBe("shock");
+  });
+
+  it("rolls every kind, and enemies drop them", () => {
+    const w = quiet();
+    const kinds = new Set<string>();
+    for (let i = 0; i < 300; i++) kinds.add(rollGrenade(w).defId);
+    expect([...kinds].sort()).toEqual([...GRENADE_IDS].sort());
+    let drops = 0;
+    for (let i = 0; i < 200; i++) {
+      const e = spawnEnemy(w, "cone_rat", { x: 200, y: 150 }, 0);
+      hit(w, e, 9999, "none");
+      drops = w.pickups.filter((k) => k.kind === "grenade").length;
+    }
+    expect(drops).toBeGreaterThan(0);
+  });
+
+  it("Hot Pocket leaves burning floor; Snow Globe's frost freezes what stays in it", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.grenade = { defId: "fire", rarity: "common" };
+    step(w, [input({ grenade: true, grenadeAim: { x: 60, y: 0 } })]);
+    run(w, 40);
+    expect(w.hazards.some((h) => h.kind === "fire" && h.owner === "player")).toBe(true);
+
+    const v = quiet();
+    const q = v.players[0]!;
+    q.grenade = { defId: "frost", rarity: "common" };
+    const e = spawnEnemy(v, "cone_rat", { x: q.pos.x + 60, y: q.pos.y }, 0);
+    e.hp = e.maxHp = 1e6;
+    let frozen = false;
+    step(v, [input({ grenade: true, grenadeAim: { x: 60, y: 0 } })]);
+    for (let i = 0; i < 150 && !frozen; i++) {
+      e.pos = { x: q.pos.x + 60, y: q.pos.y };
+      step(v, [EMPTY_INPUT]);
+      frozen = e.status.frozenT > 0;
+    }
+    expect(frozen).toBe(true);
+  });
+
+  it("Lint Trap pulls enemies toward the blast instead of shoving them away", () => {
+    const w = quiet();
+    const p = w.players[0]!;
+    p.grenade = { defId: "vortex", rarity: "common" };
+    const at = { x: p.pos.x + 60, y: p.pos.y - 40 };
+    const e = spawnEnemy(w, "cone_rat", { x: at.x + 30, y: at.y }, 0);
+    e.hp = e.maxHp = 1e6;
+    step(w, [input({ grenade: true, grenadeAim: { x: 60, y: -40 } })]);
+    for (let i = 0; i < 60 && !w.events.some((ev) => ev.type === "explosion"); i++) {
+      e.pos = { x: at.x + 30, y: at.y };
+      step(w, [EMPTY_INPUT]);
+    }
+    expect(e.knock.x).toBeLessThan(-100);
   });
 });
 

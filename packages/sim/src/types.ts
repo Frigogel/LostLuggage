@@ -81,6 +81,35 @@ export interface Gun extends GunData {
   loaner?: boolean;
 }
 
+// ---------------------------------------------------------------- grenades
+
+export interface GrenadeDef {
+  id: string;
+  name: string;
+  flavor: string;
+  /** What it does, plainly. */
+  text: string;
+  element: Element;
+  /** Multipliers on the base grenade (see GRENADE). */
+  damage: number;
+  radius: number;
+  cooldown: number;
+  /** Shove from the blast, px/s. Negative pulls enemies toward the middle. */
+  knockback: number;
+  /** Ground it leaves behind: burning, frosty or acid. Damage is per tick (twice a second, frost four times), as a fraction of the blast. */
+  hazard?: { kind: "fire" | "acid" | "ice"; seconds: number; damage: number };
+  /** Bursts into this many bomblets. */
+  cluster?: number;
+}
+
+/** What makes a grenade that grenade: everything a stash saves. */
+export interface Grenade {
+  defId: string;
+  rarity: Rarity;
+  /** Stash id when the grenade came from the player's saved loadout. Never sent over the wire. */
+  sid?: string;
+}
+
 // ---------------------------------------------------------------- heroes
 
 export type HeroSkill =
@@ -342,6 +371,8 @@ export interface Player {
   iframes: number;
   hurtT: number;
   skillCharge: number;
+  /** The grenade on the player's belt. */
+  grenade: Grenade;
   grenadeCd: number;
   downed: boolean;
   /** Second Wind countdown while downed. Infinity = waiting for a teammate. */
@@ -510,6 +541,8 @@ export interface Projectile {
   ricochet?: number;
   /** Explodes on impact with this radius (rockets). */
   explode?: number;
+  /** Thrown grenades: the grenade kind, for what it leaves behind when it lands. */
+  grenade?: string;
   /** Lobbed shots that burst into this many bomblets. */
   cluster?: number;
   /** Leaves burning ground along its path. */
@@ -546,7 +579,7 @@ export interface Hazard {
   t: number;
   maxT: number;
   damage: number;
-  /** Player hazards: who gets the credit, and when what's standing in it burns next. */
+  /** Player hazards: who gets the credit, and when what's standing in it burns (or chills, or melts) next. */
   ownerId?: number;
   tickT?: number;
   /** Waves: the shove they give. */
@@ -566,13 +599,14 @@ export interface Vent {
   damage: number;
 }
 
-export type PickupKind = "gun" | "heal" | "shrine" | "chest" | "boost";
+export type PickupKind = "gun" | "heal" | "shrine" | "chest" | "boost" | "grenade";
 
 export interface Pickup {
   id: number;
   kind: PickupKind;
   pos: Vec;
   gun?: Gun;
+  grenade?: Grenade;
   boost?: BoostId;
   heal?: number;
   /** Boost offers belong to one player: nobody else sees or takes them. */
@@ -756,6 +790,7 @@ export type SimEvent =
   | { type: "grenade"; id: number }
   | { type: "swap"; id: number }
   | { type: "pickup"; id: number; gun: Gun }
+  | { type: "grenadePickup"; id: number; grenade: Grenade }
   | { type: "loot"; x: number; y: number; rarity: Rarity }
   | { type: "heal"; id: number; amount: number }
   /** A player took a run boost. */

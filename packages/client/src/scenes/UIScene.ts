@@ -12,7 +12,9 @@ import {
   DASH,
   ELEMENT_INFO,
   ENEMIES,
-  GRENADE,
+  grenadeName,
+  grenadeStats,
+  heldGrenade,
   HEROES,
   LEGENDARIES,
   MAKERS,
@@ -60,7 +62,7 @@ const BOSS_WINS: Record<string, string> = {
 /** Who splits into what, for introducing the pieces. */
 const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball" };
 /** What the pickup button says for each kind of item. */
-const PICKUP_VERBS = { gun: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
+const PICKUP_VERBS = { gun: "SWAP", grenade: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
 const ROOM_ICONS: Record<RoomKind, number> = { intro: 0xc9cfd6, combat: 0xe0533d, elite: 0xff9a2a, event: 0xb46cff, shrine: 0xf2c14e, rest: 0x5fd36a, boss: 0xff3030 };
 /** What each kind of room says when you walk in. */
 const ROOM_BANNERS: Partial<Record<RoomKind, [string, string, number]>> = {
@@ -417,6 +419,10 @@ export class UIScene extends Phaser.Scene {
           if (ev.id !== myId) break;
           this.showBanner(gunName(ev.gun).toUpperCase(), `${ev.gun.rarity} ${gunStats(ev.gun).archetype}`.toUpperCase(), RARITY_COLORS[ev.gun.rarity]);
           break;
+        case "grenadePickup":
+          if (ev.id !== myId) break;
+          this.showBanner(grenadeName(ev.grenade).toUpperCase(), `${ev.grenade.rarity} grenade: ${grenadeStats(ev.grenade).def.text}`.toUpperCase(), RARITY_COLORS[ev.grenade.rarity]);
+          break;
         case "shrine": {
           if (ev.id !== myId) break;
           const b = BOOSTS[ev.boost];
@@ -488,7 +494,8 @@ export class UIScene extends Phaser.Scene {
     const up = r.levelAfter > r.levelBefore;
     lines[0]!.setText(`+${r.xp} XP${up ? `   LEVEL UP! LV ${r.levelAfter}` : ""}`).setTint(up ? 0xf2c14e : 0x5fd3e8);
     lines[1]!.setText(r.bonuses.join("  ")).setTint(0xc9cfd6);
-    const loot = r.kept === 0 ? "NO NEW GUNS THIS TIME" : `${r.kept} GUN${r.kept === 1 ? "" : "S"} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}`;
+    const nade = r.grenade ? (r.kept === 0 ? "A NEW GRENADE BROUGHT HOME" : " + A NEW GRENADE") : "";
+    const loot = r.kept === 0 ? nade || "NO NEW GUNS THIS TIME" : `${r.kept} GUN${r.kept === 1 ? "" : "S"} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}${nade}`;
     lines[2]!.setText(loot + (r.scrapped ? ` (${r.scrapped} SCRAPPED: STASH FULL)` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
     // The last two lines go to the rarest news first.
     const sig = r.signature ? SIGNATURES[r.signature] : undefined;
@@ -558,7 +565,8 @@ export class UIScene extends Phaser.Scene {
     const touch = this.controls.touchMode;
     this.drawButton("skill", p.skillCharge, p.skillCharge >= 1, SKILL_COLORS[p.heroId] ?? 0x5fd3e8, touch, HEROES[p.heroId]!.skillName);
     this.drawButton("dash", 1 - p.dashCd / (DASH.cooldownMs / 1000), p.dashCd <= 0, 0xffffff, touch);
-    this.drawButton("grenade", 1 - p.grenadeCd / (GRENADE.cooldownMs / 1000), p.grenadeCd <= 0, 0x8fd18f, touch);
+    const nade = heldGrenade(p);
+    this.drawButton("grenade", 1 - p.grenadeCd / nade.cooldown, p.grenadeCd <= 0, nade.def.element === "none" ? 0x8fd18f : ELEMENT_COLORS[nade.def.element], touch);
 
     if (touch) {
       this.drawStick(this.controls.moveStick, 0xffffff);
@@ -570,7 +578,7 @@ export class UIScene extends Phaser.Scene {
     this.controls.interactAvailable = !!pk;
     if (pk) this.drawButton("interact", 1, true, 0xf2c14e, touch, PICKUP_VERBS[pk.kind]);
     else this.buttonText.get("interact")!.setText("");
-    this.drawCard(pk, p.guns[p.active]!);
+    this.drawCard(pk, p);
     this.help.setVisible(!touch && !pk && !this.panel);
 
     // Live status lines borrow the sub-banner while they apply, and hand it back when they stop.
@@ -760,7 +768,8 @@ export class UIScene extends Phaser.Scene {
   }
 
   /** Details for whatever you're standing near: gun comparison, shrine, or suitcase. */
-  private drawCard(pk: Pickup | undefined, current: Gun): void {
+  private drawCard(pk: Pickup | undefined, p: Player): void {
+    const current = p.guns[p.active]!;
     const press = (verb: string) => (this.controls.touchMode ? `TAP ${verb}` : `PRESS F TO ${verb}`);
     const lines: [string, number][] = [];
     if (pk?.kind === "gun" && pk.gun) {
@@ -777,6 +786,16 @@ export class UIScene extends Phaser.Scene {
       const dps = Math.round(gunDps(gun));
       const diff = dps - Math.round(gunDps(current));
       lines.push([`DPS ${dps} (${diff >= 0 ? "+" : ""}${diff} VS YOURS)  ${press("SWAP")}`, diff >= 0 ? 0x5fd36a : 0xe0533d]);
+    } else if (pk?.kind === "grenade" && pk.grenade) {
+      const st = grenadeStats(pk.grenade);
+      const mine = grenadeStats(p.grenade);
+      const elem = st.def.element;
+      lines.push([st.def.name.toUpperCase(), RARITY_COLORS[pk.grenade.rarity]]);
+      lines.push([`${pk.grenade.rarity} grenade${elem !== "none" ? `  ${ELEMENT_INFO[elem].adjective}: ${ELEMENT_INFO[elem].text}` : ""}`.toUpperCase(), elem !== "none" ? ELEMENT_COLORS[elem] : 0xc9cfd6]);
+      lines.push([st.def.text.toUpperCase(), 0xffffff]);
+      lines.push([`YOURS: ${mine.def.name} (${p.grenade.rarity})`.toUpperCase(), RARITY_COLORS[p.grenade.rarity]]);
+      const dmg = Math.round(st.damage) - Math.round(mine.damage);
+      lines.push([`DMG ${Math.round(st.damage)} (${dmg >= 0 ? "+" : ""}${dmg})  EVERY ${st.cooldown.toFixed(1)}S  ${press("SWAP")}`, dmg >= 0 ? 0x5fd36a : 0xe0533d]);
     } else if ((pk?.kind === "boost" || pk?.kind === "shrine") && pk.boost && BOOSTS[pk.boost]) {
       const b = BOOSTS[pk.boost]!;
       const have = this.game_.me.boosts[pk.boost] ?? 0;

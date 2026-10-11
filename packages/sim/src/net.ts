@@ -8,6 +8,7 @@
 import { BIOME_IDS, ENEMIES } from "./data/enemies";
 import { BOOST_IDS } from "./data/boosts";
 import { TWIST_IDS } from "./director";
+import { GRENADE_IDS } from "./data/grenades";
 import { GUNS } from "./data/guns";
 import { HEROES } from "./data/heroes";
 import { LEGENDARY_IDS } from "./data/legendaries";
@@ -31,6 +32,7 @@ import type {
   Enemy,
   EnemyState,
   Gadget,
+  Grenade,
   Gun,
   Hazard,
   PerkId,
@@ -59,7 +61,7 @@ const STATES: EnemyState[] = ["move", "windup", "attack", "recover", "hidden", "
 const ROOM_KINDS: RoomKind[] = ["intro", "combat", "elite", "event", "shrine", "rest", "boss"];
 const DOOR_KINDS: DoorKind[] = [...ROOM_KINDS, "home"];
 const TWISTS: TwistId[] = ["", ...TWIST_IDS];
-const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost"];
+const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost", "grenade"];
 const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush"];
 const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave"];
 
@@ -123,6 +125,14 @@ function decodeGun(a: GunWire): Gun {
   return g;
 }
 
+// ---------------------------------------------------------------- grenades
+
+/** [kind, rarity]. */
+type GrenadeWire = [number, number];
+
+const encodeGrenade = (g: Grenade): GrenadeWire => [idx(GRENADE_IDS, g.defId), idx(RARITIES, g.rarity)];
+const decodeGrenade = (a: GrenadeWire): Grenade => ({ defId: GRENADE_IDS[a[0]] ?? "frag", rarity: RARITIES[a[1]] ?? "common" });
+
 // ---------------------------------------------------------------- players
 
 function encodePlayer(p: Player): unknown[] {
@@ -138,6 +148,7 @@ function encodePlayer(p: Player): unknown[] {
     // Souvenir mods the client's movement prediction needs.
     q(p.mods.speed, 1000), q(p.mods.dashCd, 1000),
     SIGNATURE_IDS.indexOf(p.signature), q(p.shield, 10), Math.round(p.knock.x), Math.round(p.knock.y), q(p.slowT, T),
+    encodeGrenade(p.grenade),
   ];
 }
 
@@ -175,6 +186,7 @@ function decodePlayer(a: unknown[]): Player {
     iframes: n(23) / T,
     hurtT: n(24) / T,
     skillCharge: n(25) / 1000,
+    grenade: decodeGrenade(a[40] as GrenadeWire),
     grenadeCd: n(26) / T,
     downed: n(27) === 1,
     reviveT: n(28) < 0 ? Infinity : n(28) / T,
@@ -341,7 +353,7 @@ const decodeVent = (a: number[]): Vent => ({
 
 function encodePickup(p: Pickup): unknown[] {
   const extra =
-    p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "boost" && p.boost ? [idx(BOOST_IDS, p.boost), p.owner ?? -1, p.group ?? 0] : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
+    p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "grenade" && p.grenade ? encodeGrenade(p.grenade) : p.kind === "boost" && p.boost ? [idx(BOOST_IDS, p.boost), p.owner ?? -1, p.group ?? 0] : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
   return [p.id, idx(PICKUP_KINDS, p.kind), q(p.pos.x, POS), q(p.pos.y, POS), b(p.used), extra];
 }
 
@@ -349,6 +361,7 @@ function decodePickup(a: unknown[]): Pickup {
   const kind = PICKUP_KINDS[a[1] as number] ?? "heal";
   const pk: Pickup = { id: a[0] as number, kind, pos: { x: (a[2] as number) / POS, y: (a[3] as number) / POS }, used: a[4] === 1 };
   if (kind === "gun") pk.gun = decodeGun(a[5] as GunWire);
+  else if (kind === "grenade") pk.grenade = decodeGrenade(a[5] as GrenadeWire);
   else if (kind === "shrine") pk.boost = BOOST_IDS[a[5] as number];
   else if (kind === "boost") {
     const [boost, owner, group] = a[5] as number[];
@@ -407,6 +420,7 @@ const EVENT_KEYS: EventKeys = {
   grenade: ["id"],
   swap: ["id"],
   pickup: ["id", "gun"],
+  grenadePickup: ["id", "grenade"],
   loot: ["x", "y", "rarity"],
   heal: ["id", "amount"],
   shrine: ["id", "boost"],
@@ -433,6 +447,7 @@ export function encodeEvent(ev: SimEvent): unknown[] {
       const v = rec[k];
       if (k === "angle") return qa(v as number);
       if (k === "gun") return encodeGun(v as Gun);
+      if (k === "grenade") return encodeGrenade(v as Grenade);
       return ROUNDED.has(k) ? Math.round(v as number) : v;
     }),
   ];
@@ -444,7 +459,7 @@ export function decodeEvent(a: unknown[]): SimEvent | undefined {
   const ev: Record<string, unknown> = { type };
   (EVENT_KEYS[type] as readonly string[]).forEach((k, i) => {
     const v = a[i + 1];
-    ev[k] = k === "angle" ? (v as number) / 1000 : k === "gun" ? decodeGun(v as GunWire) : v;
+    ev[k] = k === "angle" ? (v as number) / 1000 : k === "gun" ? decodeGun(v as GunWire) : k === "grenade" ? decodeGrenade(v as GrenadeWire) : v;
   });
   return ev as unknown as SimEvent;
 }

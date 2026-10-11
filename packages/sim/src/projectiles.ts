@@ -6,7 +6,10 @@ import { nearestMarked } from "./marks";
 import { levelMultiplier } from "./data/heroes";
 import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub } from "./math";
 import { dashedWithin, hasSkill } from "./players";
-import type { Projectile, World } from "./types";
+import { GRENADES } from "./data/grenades";
+import type { Element, Hazard, Projectile, World } from "./types";
+
+const HAZARD_ELEMENT: Record<Hazard["kind"], Element> = { fire: "fire", acid: "acid", ice: "frost", wave: "none" };
 
 /** Hot Take's burning line: one patch per tick of flight, each burning what stands in it twice a second. */
 const FIRE_LINE = { radius: 9, seconds: 3, damage: 4, maxHazards: 90 };
@@ -29,6 +32,11 @@ function updateLob(w: World, pr: Projectile): boolean {
 
   if (pr.owner === "player") {
     playerExplosion(w, lob.to, lob.radius, pr.damage, pr.knockback, pr.ownerId, pr.element, false, pr.gunUid);
+    // Grenades that leave something behind: burning floor, frost, acid.
+    const hz = pr.grenade ? GRENADES[pr.grenade]?.hazard : undefined;
+    if (hz) {
+      w.hazards.push({ id: newId(w), kind: hz.kind, owner: "player", ownerId: pr.ownerId, pos: { ...lob.to }, radius: lob.radius * 0.8, t: hz.seconds, maxT: hz.seconds, damage: pr.damage * hz.damage, tickT: 0.5 });
+    }
     // Party Favor: the shell bursts into bomblets.
     for (let i = 0; i < (pr.cluster ?? 0); i++) {
       const to = add(lob.to, fromAngle(rand(w) * Math.PI * 2, 26 + rand(w) * 18));
@@ -233,13 +241,14 @@ export function updateHazards(w: World): void {
   for (const h of w.hazards) {
     h.t -= DT;
     if (h.owner === "player") {
-      // Burning ground: hits whatever stands in it twice a second, and sets it on fire.
+      // Burning ground (or frost, or acid): hits whatever stands in it a few times a second with its element.
       h.tickT = (h.tickT ?? 0) - DT;
       if (h.tickT > 0) continue;
-      h.tickT = 0.5;
+      // Frost ticks twice as often: each tick is a frost stack, and stacks melt, so slower ticks would never freeze.
+      h.tickT = h.kind === "ice" ? 0.25 : 0.5;
       for (const e of [...w.enemies]) {
         if (!targetable(e) || dist(e.pos, h.pos) > h.radius + e.radius) continue;
-        damageEnemy(w, e, h.damage, { dir: { x: 0, y: 0 }, knockback: 0, sourcePlayerId: h.ownerId ?? -1, element: "fire" });
+        damageEnemy(w, e, h.damage, { dir: { x: 0, y: 0 }, knockback: 0, sourcePlayerId: h.ownerId ?? -1, element: HAZARD_ELEMENT[h.kind] });
       }
       continue;
     }

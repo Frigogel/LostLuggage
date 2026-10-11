@@ -1,4 +1,4 @@
-// Progression: hero levels, the gun stash, loadouts, skills and souvenirs.
+// Progression: hero levels, the gun and grenade stash, loadouts, skills and souvenirs.
 //
 // Everything that changes a saved profile is an Action, applied by the pure `applyAction` below. The browser applies
 // actions right away (solo runs work offline) and queues them; the server applies the same actions to the account
@@ -8,6 +8,7 @@
 // Actions carry their own ids (for exactly-once syncing) and every random choice (new stash ids, the souvenir roll)
 // is decided from data inside the action, never inside the reducer.
 import { COSMETIC_IDS, COSMETICS, cleanOutfit, cosmeticDropChance, DEFAULT_OUTFIT, isStarter, type CosmeticSlot, type Outfit } from "./data/cosmetics";
+import { GRENADES } from "./data/grenades";
 import { GUNS } from "./data/guns";
 import { HEROES, MAX_LEVEL, tierLevel } from "./data/heroes";
 import { LEGENDARIES } from "./data/legendaries";
@@ -15,17 +16,25 @@ import { MAKERS } from "./data/makers";
 import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { SOUVENIR_CAP, SOUVENIR_IDS, SOUVENIRS, souvenirTotal, type SouvenirId, type SouvenirRanks } from "./data/souvenirs";
-import { gunData, PERKS, RARITIES } from "./loot";
+import { gunData, PERKS, RARITIES, STARTER_GRENADE } from "./loot";
 import type { PlayerOptions } from "./players";
-import type { Biome, Element, GunData, MakerId, PerkId, Player, Rarity, World } from "./types";
+import type { Biome, Element, Grenade, GunData, MakerId, PerkId, Player, Rarity, World } from "./types";
 
 export const PROFILE_VERSION = 1;
 /** Guns kept at home. Overflow scraps the worst unequipped ones. */
 export const STASH_CAP = 40;
+/** Grenades kept at home. Overflow scraps the worst unequipped ones, like guns. */
+export const GRENADE_CAP = 20;
 /** XP for scrapping a gun, by rarity. Recycling is good for you. */
 export const SCRAP_XP: Record<Rarity, number> = { common: 4, uncommon: 8, rare: 15, epic: 30, legendary: 60 };
 
 export interface StashGun extends GunData {
+  id: string;
+  /** Not looked at in the armory yet. */
+  new?: boolean;
+}
+
+export interface StashGrenade extends Grenade {
   id: string;
   /** Not looked at in the armory yet. */
   new?: boolean;
@@ -48,6 +57,9 @@ export interface Profile {
   stash: StashGun[];
   /** Stash ids of the two equipped guns. */
   loadout: string[];
+  grenades: StashGrenade[];
+  /** Stash id of the equipped grenade. */
+  grenade: string;
   souvenirs: SouvenirRanks;
   /** Signature powers found in co-op dungeons, for any hero. */
   signatures: string[];
@@ -81,6 +93,10 @@ export interface RunResult {
   guns: StashGun[];
   /** Stash ids of the guns in hand at the end; "" keeps that loadout slot as it was. */
   hand: string[];
+  /** The grenade on your belt at the end, if it's new to the stash (with a fresh stash id). */
+  grenade?: StashGrenade;
+  /** Stash id of the grenade on your belt at the end; "" or missing keeps the equipped one. */
+  grenadeHand?: string;
   /** Local date (YYYY-MM-DD), for the first win of the day. */
   day: string;
   /** Co-op: you helped someone below the dungeon tier's level. */
@@ -99,8 +115,10 @@ export interface RunReward {
   levelAfter: number;
   /** Guns added to the stash. */
   kept: number;
-  /** Guns scrapped because the stash was full. */
+  /** Guns (and grenades) scrapped because the stash was full. */
   scrapped: number;
+  /** A new grenade came home. */
+  grenade?: boolean;
   legendaries: number;
   souvenir: boolean;
   /** A new signature power was found. */
@@ -112,7 +130,8 @@ export interface RunReward {
 export type Action =
   | { type: "run"; id: string; result: RunResult }
   | { type: "equip"; id: string; slot: number; gunId: string }
-  | { type: "scrap"; id: string; gunIds: string[] }
+  | { type: "scrap"; id: string; gunIds: string[]; grenadeIds?: string[] }
+  | { type: "equipGrenade"; id: string; grenadeId: string }
   | { type: "skills"; id: string; heroId: string; skills: string[] }
   | { type: "souvenir"; id: string; pick: SouvenirId }
   | { type: "name"; id: string; name: string }
@@ -165,6 +184,8 @@ const STARTERS: StashGun[] = [
   { id: "starter-shotgun", defId: "shotgun", element: "none", rarity: "common", perks: [], maker: "cruise" },
 ];
 
+const STARTER_GRENADE_STASH: StashGrenade = { id: "starter-frag", ...STARTER_GRENADE };
+
 export function newProfile(name = ""): Profile {
   return {
     v: PROFILE_VERSION,
@@ -173,6 +194,8 @@ export function newProfile(name = ""): Profile {
     heroes: { vanguard: { level: 1, xp: 0, skills: [] } },
     stash: STARTERS.map((g) => ({ ...g, perks: [] })),
     loadout: STARTERS.map((g) => g.id),
+    grenades: [{ ...STARTER_GRENADE_STASH }],
+    grenade: STARTER_GRENADE_STASH.id,
     souvenirs: {},
     signatures: [],
     pendingSouvenirs: 0,
@@ -220,6 +243,11 @@ export function loadoutGuns(p: Profile): StashGun[] {
   return [0, 1].map((i) => p.stash.find((g) => g.id === p.loadout[i]) ?? STARTERS[i]!);
 }
 
+/** The equipped grenade. A missing one (scrapped elsewhere, a corrupt save) falls back to the starter frag. */
+export function loadoutGrenade(p: Profile): StashGrenade {
+  return p.grenades.find((g) => g.id === p.grenade) ?? STARTER_GRENADE_STASH;
+}
+
 /** What a run needs to know about this profile's hero. */
 export function playerOptions(p: Profile): PlayerOptions {
   const hero = heroOf(p);
@@ -229,6 +257,7 @@ export function playerOptions(p: Profile): PlayerOptions {
     level: hero.level,
     skills: hero.skills,
     guns: loadoutGuns(p).map((g) => ({ ...gunData(g), sid: g.id })),
+    grenade: { defId: loadoutGrenade(p).defId, rarity: loadoutGrenade(p).rarity, sid: loadoutGrenade(p).id },
     souvenirs: p.souvenirs,
     signature: hero.signature && p.signatures.includes(hero.signature) ? hero.signature : undefined,
   };
@@ -252,6 +281,19 @@ export function cleanGun(raw: unknown): StashGun | undefined {
   const out: StashGun = { id, defId, element, rarity, perks, maker };
   const leg = typeof g.legendary === "string" ? LEGENDARIES[g.legendary] : undefined;
   if (leg) Object.assign(out, { legendary: leg.id, defId: leg.defId, maker: leg.maker, rarity: "legendary" });
+  if (g.new === true) out.new = true;
+  return out;
+}
+
+/** Grenades arrive from clients and old saves too. */
+export function cleanGrenade(raw: unknown): StashGrenade | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const g = raw as Record<string, unknown>;
+  const id = typeof g.id === "string" ? g.id.slice(0, 40) : "";
+  const defId = String(g.defId);
+  if (!id || !GRENADES[defId]) return undefined;
+  const rarity = RARITIES.includes(g.rarity as Rarity) ? (g.rarity as Rarity) : "common";
+  const out: StashGrenade = { id, defId, rarity };
   if (g.new === true) out.new = true;
   return out;
 }
@@ -283,6 +325,12 @@ export function cleanProfile(raw: unknown, name = ""): Profile {
     p.stash = r.stash.map(cleanGun).filter((g): g is StashGun => !!g && !seen.has(g.id) && !!seen.add(g.id));
   }
   if (Array.isArray(r.loadout)) p.loadout = [0, 1].map((i) => String(r.loadout![i] ?? p.loadout[i]));
+  // Saves from before grenades came home keep the starter frag.
+  if (Array.isArray(r.grenades)) {
+    const seen = new Set<string>();
+    p.grenades = r.grenades.map(cleanGrenade).filter((g): g is StashGrenade => !!g && !seen.has(g.id) && !!seen.add(g.id));
+  }
+  if (typeof r.grenade === "string") p.grenade = r.grenade.slice(0, 40);
   for (const id of SOUVENIR_IDS) {
     const n = int(r.souvenirs?.[id], 0, SOUVENIRS[id].maxRanks);
     if (n > 0) p.souvenirs[id] = n;
@@ -359,10 +407,18 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
     kills: w.run.kills,
     guns,
     hand: p.guns.map((g) => g.sid ?? ids.get(g.uid) ?? ""),
+    ...grenadeHome(p.grenade, newId),
     day: opts.day,
     helped: opts.helped || undefined,
     biome: w.run.biome,
   };
+}
+
+/** The grenade on your belt comes home too, unless it already lives there. */
+function grenadeHome(g: Grenade, newId: () => string): Pick<RunResult, "grenade" | "grenadeHand"> {
+  if (g.sid) return { grenadeHand: g.sid };
+  const id = newId();
+  return { grenade: { defId: g.defId, rarity: g.rarity, id, new: true }, grenadeHand: id };
 }
 
 /** A signature power for this profile's hero that it doesn't own yet, or any it doesn't own. The roll is in [0, 1). */
@@ -397,6 +453,18 @@ function addXp(p: Profile, heroId: string, xp: number): void {
     h.level++;
   }
   if (h.level >= MAX_LEVEL) h.xp = 0;
+}
+
+/** Removes grenades from the stash (never the equipped one). Returns the XP they were worth. */
+function scrapGrenades(p: Profile, ids: readonly string[]): number {
+  let xp = 0;
+  const kill = new Set(ids.filter((id) => id !== p.grenade));
+  p.grenades = p.grenades.filter((g) => {
+    if (!kill.has(g.id)) return true;
+    xp += SCRAP_XP[g.rarity];
+    return false;
+  });
+  return xp;
 }
 
 /** Removes guns from the stash (never the equipped ones). Returns the XP they were worth. */
@@ -442,6 +510,8 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     kills: int(raw.kills, 0, 5000),
     guns: (Array.isArray(raw.guns) ? raw.guns : []).slice(0, 80).map(cleanGun).filter((g): g is StashGun => !!g),
     hand: (Array.isArray(raw.hand) ? raw.hand : []).slice(0, 2).map((h) => String(h ?? "")),
+    grenade: cleanGrenade(raw.grenade),
+    grenadeHand: String(raw.grenadeHand ?? "").slice(0, 40),
     day: String(raw.day ?? "").slice(0, 10),
     helped: raw.helped === true,
     biome: raw.biome === "caverns" ? "caverns" : "foundry",
@@ -468,6 +538,14 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   r.hand.forEach((gid, slot) => {
     if (gid && p.stash.some((s) => s.id === gid) && !p.loadout.some((l, i) => l === gid && i !== slot)) p.loadout[slot] = gid;
   });
+  // The grenade on your belt comes home and stays equipped.
+  let grenade = false;
+  const newNade = r.grenade;
+  if (newNade && !p.grenades.some((g) => g.id === newNade.id)) {
+    p.grenades.push({ ...newNade, new: true });
+    grenade = true;
+  }
+  if (r.grenadeHand && p.grenades.some((g) => g.id === r.grenadeHand)) p.grenade = r.grenadeHand;
   // A full stash scraps its worst unequipped guns, oldest first.
   let scrapped = 0;
   let scrapXp = 0;
@@ -476,6 +554,13 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     if (spare.length === 0) break;
     const worst = spare.reduce((a, b) => (RARITIES.indexOf(b.rarity) < RARITIES.indexOf(a.rarity) ? b : a));
     scrapXp += scrap(p, [worst.id]);
+    scrapped++;
+  }
+  while (p.grenades.length > GRENADE_CAP) {
+    const spare = p.grenades.filter((g) => g.id !== p.grenade);
+    if (spare.length === 0) break;
+    const worst = spare.reduce((a, b) => (RARITIES.indexOf(b.rarity) < RARITIES.indexOf(a.rarity) ? b : a));
+    scrapXp += scrapGrenades(p, [worst.id]);
     scrapped++;
   }
 
@@ -495,6 +580,7 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   const cosmetics = [...runCosmetics(p, id, r), ...grantMilestones(p)];
   const reward: RunReward = { xp: xp + scrapXp, bonuses, levelBefore, levelAfter: heroOf(p, heroId).level, kept, scrapped, legendaries, souvenir };
   if (sig) reward.signature = sig;
+  if (grenade) reward.grenade = true;
   if (cosmetics.length) reward.cosmetics = cosmetics;
   return reward;
 }
@@ -515,8 +601,14 @@ export function applyAction(profile: Profile, action: Action): { profile: Profil
       p.loadout[slot] = gid;
       break;
     }
+    case "equipGrenade": {
+      const gid = String(action.grenadeId);
+      if (p.grenades.some((g) => g.id === gid)) p.grenade = gid;
+      break;
+    }
     case "scrap": {
-      const xp = scrap(p, (Array.isArray(action.gunIds) ? action.gunIds : []).map(String));
+      const ids = (list: unknown) => (Array.isArray(list) ? list : []).map(String);
+      const xp = scrap(p, ids(action.gunIds)) + scrapGrenades(p, ids(action.grenadeIds));
       addXp(p, p.heroId, xp);
       // Scrapping can level a hero up to the crown.
       grantMilestones(p);
@@ -554,6 +646,7 @@ export function applyAction(profile: Profile, action: Action): { profile: Profil
     }
     case "seen":
       for (const g of p.stash) delete g.new;
+      for (const g of p.grenades) delete g.new;
       break;
     case "outfit": {
       const slot = action.slot;

@@ -15,11 +15,12 @@ import {
   DT,
   EMPTY_INPUT,
   ENEMIES,
-  GRENADE,
+  GRENADES,
   marksUp,
   angleOf,
   fromAngle,
   gunStats,
+  heldGrenade,
   heldStats,
   interactable,
   len,
@@ -1118,6 +1119,7 @@ export class GameScene extends Phaser.Scene {
         sfx.play("swap");
         break;
       case "pickup":
+      case "grenadePickup":
         sfx.play("pickup");
         break;
       case "loot": {
@@ -1848,6 +1850,8 @@ export class GameScene extends Phaser.Scene {
         return pk.used ? "suitcase_open" : "suitcase";
       case "boost":
         return "orb";
+      case "grenade":
+        return "grenade";
     }
   }
 
@@ -1874,13 +1878,13 @@ export class GameScene extends Phaser.Scene {
         v = undefined;
       }
       if (!v) {
-        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
+        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "grenade" ? RARITY_COLORS[pk.grenade!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
         v = {
           key,
-          sprite: this.add.image(pk.pos.x, pk.pos.y, key).setOrigin(0.5, pk.kind === "gun" ? 0.5 : 1),
+          sprite: this.add.image(pk.pos.x, pk.pos.y, key).setOrigin(0.5, pk.kind === "gun" || pk.kind === "grenade" ? 0.5 : 1),
           glow: this.add.image(pk.pos.x, pk.pos.y - 2, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(color).setDepth(D.light),
         };
-        const beamH = pk.kind === "gun" ? BEAM_HEIGHT[pk.gun!.rarity] : 0;
+        const beamH = pk.kind === "gun" ? BEAM_HEIGHT[pk.gun!.rarity] : pk.kind === "grenade" ? BEAM_HEIGHT[pk.grenade!.rarity] * 0.6 : 0;
         if (beamH > 0) v.beam = this.add.image(pk.pos.x, pk.pos.y, "px").setOrigin(0.5, 1).setScale(1, beamH / 2).setTint(color).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.5).setDepth(D.light);
         this.pickupViews.set(pk.id, v);
       }
@@ -1893,6 +1897,16 @@ export class GameScene extends Phaser.Scene {
         v.glow.setAlpha(0.35 + bob * 0.1).setScale(rarity === "legendary" ? 1.4 : 0.9);
         v.beam?.setAlpha(0.35 + bob * 0.15);
         this.ground.fillStyle(RARITY_COLORS[rarity], 0.25).fillEllipse(pk.pos.x, pk.pos.y + 3, 16, 5);
+      } else if (pk.kind === "grenade") {
+        // A grenade spinning gently over a rarity puddle, flashing its element now and then.
+        const rarity = pk.grenade!.rarity;
+        const element = GRENADES[pk.grenade!.defId]?.element ?? "none";
+        v.sprite.setPosition(pk.pos.x, pk.pos.y - 4 + bob * 1.5).setDepth(pk.pos.y + 1).setScale(1.5).setAngle(Math.sin(t * 0.003 + pk.id) * 20);
+        if (element !== "none" && Math.floor(t / 500) % 2 === 0) v.sprite.setTint(ELEMENT_COLORS[element]);
+        else v.sprite.clearTint();
+        v.glow.setAlpha(0.3 + bob * 0.1).setScale(rarity === "legendary" ? 1.1 : 0.7);
+        v.beam?.setAlpha(0.35 + bob * 0.15);
+        this.ground.fillStyle(RARITY_COLORS[rarity], 0.25).fillEllipse(pk.pos.x, pk.pos.y + 3, 12, 4);
       } else if (pk.kind === "heal") {
         v.sprite.setPosition(pk.pos.x, pk.pos.y + 3 + bob).setDepth(pk.pos.y);
         v.glow.setAlpha(0.3).setScale(0.6);
@@ -1927,10 +1941,12 @@ export class GameScene extends Phaser.Scene {
     const g = this.ground;
 
     if (prev.kind === "grenade") {
-      const d = Math.min(len(prev.offset), GRENADE.range);
+      const s = heldGrenade(p);
+      const d = Math.min(len(prev.offset), s.range);
       const at = { x: pos.x + (prev.offset.x / (len(prev.offset) || 1)) * d, y: pos.y + (prev.offset.y / (len(prev.offset) || 1)) * d };
-      g.lineStyle(1, 0xffffff, 0.6).strokeCircle(at.x, at.y, GRENADE.radius);
-      g.fillStyle(0xffffff, 0.08).fillCircle(at.x, at.y, GRENADE.radius);
+      const c = s.def.element === "none" ? 0xffffff : ELEMENT_COLORS[s.def.element];
+      g.lineStyle(1, c, 0.6).strokeCircle(at.x, at.y, s.radius);
+      g.fillStyle(c, 0.08).fillCircle(at.x, at.y, s.radius);
       return;
     }
 

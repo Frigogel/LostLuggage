@@ -183,6 +183,12 @@ function skinOrPlain(archetype: string, skin: string): PixelSprite {
   return skin ? skinGun(base, skin) : base;
 }
 
+/** A grenade for the armory, tinted by its element. */
+export function drawGrenade(tint?: string): HTMLCanvasElement {
+  const base = SPRITES.grenade!;
+  return drawSprite(tint ? { ...base, palette: { ...base.palette, g: tint } } : base);
+}
+
 /** What each emote says in its speech bubble. */
 export const EMOTE_LINES: Record<string, string> = {
   emote_wave: "HI!",

@@ -12,6 +12,8 @@ import {
   SIGNATURES,
   signaturesFor,
   type Biome,
+  GRENADE_CAP,
+  grenadeStats,
   GUNS,
   heroOf,
   HEROES,
@@ -42,12 +44,13 @@ import {
   type LobbyInfo,
   type PlayerOptions,
   type RunReward,
+  type StashGrenade,
   type StashGun,
 } from "@lostluggage/sim";
 import { AccountStore } from "./account";
 import { NetSession, type JoinKind } from "./net";
-import { RARITY_COLORS, toCss } from "./render/colors";
-import { drawGun, drawIcon, drawPreview, EMOTE_LINES } from "./render/cosmetics";
+import { ELEMENT_COLORS, RARITY_COLORS, toCss } from "./render/colors";
+import { drawGrenade, drawGun, drawIcon, drawPreview, EMOTE_LINES } from "./render/cosmetics";
 import { drawSouvenir, iconEl, iconSvg } from "./render/icons";
 import { sfx } from "./sfx";
 import type { GameData } from "./scenes/GameScene";
@@ -102,6 +105,7 @@ export class Menu {
   /** Same for cosmetics in the wardrobe. */
   private freshLooks = new Set<string>();
   private wardTab: CosmeticSlot = "hat";
+  private armoryTab: "guns" | "grenades" = "guns";
   /** The adventure for solo runs and rooms you create. Remembered on this device. */
   private biome: Biome = loadBiome();
 
@@ -165,6 +169,14 @@ export class Menu {
     $("si-register").addEventListener("click", () => void this.signIn("register"));
     $("skills-reset").addEventListener("click", () => this.account.dispatch({ type: "skills", heroId: this.account.profile.heroId, skills: [] }));
     $("armory-scrap").addEventListener("click", () => this.scrapCommons());
+    for (const b of $("armory-tabs").querySelectorAll<HTMLButtonElement>("button")) {
+      b.addEventListener("click", () => {
+        this.armoryTab = b.dataset.tab === "grenades" ? "grenades" : "guns";
+        this.openGun = "";
+        $("armory-status").textContent = "";
+        this.renderArmory();
+      });
+    }
     // Every iconed button gets its icon now; the ones that change are relabeled in render().
     for (const b of document.querySelectorAll<HTMLElement>("#menu [data-icon]")) this.label(b, b.textContent ?? "", "");
     this.account.onChange(() => this.render());
@@ -224,8 +236,11 @@ export class Menu {
     }
     this.render();
     // Opening the armory counts as seeing what's new; badges stay until you leave it.
-    if (screen === "armory" && this.account.profile.stash.some((g) => g.new)) {
-      this.fresh = new Set(this.account.profile.stash.filter((g) => g.new).map((g) => g.id));
+    const prof = this.account.profile;
+    if (screen === "armory" && (prof.stash.some((g) => g.new) || prof.grenades.some((g) => g.new))) {
+      this.fresh = new Set([...prof.stash, ...prof.grenades].filter((g) => g.new).map((g) => g.id));
+      // Open on grenades when only grenades are new.
+      if (!prof.stash.some((g) => g.new)) this.armoryTab = "grenades";
       this.account.dispatch({ type: "seen" });
     }
     if (screen === "wardrobe" && this.account.profile.newCosmetics.length) {
@@ -270,7 +285,7 @@ export class Menu {
     if (document.activeElement !== name) name.value = p.name;
 
     const free = skillPoints(hero.level) - spentPoints(p.heroId, hero.skills);
-    const newGuns = p.stash.filter((g) => g.new).length;
+    const newGuns = p.stash.filter((g) => g.new).length + p.grenades.filter((g) => g.new).length;
     this.label("to-skills", "Skills", free > 0 ? String(free) : "");
     this.label("to-armory", "Armory", newGuns > 0 ? "NEW" : "");
     this.label("to-souvenirs", "Souvenirs", souvenirOffers(p).length > 0 ? String(p.pendingSouvenirs) : "");
@@ -427,6 +442,66 @@ export class Menu {
   }
 
   private renderArmory(): void {
+    for (const b of $("armory-tabs").querySelectorAll<HTMLButtonElement>("button")) {
+      const tab = b.dataset.tab;
+      const list: { id: string }[] = tab === "grenades" ? this.account.profile.grenades : this.account.profile.stash;
+      b.classList.toggle("on", tab === this.armoryTab);
+      b.replaceChildren(tab === "grenades" ? "Grenades" : "Guns", ...(list.some((g) => this.fresh.has(g.id)) ? [el("span", { className: "badge", textContent: "!" })] : []));
+    }
+    if (this.armoryTab === "grenades") this.renderGrenades();
+    else this.renderGuns();
+  }
+
+  private renderGrenades(): void {
+    const p = this.account.profile;
+    const rank = (g: StashGrenade) => (g.id === p.grenade ? -10 : 0) - ["common", "uncommon", "rare", "epic", "legendary"].indexOf(g.rarity);
+    const nades = [...p.grenades].sort((a, b) => rank(a) - rank(b));
+    $("armory-hint").textContent = `${p.grenades.length}/${GRENADE_CAP} GRENADES. TAP ONE TO EQUIP OR SCRAP IT. THE ONE ON YOUR BELT COMES HOME.${this.account.signedIn ? "" : " GUESTS KEEP NOTHING."}`;
+    $("armory-list").replaceChildren(
+      ...nades.map((g) => {
+        const st = grenadeStats(g);
+        const on = g.id === p.grenade;
+        const elem = st.def.element;
+        const li = el("li", { className: "art" });
+        li.style.borderColor = toCss(RARITY_COLORS[g.rarity]);
+        const art = drawGrenade(elem !== "none" ? toCss(ELEMENT_COLORS[elem]) : undefined);
+        // Grenades are tiny sprites: drawn bigger than guns so they fill the tile.
+        art.style.transform = "scale(7)";
+        li.append(el("span", { className: "thumb" }, Object.assign(art, { className: "px" })));
+        const body = el("div");
+        li.append(body);
+        const title = el("b", { textContent: st.def.name });
+        title.style.color = toCss(RARITY_COLORS[g.rarity]);
+        const elemText = elem !== "none" ? ` · ${ELEMENT_INFO[elem].adjective.toUpperCase()}` : "";
+        body.append(title, on ? "  [EQUIPPED]" : "", this.fresh.has(g.id) ? el("span", { className: "badge", textContent: "NEW" }) : "", el("br"), `${g.rarity.toUpperCase()} GRENADE${elemText}`, el("br"));
+        // No better/worse arrow: effect grenades trade damage for what they do, so damage alone would mislead.
+        body.append(`DMG ${Math.round(st.damage)} · EVERY ${st.cooldown.toFixed(1)}S`);
+        body.append(el("br"), el("span", { className: "up", textContent: st.def.text }), el("br"), `"${st.def.flavor}"`);
+        if (this.openGun === g.id) {
+          const act = el("div", { className: "act" });
+          const eq = el("button", { disabled: on }, iconEl(on ? "check" : "equip"), on ? "Equipped" : "Equip");
+          eq.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.account.dispatch({ type: "equipGrenade", grenadeId: g.id });
+          });
+          const scrap = el("button", { disabled: on }, iconEl("scrap"), `Scrap +${SCRAP_XP[g.rarity]} XP`);
+          scrap.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (g.rarity !== "legendary" || confirm(`Scrap ${st.def.name}? Legendaries are rare.`)) this.account.dispatch({ type: "scrap", gunIds: [], grenadeIds: [g.id] });
+          });
+          act.append(eq, scrap);
+          body.append(act);
+        }
+        li.addEventListener("click", () => {
+          this.openGun = this.openGun === g.id ? "" : g.id;
+          this.renderArmory();
+        });
+        return li;
+      }),
+    );
+  }
+
+  private renderGuns(): void {
     const p = this.account.profile;
     const equipped = p.loadout;
     const eqDps = Math.min(...p.loadout.map((id) => p.stash.find((g) => g.id === id)).filter(Boolean).map((g) => gunDps(g!)));
@@ -479,12 +554,15 @@ export class Menu {
 
   private scrapCommons(): void {
     const p = this.account.profile;
-    const ids = p.stash.filter((g) => g.rarity === "common" && !p.loadout.includes(g.id)).map((g) => g.id);
+    const grenades = this.armoryTab === "grenades";
+    const ids = grenades
+      ? p.grenades.filter((g) => g.rarity === "common" && g.id !== p.grenade).map((g) => g.id)
+      : p.stash.filter((g) => g.rarity === "common" && !p.loadout.includes(g.id)).map((g) => g.id);
     if (ids.length === 0) {
       $("armory-status").textContent = "NO SPARE COMMONS";
       return;
     }
-    const { xp } = this.account.dispatch({ type: "scrap", gunIds: ids });
+    const { xp } = this.account.dispatch(grenades ? { type: "scrap", gunIds: [], grenadeIds: ids } : { type: "scrap", gunIds: ids });
     $("armory-status").textContent = `SCRAPPED ${ids.length}: +${xp ?? 0} XP`;
   }
 

@@ -1,8 +1,9 @@
-import { GUNS } from "./data/guns";
+import { GRENADE_IDS, GRENADES } from "./data/grenades";
+import { GRENADE, GUNS } from "./data/guns";
 import { LEGENDARIES, LEGENDARY_IDS } from "./data/legendaries";
 import { MAKER_IDS, MAKERS } from "./data/makers";
 import { pick, rand } from "./math";
-import type { Archetype, Element, Gun, GunData, GunStats, MakerId, PerkId, Player, Rarity, World } from "./types";
+import type { Archetype, Element, Grenade, GrenadeDef, Gun, GunData, GunStats, MakerId, PerkId, Player, Rarity, World } from "./types";
 
 export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
 export const ELEMENTS: Exclude<Element, "none">[] = ["fire", "shock", "frost", "acid"];
@@ -200,4 +201,53 @@ export function heldStats(gun: GunData, p: Pick<Player, "boosts">): GunStats {
   s.range *= fast;
   if (n("gps") > 0 && !s.lob) s.homing = Math.max(s.homing, 2.2);
   return s;
+}
+
+// ---------------------------------------------------------------- grenades
+
+export const STARTER_GRENADE: Grenade = { defId: "frag", rarity: "common" };
+
+/** A random grenade. The effect is the fun part, so every kind is equally likely; rarity makes it hit harder. */
+export function rollGrenade(w: World, luck = 0, minRarity: Rarity = "common"): Grenade {
+  let rarity = weighted(w, RARITY, luck);
+  if (RARITIES.indexOf(rarity) < RARITIES.indexOf(minRarity)) rarity = minRarity;
+  return { defId: pick(w, GRENADE_IDS), rarity };
+}
+
+export interface GrenadeStats {
+  def: GrenadeDef;
+  damage: number;
+  radius: number;
+  /** Seconds. */
+  cooldown: number;
+  range: number;
+}
+
+/**
+ * A grenade's numbers before player boosts. Unlike guns, rarity is the whole upgrade here: each step up is
+ * +15% damage, +6% radius and a 7% shorter cooldown (a legendary hits 60% harder and comes back 28% sooner).
+ */
+export function grenadeStats(g: Grenade): GrenadeStats {
+  const def = GRENADES[g.defId] ?? GRENADES.frag!;
+  const r = RARITIES.indexOf(g.rarity);
+  return {
+    def,
+    damage: GRENADE.damage * def.damage * (1 + 0.15 * r),
+    radius: GRENADE.radius * def.radius * (1 + 0.06 * r),
+    cooldown: (GRENADE.cooldownMs / 1000) * def.cooldown * (1 - 0.07 * r),
+    range: GRENADE.range,
+  };
+}
+
+/** A grenade's stats on a player's belt, with the run boosts that change it. */
+export function heldGrenade(p: Pick<Player, "grenade" | "boosts">): GrenadeStats {
+  const s = grenadeStats(p.grenade);
+  const n = p.boosts.explosives ?? 0;
+  s.radius *= 1 + 0.3 * n;
+  s.cooldown *= Math.pow(0.7, n);
+  return s;
+}
+
+export function grenadeName(g: Grenade): string {
+  return (GRENADES[g.defId] ?? GRENADES.frag!).name;
 }

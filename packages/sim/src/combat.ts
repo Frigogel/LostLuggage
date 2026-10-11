@@ -3,7 +3,7 @@ import { ENEMIES } from "./data/enemies";
 import { HEROES, levelMultiplier } from "./data/heroes";
 import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
 import { onTurretKill, TURRET_GUN } from "./gadgets";
-import { gunStats, rollGun } from "./loot";
+import { gunStats, rollGrenade, rollGun } from "./loot";
 import { markBonus, onMarkedDeath } from "./marks";
 import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
 import type { Dome, Element, EliteId, Enemy, EnemyDef, HeroSkill, Player, Status, World } from "./types";
@@ -216,13 +216,15 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
   onEliteDeath(w, e, def);
   onMarkedDeath(w, e);
 
-  // Loot: guns by the enemy's drop chance (elites twice as likely, and luckier), health snacks sometimes.
+  // Loot: guns and grenades by the enemy's drop chance (elites twice as likely, and luckier), health snacks sometimes.
   if (!e.noLoot) {
     const luck = w.run.tier * 0.3 + (def.boss ? 0.9 : 0) + (e.elite ? 0.4 : 0) + partyLuck(w);
     // Rush Hour pays double.
     const rush = w.run.room.twist === "rush" ? 2 : 1;
     const drops = def.boss ? 2 : rand(w) < def.dropChance * (e.elite ? 2 : 1) * rush ? 1 : 0;
     for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
+    // Grenades: rarer than guns, and every boss leaves a good one.
+    if (def.boss || rand(w) < def.dropChance * 0.5 * (e.elite ? 2 : 1) * rush) dropGrenade(w, add(e.pos, { x: 0, y: drops > 0 ? 16 : 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
     if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
   }
 
@@ -264,6 +266,13 @@ export function dropGun(w: World, at: Vec, luck: number, minRarity: Parameters<t
   w.pickups.push({ id: newId(w), kind: "gun", pos, gun, used: false });
   w.run.gunsFound++;
   w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: gun.rarity });
+}
+
+export function dropGrenade(w: World, at: Vec, luck: number, minRarity: Parameters<typeof rollGrenade>[2] = "common"): void {
+  const grenade = rollGrenade(w, luck, minRarity);
+  const pos = clampToArena(w, at, 16);
+  w.pickups.push({ id: newId(w), kind: "grenade", pos, grenade, used: false });
+  w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: grenade.rarity });
 }
 
 export function dropHeal(w: World, at: Vec, amount: number): void {
