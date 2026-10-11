@@ -8,7 +8,7 @@ const DEADZONE = 5;
 /** A touch fire that can't happen yet (pips empty, between shots) is buffered this long. */
 const FIRE_BUFFER_MS = 220;
 
-export type ButtonId = "dash" | "skill" | "grenade" | "interact" | "emote";
+export type ButtonId = "dash" | "skill" | "grenade" | "interact" | "emote" | "pause";
 export interface Button {
   x: number;
   y: number;
@@ -23,6 +23,8 @@ export const BUTTONS: Record<ButtonId, Button> = {
   dash: { x: 450, y: 168, r: 16 },
   // Up under the weapon slots, out of the way of the fight thumbs.
   emote: { x: 460, y: 44, r: 14 },
+  // Touch only (desktop has P/Esc), just left of the weapon slots. The HUD opens the menu itself.
+  pause: { x: 380, y: 15, r: 12 },
 };
 export const WEAPON_SLOTS = [
   { x: 398, y: 4, w: 38, h: 22 },
@@ -137,6 +139,7 @@ export class Controls {
       else if (btn === "skill") this.skillLatch = true;
       else if (btn === "interact") this.interactLatch = true;
       else if (btn === "emote") this.emoteLatch = true;
+      else if (btn === "pause") return;
       else if (!this.grenadeStick) this.grenadeStick = { pointerId: p.id, base: at, cur: at };
       return;
     }

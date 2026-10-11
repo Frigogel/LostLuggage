@@ -48,6 +48,7 @@ const BUTTON_LABELS: Record<ButtonId, { touch: string; keys: string }> = {
   grenade: { touch: "NADE", keys: "Q" },
   interact: { touch: "GRAB", keys: "F" },
   emote: { touch: "EMOTE", keys: "G" },
+  pause: { touch: "II", keys: "P" },
 };
 const DESKTOP_HELP = (skill: string) => `WASD MOVE  CLICK SHOOT  SPACE DASH  E ${skill}  Q NADE\n1/2 SWAP  G EMOTE  T AUTO-AIM  M MUTE  P PAUSE`;
 /** Each hero's skill button has its own color. */
@@ -228,7 +229,9 @@ export class UIScene extends Phaser.Scene {
     this.input.on("pointerdown", (ptr: Phaser.Input.Pointer) => {
       const w = this.game_.world;
       const btn = this.panelButtons.find((b) => ptr.x >= b.x && ptr.x <= b.x + b.w && ptr.y >= b.y && ptr.y <= b.y + b.h);
-      if (btn && (this.pausePanel || this.panel?.getData("ready"))) btn.action();
+      // Phones have no P key: the pause button opens the menu, and any tap closes it as usual.
+      if (!this.game_.paused && ptr.wasTouch && this.controls.hitButton(ptr.x, ptr.y) === "pause") this.pause();
+      else if (btn && (this.pausePanel || this.panel?.getData("ready"))) btn.action();
       else if (this.game_.paused) this.unpause();
     });
     this.input.keyboard!.on("keydown-P", () => (this.game_.paused ? this.unpause() : this.pause()));
@@ -733,6 +736,8 @@ export class UIScene extends Phaser.Scene {
     const emoteFill = (this.time.now - this.emotedAt) / EMOTE_GAP_MS;
     if (this.controls.takeEmote() && emoteFill >= 1 && !world.gameOver) this.emote();
     this.drawButton("emote", emoteFill, emoteFill >= 1, 0xe05a9a, touch);
+    if (touch && !world.gameOver && !this.panel) this.drawButton("pause", 1, true, 0xc9cfd6, touch);
+    else this.buttonText.get("pause")!.setText("");
 
     if (touch) {
       this.drawStick(this.controls.moveStick, 0xffffff);
