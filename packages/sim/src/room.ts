@@ -1,7 +1,7 @@
 import { damageEnemy, dropGun, dropHeal, DT, healPlayer, hurtPlayer, insideArenaSolid, newId, partyLuck, spawnEnemy } from "./combat";
 import { boostOffers } from "./data/boosts";
 import { ENEMIES } from "./data/enemies";
-import { ACT_ROOMS, FINAL_ACT, MAX_ENEMIES, planDoors, planRoom, firstRoom } from "./director";
+import { ACT_ROOMS, depthOf, FINAL_ACT, MAX_ENEMIES, planDoors, planRoom, firstRoom } from "./director";
 import { linkPairs, parseElite } from "./elites";
 import { canAct, startPos } from "./players";
 import { newGun } from "./loot";
@@ -490,12 +490,19 @@ function clearRoom(w: World, room: Room): void {
   room.doors = planDoors(w);
 }
 
-/** Three boosts for each player to pick from, laid out around `at`. Only the owner sees and takes them. */
+/**
+ * Three boosts for each player to pick from, laid out around `at`. Only the owner sees and takes them.
+ * Harder tiers raise `quality` the same way they raise gun drops, and so does going deeper (capped, so endless
+ * doesn't turn every offer into epics).
+ */
 export function offerBoosts(w: World, near: Vec, quality: number): void {
   const at = openSpot(w, near);
+  const plan = w.run.plans[w.run.room.index] ?? firstRoom(w);
+  const deep = Math.min(1.2, (depthOf(plan) / (ACT_ROOMS + 1)) * 0.3);
+  const q = quality + w.run.tier * 0.3 + deep;
   for (const p of w.players) {
     const group = newId(w);
-    const offers = boostOffers(p, w.players, quality, () => rand(w));
+    const offers = boostOffers(p, w.players, q, () => rand(w));
     offers.forEach((boost, i) => {
       const pos = { x: at.x + (i - (offers.length - 1) / 2) * 36, y: at.y + (i === 1 ? -8 : 0) };
       w.pickups.push({ id: newId(w), kind: "boost", pos, boost, owner: p.id, group, used: false });
