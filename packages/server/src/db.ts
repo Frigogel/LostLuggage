@@ -86,7 +86,7 @@ export class Db {
     return cleanProfile(raw);
   }
 
-  private saveProfile(accountId: number, p: Profile): void {
+  saveProfile(accountId: number, p: Profile): void {
     this.db.prepare("INSERT INTO profiles (account_id, data, updated) VALUES (?, ?, ?) ON CONFLICT(account_id) DO UPDATE SET data = excluded.data, updated = excluded.updated").run(accountId, JSON.stringify(p), Date.now());
   }
 

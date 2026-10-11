@@ -14,7 +14,8 @@
     "test": "npm test -w @lostluggage/sim && npm test -w @lostluggage/server && npm test -w @lostluggage/client",
     "typecheck": "tsc -p packages/sim && tsc -p packages/sim/scripts && tsc -p packages/server && tsc -p packages/server/scripts && tsc -p packages/client && tsc -p packages/client/test",
     "balance": "npm run balance -w @lostluggage/sim --",
-    "bandwidth": "npm run bandwidth -w @lostluggage/server --"
+    "bandwidth": "npm run bandwidth -w @lostluggage/server --",
+    "test-account": "npm run test-account -w @lostluggage/server --"
   },
   "devDependencies": {
     "concurrently": "^9.2.5"
