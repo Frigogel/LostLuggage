@@ -22,6 +22,19 @@ const game = new Phaser.Game({
   scene: [BootScene, GameScene, UIScene, LobbyScene],
 });
 
+// The game listens for keys on the whole window and swallows the ones it plays with (WASD, space, …). While a text
+// field has focus, the keys belong to it: no swallowed letters, and typing an "m" doesn't mute the game.
+const typing = (el: EventTarget | null) => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
+addEventListener("focusin", (e) => {
+  if (!typing(e.target) || !game.input?.keyboard) return;
+  game.input.keyboard.enabled = false;
+  // Keys held when the field took focus would never see their keyup.
+  for (const s of game.scene.getScenes(true)) s.input.keyboard?.resetKeys();
+});
+addEventListener("focusout", (e) => {
+  if (typing(e.target) && game.input?.keyboard) game.input.keyboard.enabled = true;
+});
+
 const menu = new Menu(game);
 game.events.once("booted", () => {
   // Dev shortcuts (?seed=, ?room=) skip the menu straight into a solo run.
