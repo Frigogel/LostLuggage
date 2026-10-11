@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACT_ROOMS,
+  actHp,
   BIOMES,
   BIOME_IDS,
   BOOSTS,
@@ -8,6 +9,7 @@ import {
   boostOffers,
   createWorld,
   doorRect,
+  eliteShare,
   EMPTY_INPUT,
   ENEMIES,
   enterRoom,
@@ -21,6 +23,7 @@ import {
   gunStats,
   LEGENDARIES,
   MAKER_IDS,
+  offerBoosts,
   planDoors,
   planRoom,
   planWave,
@@ -368,6 +371,21 @@ describe("grenades", () => {
 });
 
 describe("director and run", () => {
+  it("endless climbs on a gentle curve, and leans on elites instead", () => {
+    // The adventure's health ramp is a straight line up to the final act.
+    for (let act = 0; act <= FINAL_ACT; act++) expect(actHp(act)).toBeCloseTo(1 + (0.3 * act * 2) / FINAL_ACT);
+    // Endless keeps climbing, each step a little bigger, but nowhere near the old 30% a step.
+    for (let act = FINAL_ACT + 1; act < FINAL_ACT + 12; act++) {
+      expect(actHp(act)).toBeGreaterThan(actHp(act - 1));
+      expect(actHp(act + 1) - actHp(act)).toBeGreaterThan(actHp(act) - actHp(act - 1));
+      expect(actHp(act) / actHp(act - 1)).toBeLessThan(1.3);
+    }
+    // The elite share still tops out at 60% in the adventure, and climbs past it in endless (with a cap).
+    expect(eliteShare(99, 2)).toBe(0.6);
+    expect(eliteShare(99, 2, 3)).toBeGreaterThan(0.6);
+    expect(eliteShare(99, 2, 99)).toBe(0.85);
+  });
+
   it("starts at check-in, then offers two or three different doors with at least one fight", () => {
     const w = createWorld({ seed: 11 });
     expect(w.run.plans.map((r) => r.kind)).toEqual(["intro"]);
@@ -538,6 +556,33 @@ describe("run boosts", () => {
     p.boosts = { heavy: BOOSTS.heavy!.max };
     for (let i = 0; i < 100; i++) expect(boostOffers(p, w.players, 0, rng)).not.toContain("heavy");
     expect(BOOST_IDS.length).toBeGreaterThanOrEqual(45);
+  });
+
+  it("souvenirs can make offers rarer and add a 4th", () => {
+    const offers = (souvenirs: Record<string, number>) => {
+      const w = quiet();
+      const p = w.players[0]!;
+      Object.assign(p.mods, { offerQuality: 0.25 * (souvenirs.loyalty ?? 0), extraOffer: 0.2 * (souvenirs.suitcase ?? 0) });
+      const sizes: number[] = [];
+      let rare = 0;
+      for (let i = 0; i < 300; i++) {
+        w.pickups = [];
+        offerBoosts(w, { x: 360, y: 300 }, 0);
+        const mine = w.pickups.filter((k) => k.kind === "boost");
+        sizes.push(mine.length);
+        rare += mine.filter((k) => BOOSTS[k.boost!]!.rarity !== "common").length / mine.length;
+      }
+      return { sizes, rare: rare / 300 };
+    };
+    const plain = offers({});
+    expect(new Set(plain.sizes)).toEqual(new Set([3]));
+    // A full Spare Suitcase always brings a 4th, and they're all different.
+    expect(new Set(offers({ suitcase: 5 }).sizes)).toEqual(new Set([4]));
+    const some = offers({ suitcase: 2 }).sizes;
+    expect(some.filter((n) => n === 4).length / some.length).toBeGreaterThan(0.25);
+    expect(some.filter((n) => n === 4).length / some.length).toBeLessThan(0.55);
+    // A full Loyalty Card makes rares and epics clearly likelier.
+    expect(offers({ loyalty: 5 }).rare).toBeGreaterThan(plain.rare * 1.8);
   });
 
   it("stat boosts apply right away, damage boosts make hits land harder", () => {

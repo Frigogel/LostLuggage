@@ -273,6 +273,10 @@ describe("souvenirs", () => {
     const p = w.players[0]!;
     expect(p.maxHp).toBe(Math.round(plain.players[0]!.maxHp * 1.1));
     expect(p.mods.speed).toBeCloseTo(1.05);
+    // The run-economy souvenirs show up as offer mods.
+    const econ = createWorld({ seed: 2, players: [{ souvenirs: { loyalty: 2, suitcase: 3 } }] }).players[0]!;
+    expect(econ.mods.offerQuality).toBeCloseTo(0.5);
+    expect(econ.mods.extraOffer).toBeCloseTo(0.6);
     const d = decodeSnapshot(encodeSnapshot(w, [], new Map())).world.players[0]!;
     expect(d.mods.speed).toBeCloseTo(p.mods.speed, 3);
     expect(d.mods.dashCd).toBeCloseTo(p.mods.dashCd, 3);

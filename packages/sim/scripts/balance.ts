@@ -1,8 +1,8 @@
 // Balance harness: a simple bot plays full runs on many seeds and reports pacing and survival.
 // Run with `npm run balance -w @lostluggage/sim` (optionally `-- 50` for the number of runs, `--hero tinker`,
-// `--biome caverns`, `--level 20`, `--tier 1`).
+// `--biome caverns`, `--level 20`, `--tier 1`, `--maxed` for an endgame profile, or `--maxed gear,souvenirs` for part of one, `--souvenirs loyalty:5,gym:5` to pick its souvenirs).
 // The bot is much worse than a person (no real dodging), so treat deaths as an upper bound on difficulty.
-import { createWorld, doorRect, EMPTY_INPUT, runResult, runXp, step, trapPoint, ventState, type Biome, type PlayerInput, type Vec, type World } from "../src";
+import { BOOSTS, createWorld, doorRect, FINAL_ACT, LEGENDARIES, SKILL_TREES, EMPTY_INPUT, runResult, runXp, step, trapPoint, ventState, type Biome, type PlayerInput, type Vec, type PlayerOptions, type World } from "../src";
 
 const args = process.argv.slice(2);
 const opt = (name: string) => {
@@ -13,12 +13,41 @@ const runs = Number(args.find((a) => /^\d+$/.test(a)) ?? 20);
 const god = args.includes("--god");
 const heroId = opt("--hero") ?? "vanguard";
 const biome = (opt("--biome") ?? "foundry") as Biome;
-const level = Number(opt("--level") ?? 1);
+/** A veteran: level 30, a full skill tree, capped souvenirs and legendary gear (see `maxedKit`). */
+const maxed = args.includes("--maxed");
+/** `--maxed gear,souvenirs` gives only those parts of the kit (level, souvenirs, gear), to see what each is worth. */
+const maxedArg = opt("--maxed");
+const maxedParts = new Set(maxedArg && !maxedArg.startsWith("--") ? maxedArg.split(",") : ["level", "souvenirs", "gear"]);
+/** The maxed kit's souvenirs, as "id:ranks,…". Defaults to the stat ones. */
+const souvenirArg = opt("--souvenirs") ?? "gym:5,snacks:5,charger:5";
+const level = Number(opt("--level") ?? (maxed && maxedParts.has("level") ? 30 : 1));
 const tier = Number(opt("--tier") ?? 0);
 /** Forces every elite the director rolls to one kind, to see what each costs. */
 const forceElite = opt("--elite");
 /** Keep going into endless after the final boss instead of flying home. */
 const endless = args.includes("--endless");
+
+/**
+ * The best a profile can bring into a run: every skill node the level affords (branches fill in order), the 15
+ * souvenir ranks (on the stat ones unless `--souvenirs` says otherwise), two legendaries with the two perks that help any gun, and a legendary frag.
+ * Signature powers are left out: they're co-op drops and sidegrades.
+ */
+function maxedKit(): PlayerOptions {
+  const legendary = (id: string) => {
+    const def = LEGENDARIES[id]!;
+    return { defId: def.defId, rarity: "legendary" as const, element: def.element ?? ("shock" as const), perks: ["extraPip" as const, "quickReload" as const], maker: def.maker, legendary: id };
+  };
+  const kit: PlayerOptions = { heroId, level };
+  // The skill tree comes with the level: the points are the level's.
+  if (maxedParts.has("level")) kit.skills = SKILL_TREES[heroId]?.nodes.map((n) => n.id) ?? [];
+  if (maxedParts.has("souvenirs")) kit.souvenirs = Object.fromEntries(souvenirArg.split(",").map((s) => [s.split(":")[0], Number(s.split(":")[1])]));
+  if (maxedParts.has("gear")) {
+    kit.guns = [legendary("the_ex"), legendary("overachiever")];
+    kit.grenade = { defId: "frag", rarity: "legendary" };
+  }
+  return kit;
+}
+
 let elites = 0;
 let spiked = 0;
 
@@ -29,10 +58,13 @@ function botInput(w: World): PlayerInput {
   let move: Vec = { x: 0, y: 0 };
 
   if (room.cleared) {
-    // Take a boost (the first offer: the bot has no taste), open the suitcase, then pick a door at random.
-    const pk = w.pickups.find((k) => !k.used && ((k.kind === "boost" && k.owner === p.id) || k.kind === "chest"));
-    const doors = room.doors;
-    const pickDoor = doors.find((d) => d.kind === "home") && !endless ? doors.find((d) => d.kind === "home")! : doors[(w.run.plans.length * 7) % doors.length];
+    // Take a boost (the rarest offer: the bot's only taste), open the suitcase, then pick a door at random.
+    const rank = (k: (typeof w.pickups)[number]) => (k.kind === "boost" ? ["common", "rare", "epic"].indexOf(BOOSTS[k.boost!]!.rarity) : -1);
+    const pk = w.pickups.filter((k) => !k.used && ((k.kind === "boost" && k.owner === p.id) || k.kind === "chest")).sort((a, b) => rank(b) - rank(a))[0];
+    // Fly home when it's offered, unless we're testing endless: then never.
+    const home = room.doors.find((d) => d.kind === "home");
+    const doors = endless ? room.doors.filter((d) => d.kind !== "home") : room.doors;
+    const pickDoor = home && !endless ? home : doors[(w.run.plans.length * 7) % doors.length];
     const door = pickDoor ? doorRect(pickDoor) : { x: 336, y: 0, w: 48, h: 14 };
     const to = pk ? pk.pos : { x: door.x + door.w / 2, y: 0 };
     move = { x: to.x - p.pos.x, y: to.y - p.pos.y };
@@ -51,8 +83,9 @@ function botInput(w: World): PlayerInput {
       }
     }
     if (near) {
-      const dx = (near.pos.x - p.pos.x) / nd;
-      const dy = (near.pos.y - p.pos.y) / nd;
+      // Standing right on top of it: any direction will do (dividing by zero sent the bot to NaN and killed it).
+      const dx = nd > 0 ? (near.pos.x - p.pos.x) / nd : 1;
+      const dy = nd > 0 ? (near.pos.y - p.pos.y) / nd : 0;
       if (nd > 140) move = { x: dx, y: dy };
       else if (nd < 60) move = { x: -dx + dy * 0.5, y: -dy - dx * 0.5 };
       else move = { x: dy, y: -dx }; // circle-strafe
@@ -123,6 +156,8 @@ const reached: string[] = [];
 const bosses: number[] = [];
 let wins = 0;
 const deathsAt: Record<string, number> = {};
+/** Wins that kept going and went down in endless. */
+const endlessAt: Record<string, number> = {};
 const times: number[] = [];
 const hurt: number[] = [];
 const downs: number[] = [];
@@ -133,11 +168,12 @@ const boostCount: number[] = [];
 const bossTimes: number[] = [];
 
 for (let seed = 1; seed <= runs; seed++) {
-  const w = createWorld({ seed: seed * 7919, biome, tier, players: [{ heroId, level }] });
+  const w = createWorld({ seed: seed * 7919, biome, tier, players: [maxed ? maxedKit() : { heroId, level }] });
   let taken = 0;
   let downed = 0;
   let bossStart = -1;
-  for (let t = 0; t < 30 * 60 * 90; t++) {
+  // 90 minutes is plenty for an adventure; endless runs get four hours.
+  for (let t = 0; t < 30 * 60 * (endless ? 240 : 90); t++) {
     if (god) w.players[0]!.hp = w.players[0]!.maxHp;
     // Forcing an elite kind rewrites each room's waves as it starts.
     if (forceElite && w.run.room.waveIdx === 0) w.run.room.waves = w.run.room.waves.map((wave) => wave.map((id) => id.replace(/@\w+/, "@" + forceElite)));
@@ -163,14 +199,19 @@ for (let seed = 1; seed <= runs; seed++) {
   boostCount.push(Object.values(w.players[0]!.boosts).reduce<number>((a, b) => a + (b ?? 0), 0));
   xps.push(runXp(runResult(w, w.players[0]!, { mode: "solo", day: "" }), false).xp);
   downs.push(downed);
-  if (w.run.victory || w.run.finale) wins++;
-  else deathsAt[where] = (deathsAt[where] ?? 0) + 1;
+  if (w.run.victory || w.run.finale) {
+    wins++;
+    if (!w.run.victory) endlessAt[where] = (endlessAt[where] ?? 0) + 1;
+  } else deathsAt[where] = (deathsAt[where] ?? 0) + 1;
 }
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-console.log(`${runs} runs as ${heroId} LV ${level} from the ${biome}, tier ${tier}${god ? " (god mode)" : ""}: ${wins} wins, ${(elites / runs).toFixed(1)} elites a run`);
-console.log(`  bosses beaten: ${[0, 1, 2, 3, 4].map((n) => `${n}: ${bosses.filter((b) => b === n).length}`).join("  ")}${bosses.some((b) => b > 4) ? "  more: " + bosses.filter((b) => b > 4).length : ""}`);
+console.log(`${runs} runs as ${heroId} LV ${level}${maxed ? ` maxed (${[...maxedParts].join(",")})` : ""} from the ${biome}, tier ${tier}${god ? " (god mode)" : ""}: ${wins} wins, ${(elites / runs).toFixed(1)} elites a run`);
+console.log(`  bosses beaten: ${[...new Set([0, 1, 2, 3, 4, ...bosses])].sort((a, b) => a - b).map((n) => `${n}: ${bosses.filter((b) => b === n).length}`).join("  ")}`);
 console.log(`  run length avg ${(avg(times) / 60).toFixed(1)} min (longest ${(Math.max(...times) / 60).toFixed(1)}), boss fights avg ${avg(bossTimes).toFixed(0)}s`);
 console.log(`  damage taken avg ${avg(hurt).toFixed(0)} (${(spiked / runs).toFixed(0)} from spikes), downs avg ${avg(downs).toFixed(2)}, boosts taken avg ${avg(boostCount).toFixed(1)}`);
 console.log(`  kills avg ${avg(kills).toFixed(0)}, guns dropped avg ${avg(found).toFixed(1)}, XP avg ${avg(xps).toFixed(0)}`);
 console.log(`  runs ended at: ${JSON.stringify(Object.fromEntries(Object.entries(deathsAt).sort()))}`);
+const deep = bosses.filter((b) => b > FINAL_ACT).map((b) => b - FINAL_ACT - 1).sort((a, b) => a - b);
+if (endless && deep.length > 0) console.log(`  endless bosses past the final one, over ${deep.length} wins: avg ${avg(deep).toFixed(1)}, median ${deep[deep.length >> 1]}, best ${deep[deep.length - 1]}`);
+if (Object.keys(endlessAt).length > 0) console.log(`  endless ended at: ${JSON.stringify(Object.fromEntries(Object.entries(endlessAt).sort()))}`);

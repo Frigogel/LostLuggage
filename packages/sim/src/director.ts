@@ -60,11 +60,32 @@ export function actLevel(act: number): number {
 /** How deep into the run a room is: what the budgets, elites and enemy toughness grow with. */
 export const depthOf = (spec: Pick<RoomSpec, "act" | "step">): number => actLevel(spec.act) * (ACT_ROOMS + 1) + spec.step;
 
-/** Enemy health by act: each act is a step up, and endless keeps climbing. */
+/**
+ * Enemy health by act: each act is a step up, and endless keeps climbing. Endless grows quadratically, not
+ * exponentially: with a 30% step per act, every 30% of extra player power was worth exactly one act, so a maxed-out
+ * profile and a fresh one hit the same wall a single act apart. On a gentler curve, an edge buys more acts the deeper
+ * you go, and the run's own rising pressure (elites, twists, see below) carries the rest.
+ */
 export function actHp(act: number): number {
   const level = actLevel(act);
-  return level <= 2 ? 1 + 0.3 * level : 1.6 * Math.pow(1.3, level - 2);
+  const past = Math.max(0, level - 2);
+  return 1 + 0.3 * level + ENDLESS.hpCurve * past * past;
 }
+
+/** How endless keeps getting harder once health stops doing all the work. Counted per act past the final boss. */
+export const ENDLESS = {
+  /** The quadratic term of `actHp`. */
+  hpCurve: 0.03,
+  /** The elite share's cap rises this much per endless act, up to `eliteCap`. */
+  eliteStep: 0.04,
+  eliteCap: 0.85,
+  /** Fights with a twist: the adventure's 20%, plus this per endless act, up to `twistCap`. */
+  twistStep: 0.12,
+  twistCap: 0.8,
+};
+
+/** Acts past the final boss: 0 during the adventure. */
+export const endlessActs = (act: number): number => Math.max(0, act - FINAL_ACT);
 
 /** Enemy damage by act. */
 export function actDamage(act: number): number {
@@ -123,8 +144,8 @@ export function roomBudget(depth: number, tier: number, partySize: number): numb
  * Share of a wave's budget spent on elite modifiers instead of more enemies (design doc: "Higher difficulty spends
  * part of the budget on elite modifiers"). A few early, more and more as the run goes on.
  */
-export function eliteShare(depth: number, tier: number): number {
-  return Math.min(0.6, 0.1 + 0.03 * depth + 0.15 * tier);
+export function eliteShare(depth: number, tier: number, endless = 0): number {
+  return Math.min(Math.min(ENDLESS.eliteCap, 0.6 + ENDLESS.eliteStep * endless), 0.1 + 0.03 * depth + 0.15 * tier);
 }
 
 /** What an elite costs against the budget. */
@@ -229,7 +250,7 @@ const biomesFor = (spec: Pick<RoomSpec, "biome" | "mix" | "twist">): string[] =>
 export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySize: number): string[][] {
   const depth = depthOf(spec);
   let budget = roomBudget(depth, tier, partySize);
-  let elites = eliteShare(depth, tier);
+  let elites = eliteShare(depth, tier, endlessActs(spec.act));
   if (spec.kind === "elite") {
     budget *= 1.25;
     elites = Math.min(0.75, elites + 0.3);
@@ -315,7 +336,8 @@ export function planDoors(w: World): Door[] {
   const spec = (kind: DoorKind): Omit<Door, "x"> => {
     const { biome, mix } = act === FINAL_ACT || mix0(w, act) ? actBiome(w, act) : { biome: here.biome, mix: here.mix };
     let twist: TwistId = "";
-    if (kind === "event" || (kind === "combat" && act >= 1 && rand(w) < 0.2)) twist = pick(w, TWIST_IDS);
+    const twistChance = Math.min(ENDLESS.twistCap, 0.2 + ENDLESS.twistStep * endlessActs(act));
+    if (kind === "event" || (kind === "combat" && act >= 1 && rand(w) < twistChance)) twist = pick(w, TWIST_IDS);
     return { kind, biome, mix, twist, act, step };
   };
   if (step >= ACT_ROOMS) return place([spec("boss")]);

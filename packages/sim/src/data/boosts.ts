@@ -107,10 +107,11 @@ export function playerTags(p: Player): Set<BoostTag> {
 }
 
 /**
- * Three different boosts for one player. `quality` above 0 makes rares and epics likelier (shrines, elite rooms, bosses).
- * Boosts a teammate already took are less likely, so a party spreads out. `roll` is the world's RNG.
+ * `count` different boosts for one player (three, or four with a Spare Suitcase). `quality` above 0 makes rares and
+ * epics likelier (shrines, elite rooms, bosses). Boosts a teammate already took are less likely, so a party spreads
+ * out. `roll` is the world's RNG.
  */
-export function boostOffers(p: Player, party: readonly Player[], quality: number, roll: () => number): BoostId[] {
+export function boostOffers(p: Player, party: readonly Player[], quality: number, roll: () => number, count = 3): BoostId[] {
   const tags = playerTags(p);
   const coop = party.length > 1;
   const taken = new Set(party.filter((o) => o !== p).flatMap((o) => Object.keys(o.boosts)));
@@ -125,7 +126,7 @@ export function boostOffers(p: Player, party: readonly Player[], quality: number
   };
   const out: BoostId[] = [];
   const left = [...pool];
-  while (out.length < 3 && left.length > 0) {
+  while (out.length < count && left.length > 0) {
     const total = left.reduce((s, d) => s + weight(d), 0);
     let r = roll() * total;
     let i = 0;

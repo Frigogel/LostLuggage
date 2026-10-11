@@ -2,8 +2,10 @@ import type { PlayerMods } from "../types";
 
 // Souvenirs are the permanent boosts from solo adventures: tiny, stackable and hard-capped, so a new player is never
 // more than about 15% weaker than a veteran (design doc: Progression and balance).
+// Two of them improve the run's boost offers instead of your stats: barely noticeable in the first rooms, but they
+// compound over a long run, so they're what carries a veteran deep into endless.
 
-export type SouvenirId = "snacks" | "gym" | "shoes" | "batteries" | "charger" | "keychain";
+export type SouvenirId = "snacks" | "gym" | "shoes" | "batteries" | "charger" | "keychain" | "loyalty" | "suitcase";
 
 export interface SouvenirDef {
   id: SouvenirId;
@@ -21,10 +23,12 @@ export const SOUVENIRS: Record<SouvenirId, SouvenirDef> = {
   batteries: { id: "batteries", name: "Spare Batteries", text: "-3% dash cooldown", flavor: "AA. The universal currency.", maxRanks: 5 },
   charger: { id: "charger", name: "Phone Charger", text: "+3% action skill charge", flavor: "Wrong plug. Works anyway.", maxRanks: 5 },
   keychain: { id: "keychain", name: "Lucky Keychain", text: "Slightly better loot", flavor: "A tiny rubber duck. It believes in you.", maxRanks: 5 },
+  loyalty: { id: "loyalty", name: "Loyalty Card", text: "Rarer boost offers", flavor: "Nine stamps. The tenth is always next time.", maxRanks: 5 },
+  suitcase: { id: "suitcase", name: "Spare Suitcase", text: "+20% chance of a 4th boost offer", flavor: "Folds flat. Never folds back.", maxRanks: 5 },
 };
 
 export const SOUVENIR_IDS = Object.keys(SOUVENIRS) as SouvenirId[];
-/** Hard cap on souvenir ranks across all kinds: 15 of the 30 possible, so you pick a direction. */
+/** Hard cap on souvenir ranks across all kinds: 15 of the 40 possible, so you pick a direction. */
 export const SOUVENIR_CAP = 15;
 
 export type SouvenirRanks = Partial<Record<SouvenirId, number>>;
@@ -43,5 +47,7 @@ export function souvenirMods(s: SouvenirRanks = {}): PlayerMods & { hp: number }
     dashCd: 1 - 0.03 * rank(s, "batteries"),
     charge: 1 + 0.03 * rank(s, "charger"),
     luck: 0.05 * rank(s, "keychain"),
+    offerQuality: 0.25 * rank(s, "loyalty"),
+    extraOffer: 0.2 * rank(s, "suitcase"),
   };
 }

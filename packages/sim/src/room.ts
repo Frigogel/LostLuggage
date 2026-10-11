@@ -493,29 +493,34 @@ function clearRoom(w: World, room: Room): void {
 /**
  * Three boosts for each player to pick from, laid out around `at`. Only the owner sees and takes them.
  * Harder tiers raise `quality` the same way they raise gun drops, and so does going deeper (capped, so endless
- * doesn't turn every offer into epics).
+ * doesn't turn every offer into epics). Souvenirs add to it per player, and can add a 4th offer.
  */
 export function offerBoosts(w: World, near: Vec, quality: number): void {
-  const at = openSpot(w, near);
+  // Room for four, in case anyone's Spare Suitcase comes through.
+  const at = openSpot(w, near, w.players.some((p) => p.mods.extraOffer > 0) ? 4 : 3);
   const plan = w.run.plans[w.run.room.index] ?? firstRoom(w);
   const deep = Math.min(1.2, (depthOf(plan) / (ACT_ROOMS + 1)) * 0.3);
   const q = quality + w.run.tier * 0.3 + deep;
   for (const p of w.players) {
     const group = newId(w);
-    const offers = boostOffers(p, w.players, q, () => rand(w));
+    const count = p.mods.extraOffer > 0 && rand(w) < p.mods.extraOffer ? 4 : 3;
+    const offers = boostOffers(p, w.players, q + p.mods.offerQuality, () => rand(w), count);
     offers.forEach((boost, i) => {
-      const pos = { x: at.x + (i - (offers.length - 1) / 2) * 36, y: at.y + (i === 1 ? -8 : 0) };
+      // The outer two sit a little lower, so the row reads as a fan.
+      const pos = { x: at.x + (i - (offers.length - 1) / 2) * 36, y: at.y + (i > 0 && i < offers.length - 1 ? -8 : 0) };
       w.pickups.push({ id: newId(w), kind: "boost", pos, boost, owner: p.id, group, used: false });
     });
   }
 }
 
-/** The spot nearest `near` with room for a row of three offers: clear of crates, spikes, traps, water and pads. */
-function openSpot(w: World, near: Vec): Vec {
+/** The spot nearest `near` with room for a row of `n` offers: clear of crates, spikes, traps, water and pads. */
+function openSpot(w: World, near: Vec, n = 3): Vec {
+  // Each offer past three widens the row by 36, so half of that on each side.
+  const wide = (n - 3) * 18;
   const blocked = (c: Vec) =>
-    [...w.arena.obstacles, ...w.arena.spikes, ...w.arena.water].some((o) => c.x > o.x - 66 && c.x < o.x + o.w + 66 && c.y > o.y - 22 && c.y < o.y + o.h + 22) ||
-    w.run.room.vents.some((v) => (v.to ? trapDist(v, c) < v.radius + 22 : Math.abs(v.pos.x - c.x) < v.radius + 50 && Math.abs(v.pos.y - c.y) < v.radius + 14)) ||
-    w.arena.pads.some((pd) => [pd.a, pd.b].some((at) => Math.abs(at.x - c.x) < PAD.radius + 50 && Math.abs(at.y - c.y) < PAD.radius + 14));
+    [...w.arena.obstacles, ...w.arena.spikes, ...w.arena.water].some((o) => c.x > o.x - 66 - wide && c.x < o.x + o.w + 66 + wide && c.y > o.y - 22 && c.y < o.y + o.h + 22) ||
+    w.run.room.vents.some((v) => (v.to ? trapDist(v, c) < v.radius + 22 + wide : Math.abs(v.pos.x - c.x) < v.radius + 50 + wide && Math.abs(v.pos.y - c.y) < v.radius + 14)) ||
+    w.arena.pads.some((pd) => [pd.a, pd.b].some((at) => Math.abs(at.x - c.x) < PAD.radius + 50 + wide && Math.abs(at.y - c.y) < PAD.radius + 14));
   for (let r = 0; r < 220; r += 12) {
     for (let k = 0; k < 12; k++) {
       const c = { x: clamp(near.x + Math.cos((k / 12) * Math.PI * 2) * r, 70, ARENA.w - 70), y: clamp(near.y + Math.sin((k / 12) * Math.PI * 2) * r * 0.7, 60, ARENA.h - 50) };

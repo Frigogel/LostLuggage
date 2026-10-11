@@ -379,6 +379,10 @@ export interface PlayerMods {
   charge: number;
   /** Extra loot luck. 0 = none. */
   luck: number;
+  /** Added to the quality of this player's boost offers: rarer picks. */
+  offerQuality: number;
+  /** Chance that a set of boost offers has a 4th one. */
+  extraOffer: number;
 }
 
 export interface Player {

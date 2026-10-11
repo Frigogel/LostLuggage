@@ -146,6 +146,10 @@ const SOUVENIR_ART: Record<string, PixelSprite> = {
   charger: { palette: { s: "#c9cfd6" }, rows: ["..k...k..", "..s...s..", ".kkkkkkk.", ".kWWWWWk.", ".kWWWWWk.", "..kWWWk..", "...kWk...", "....k....", "....k...."] },
   // A tiny rubber duck on a key ring.
   keychain: { palette: { y: "#f2c14e", o: "#ff7a1a", e: "#1b1020", s: "#c9cfd6" }, rows: [".ss......", "s..s.....", ".ss.kk...", "...kyek..", "..kkyyko.", ".kyyyyyk.", ".kyyyyyk.", "..kkkkk..", "........."] },
+  // A stamp card, one stamp short.
+  loyalty: { palette: { c: "#f4e3c1", r: "#e0533d" }, rows: ["...........", "kkkkkkkkkkk", "kccccccccck", "kcrcrcrcrck", "kccccccccck", "kcrcrcrcWck", "kccccccccck", "kkkkkkkkkkk", "..........."] },
+  // A little spare suitcase with a handle.
+  suitcase: { palette: { b: "#3b6fd1", d: "#2a4f9a", s: "#c9cfd6" }, rows: ["...kkk...", "...k.k...", "kkkkkkkkk", "kbbbbbbbk", "kdddsdddk", "kbbbbbbbk", "kbbbbbbbk", "kkkkkkkkk", ".k.....k."] },
 };
 
 export function drawSouvenir(id: string): HTMLCanvasElement | undefined {
