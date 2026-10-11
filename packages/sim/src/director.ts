@@ -113,10 +113,15 @@ export interface WavePlan {
   props: string[];
 }
 
-export function planWave(w: World, budget: number, biomes: readonly string[] = ["foundry"], avoidTemplate = -1, elites = 0): WavePlan & { template: number } {
+/**
+ * One wave's enemies. `elites` is the share of the budget spent on elite modifiers; `convention` makes every enemy
+ * an elite instead (Elite Convention): no swarmers or hidden ambushers, and each enemy pays for its modifier up front.
+ */
+export function planWave(w: World, budget: number, biomes: readonly string[] = ["foundry"], avoidTemplate = -1, elites = 0, convention = false): WavePlan & { template: number } {
   let t = Math.floor(rand(w) * TEMPLATES.length);
   if (t === avoidTemplate) t = (t + 1) % TEMPLATES.length;
-  const template = TEMPLATES[t]!;
+  // Swarmers can't be elite and ambushers wait as props, so a convention leaves them at home.
+  const template = convention ? TEMPLATES[t]!.filter((r) => r !== "swarmer" && r !== "ambusher") : TEMPLATES[t]!;
   const out: string[] = [];
   const props: string[] = [];
   const count: Partial<Record<Role, number>> = {};
@@ -125,10 +130,14 @@ export function planWave(w: World, budget: number, biomes: readonly string[] = [
 
   const add = (role: Role): boolean => {
     if ((count[role] ?? 0) >= (ROLE_CAP[role] ?? 99)) return false;
-    const options = family(biomes, role).filter((d) => d.threatCost <= left + 0.5);
+    const cost = (d: EnemyDef) => d.threatCost + (convention ? eliteCost(d) : 0);
+    const options = family(biomes, role).filter((d) => cost(d) <= left + 0.5);
     if (options.length === 0) return false;
     const def = pick(w, options);
-    if (role === "swarmer") {
+    if (convention) {
+      out.push(def.id);
+      left -= cost(def);
+    } else if (role === "swarmer") {
       // Swarmers come in packs.
       const pack = Math.max(1, Math.min(Math.floor(left / def.threatCost), 3 + Math.floor(rand(w) * 3)));
       for (let i = 0; i < pack; i++) out.push(def.id);
@@ -148,8 +157,24 @@ export function planWave(w: World, budget: number, biomes: readonly string[] = [
     stuck = add(template[i % template.length]!) ? 0 : stuck + 1;
     i++;
   }
-  if (eliteBudget > 0) makeElites(w, out, eliteBudget);
+  if (convention) makeAllElite(w, out);
+  else if (eliteBudget > 0) makeElites(w, out, eliteBudget);
   return { enemies: out, props, template: t };
+}
+
+/** Gives every enemy in the wave an elite modifier (already paid for). Linked elites come in pairs. */
+function makeAllElite(w: World, out: string[]): void {
+  const plain = () => out.map((id, i) => ({ id, i })).filter(({ id }) => !id.includes("@"));
+  for (let o = plain(); o.length > 0; o = plain()) {
+    const first = o[0]!;
+    const mods = ELITE_IDS.filter((m) => canBeElite(ENEMIES[first.id]!, m) && (m !== "linked" || o.slice(1).some((x) => canBeElite(ENEMIES[x.id]!, m))));
+    const mod = pick(w, mods);
+    out[first.i] = `${first.id}@${mod satisfies EliteId}`;
+    if (mod === "linked") {
+      const partner = pick(w, o.slice(1).filter((x) => canBeElite(ENEMIES[x.id]!, mod)));
+      out[partner.i] = `${partner.id}@${mod}`;
+    }
+  }
 }
 
 /** Spends the elite share on modifiers for enemies already in the wave. Written as "enemy@modifier". */
@@ -186,10 +211,6 @@ export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySiz
     budget *= 1.25;
     elites = Math.min(0.75, elites + 0.3);
   }
-  if (spec.twist === "convention") {
-    budget *= 0.9;
-    elites = 0.95;
-  }
   if (spec.twist === "overbooked") budget *= 1.2;
   let pacing = depth <= 2 ? PACING.slice(0, 3) : PACING;
   if (spec.twist === "rush") pacing = [...pacing, 1.1];
@@ -200,8 +221,8 @@ export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySiz
   let last = -1;
   pacing.forEach((p, i) => {
     // The very first wave of the run stays plain, so elites show up once you have your feet.
-    const share = depth <= 1 && i === 0 && spec.twist !== "convention" ? 0 : elites;
-    const plan = planWave(w, budget * p, biomesFor(spec), last, share);
+    const share = depth <= 1 && i === 0 ? 0 : elites;
+    const plan = planWave(w, budget * p, biomesFor(spec), last, share, spec.twist === "convention");
     last = plan.template;
     // Props are marked with a leading "!" so the room can place them hidden at entry.
     waves.push([...plan.enemies, ...plan.props.map((id) => "!" + id)]);

@@ -298,6 +298,22 @@ describe("elite modifiers", () => {
     }
     expect(elites).toBeGreaterThan(20);
   });
+
+  it("an Elite Convention fills every wave with elites, from the first room on", () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const w = createWorld({ seed });
+      for (const step of [1, 4]) {
+        for (const wave of planCombatWaves(w, roomSpec(w, "combat", { step, twist: "convention" }), 0, 1)) {
+          expect(wave.length).toBeGreaterThan(0);
+          for (const id of wave) {
+            expect(id.startsWith("!")).toBe(false);
+            expect(id).toContain("@");
+            expect(ENEMIES[id.split("@")[0]!]!.role).not.toBe("swarmer");
+          }
+        }
+      }
+    }
+  });
 });
 
 describe("Frozen Caverns", () => {
