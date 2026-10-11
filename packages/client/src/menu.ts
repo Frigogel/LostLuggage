@@ -61,7 +61,7 @@ import { drawSouvenir, iconEl, iconSvg } from "./render/icons";
 import { drawMythicIcon, mythicArtId } from "./render/mythics";
 import { drawSprite, SPRITES } from "./render/pixels";
 import { sfx } from "./sfx";
-import type { GameData } from "./scenes/GameScene";
+import type { GameData, GameScene } from "./scenes/GameScene";
 import type { LobbyScene } from "./scenes/LobbyScene";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -236,6 +236,10 @@ export class Menu {
   /** Undefined until the game has booted. */
   private get lobbyScene(): LobbyScene | undefined {
     return (this.game.scene.getScene("lobby") as LobbyScene | null) ?? undefined;
+  }
+
+  private get gameScene(): GameScene | undefined {
+    return (this.game.scene.getScene("game") as GameScene | null) ?? undefined;
   }
 
   /** Changed hero or outfit while in a room: save it, then tell the room so everyone sees it. */
@@ -773,7 +777,10 @@ export class Menu {
       this.startedRun = -1;
       s.onLobby = (l) => this.onLobby(l);
       s.onReward = (r) => this.account.adopt(r.profile);
-      s.onEmote = (e) => this.lobbyScene?.emote(e);
+      s.onEmote = (e) => {
+        this.lobbyScene?.emote(e);
+        this.gameScene?.emoteFrom(e);
+      };
       s.onClosed = (reason) => {
         if (this.session !== s) return;
         this.session = undefined;

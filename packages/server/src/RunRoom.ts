@@ -17,6 +17,7 @@ import {
   createWorld,
   decodeInput,
   DT,
+  EMOTE_GAP_MS,
   EMPTY_INPUT,
   encodeSnapshot,
   MAX_LEVEL,
@@ -43,8 +44,6 @@ const MAX_QUEUE = 4;
 const STALE_INPUT_MS = 250;
 /** A dropped phone keeps its seat this long, as the doc asks for mobile sessions. */
 const RECONNECT_S = 60;
-/** Emotes are fun until someone holds the button down. */
-const EMOTE_GAP_MS = 1200;
 
 // Codes skip I and O so nobody reads them as 1 and 0.
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";

@@ -8,7 +8,7 @@ const DEADZONE = 5;
 /** A touch fire that can't happen yet (pips empty, between shots) is buffered this long. */
 const FIRE_BUFFER_MS = 220;
 
-export type ButtonId = "dash" | "skill" | "grenade" | "interact";
+export type ButtonId = "dash" | "skill" | "grenade" | "interact" | "emote";
 export interface Button {
   x: number;
   y: number;
@@ -21,6 +21,8 @@ export const BUTTONS: Record<ButtonId, Button> = {
   interact: { x: 354, y: 150, r: 16 },
   grenade: { x: 452, y: 116, r: 14 },
   dash: { x: 450, y: 168, r: 16 },
+  // Up under the weapon slots, out of the way of the fight thumbs.
+  emote: { x: 460, y: 44, r: 14 },
 };
 export const WEAPON_SLOTS = [
   { x: 398, y: 4, w: 38, h: 22 },
@@ -60,6 +62,8 @@ export class Controls {
   private dashLatch = false;
   private skillLatch = false;
   private interactLatch = false;
+  /** Emotes aren't sim input: the HUD takes this itself (see takeEmote). */
+  private emoteLatch = false;
   /** Set by the HUD each frame: is there an item in reach for the pickup button? */
   interactAvailable = false;
   private swapLatch = false;
@@ -73,7 +77,7 @@ export class Controls {
   ) {
     const input = scene.input;
     input.mouse?.disableContextMenu();
-    this.keys = input.keyboard!.addKeys("W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,E,Q,ONE,TWO,T,M,F") as Record<string, Phaser.Input.Keyboard.Key>;
+    this.keys = input.keyboard!.addKeys("W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,E,Q,ONE,TWO,T,M,F,G") as Record<string, Phaser.Input.Keyboard.Key>;
 
     const kb = input.keyboard!;
     kb.on("keydown", () => {
@@ -83,6 +87,7 @@ export class Controls {
     kb.on("keydown-SPACE", () => (this.dashLatch = true));
     kb.on("keydown-E", () => (this.skillLatch = true));
     kb.on("keydown-F", () => (this.interactLatch = true));
+    kb.on("keydown-G", () => (this.emoteLatch = true));
     kb.on("keydown-Q", () => (this.grenadeLatch = { aim: { x: NaN, y: NaN } }));
     kb.on("keydown-ONE", () => (this.slotLatch = 0));
     kb.on("keydown-TWO", () => (this.slotLatch = 1));
@@ -101,7 +106,15 @@ export class Controls {
     this.moveStick = this.aimStick = this.grenadeStick = undefined;
     this.mouseDown = false;
     this.fireLatch = this.grenadeLatch = null;
+    this.emoteLatch = false;
     this.pressed = {};
+  }
+
+  /** True once per emote press. */
+  takeEmote(): boolean {
+    const e = this.emoteLatch;
+    this.emoteLatch = false;
+    return e;
   }
 
   private onDown(p: Phaser.Input.Pointer): void {
@@ -123,6 +136,7 @@ export class Controls {
       if (btn === "dash") this.dashLatch = true;
       else if (btn === "skill") this.skillLatch = true;
       else if (btn === "interact") this.interactLatch = true;
+      else if (btn === "emote") this.emoteLatch = true;
       else if (!this.grenadeStick) this.grenadeStick = { pointerId: p.id, base: at, cur: at };
       return;
     }

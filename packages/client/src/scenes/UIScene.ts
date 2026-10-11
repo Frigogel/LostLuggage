@@ -10,6 +10,7 @@ import {
   COSMETICS,
   SIGNATURES,
   DASH,
+  EMOTE_GAP_MS,
   ELEMENT_INFO,
   ENEMIES,
   grenadeName,
@@ -46,8 +47,9 @@ const BUTTON_LABELS: Record<ButtonId, { touch: string; keys: string }> = {
   dash: { touch: "DASH", keys: "SPC" },
   grenade: { touch: "NADE", keys: "Q" },
   interact: { touch: "GRAB", keys: "F" },
+  emote: { touch: "EMOTE", keys: "G" },
 };
-const DESKTOP_HELP = (skill: string) => `WASD MOVE  CLICK SHOOT  SPACE DASH  E ${skill}  Q NADE\n1/2 SWAP  T AUTO-AIM  M MUTE  P PAUSE`;
+const DESKTOP_HELP = (skill: string) => `WASD MOVE  CLICK SHOOT  SPACE DASH  E ${skill}  Q NADE\n1/2 SWAP  G EMOTE  T AUTO-AIM  M MUTE  P PAUSE`;
 /** Each hero's skill button has its own color. */
 const SKILL_COLORS: Record<string, number> = { vanguard: 0x5fd3e8, gunslinger: 0xf2c14e, tinker: 0xffb238, warden: 0x5fd36a };
 /** What the bosses have to say as they get angrier. */
@@ -149,6 +151,8 @@ export class UIScene extends Phaser.Scene {
   /** Toasts wait their turn, so a new enemy and a new elite arriving together are both read. */
   private toastQueue: [string, string, number][] = [];
   private toastUntil = 0;
+  /** When you last emoted (scene ms): the server only takes one every EMOTE_GAP_MS. */
+  private emotedAt = -Infinity;
 
   constructor() {
     super("ui");
@@ -169,6 +173,7 @@ export class UIScene extends Phaser.Scene {
     this.rewardShown = false;
     this.toastQueue = [];
     this.toastUntil = 0;
+    this.emotedAt = -Infinity;
   }
 
   private get game_(): GameScene {
@@ -252,6 +257,14 @@ export class UIScene extends Phaser.Scene {
   private leave(): void {
     this.game_.reportRun();
     this.game.events.emit("leave");
+  }
+
+  /** Co-op asks the server, which tells the whole room (you included); solo just plays it. */
+  private emote(): void {
+    const game = this.game_;
+    this.emotedAt = this.time.now;
+    if (game.net) game.net.emote(game.myEmote);
+    else game.emote(game.myId, game.myEmote);
   }
 
   private pause(): void {
@@ -717,6 +730,9 @@ export class UIScene extends Phaser.Scene {
     const nade = heldGrenade(p);
     const nadeColor = p.grenade.rarity === "mythic" ? mythicHue(this.time.now) : nade.def.element === "none" ? 0x8fd18f : ELEMENT_COLORS[nade.def.element];
     this.drawButton("grenade", 1 - p.grenadeCd / nade.cooldown, p.grenadeCd <= 0, nadeColor, touch);
+    const emoteFill = (this.time.now - this.emotedAt) / EMOTE_GAP_MS;
+    if (this.controls.takeEmote() && emoteFill >= 1 && !world.gameOver) this.emote();
+    this.drawButton("emote", emoteFill, emoteFill >= 1, 0xe05a9a, touch);
 
     if (touch) {
       this.drawStick(this.controls.moveStick, 0xffffff);

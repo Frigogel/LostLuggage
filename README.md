@@ -118,7 +118,8 @@ Everything else from phase 5:
 - **Cosmetics** (design doc: Cosmetics), earned only by playing: **hats** (traffic cone, a fish, propeller wizard
   hat, tiny second head, crown...), **dash trails** (confetti, bubbles, rubber ducks, afterburner, rainbow...), **gun
   skins** (googly eyes, gold plating, "Property of the Cruise Line"...) and **emotes** (wave, dramatic bow, air guitar,
-  the floss but worse...). Hats, trails and skins show in runs too, for everyone in the party.
+  the floss but worse...). Hats, trails and skins show in runs too, for everyone in the party, and so do emotes: the
+  emote button under your weapon slots (G on a keyboard) puts your emote's line in a bubble over your hero.
   - The first win on each difficulty clears all four adventures and gives their hats.
   - Runs that beat a boss sometimes drop one (12% solo, 20% co-op, more on harder tiers).
   - Milestones: 10 and 25 wins, 50 runs, 2,000 kills, 3 legendaries, a level 30 hero.

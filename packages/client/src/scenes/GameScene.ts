@@ -49,6 +49,7 @@ import {
   type RoomKind,
   type TwistId,
   type Gadget,
+  type EmoteInfo,
   type Outfit,
   type Pickup,
   type Player,
@@ -62,7 +63,7 @@ import {
 } from "@lostluggage/sim";
 import type { LocalShot, NetSession } from "../net";
 import { DEFENSE_COLORS, ELEMENT_COLORS, ELITE_COLORS, ENEMY_COLORS, RARITY_COLORS, SHIELD_COLOR, SLOT_COLORS } from "../render/colors";
-import { gunKey, HAT_ANCHOR, hatKey } from "../render/cosmetics";
+import { EMOTE_LINES, gunKey, HAT_ANCHOR, hatKey } from "../render/cosmetics";
 import { mythicArtId, mythicHue } from "../render/mythics";
 import { BIOME_ART, drawSpikes } from "../render/pixels";
 import { trailFx, trailGap, type FxHost } from "../render/trails";
@@ -84,6 +85,8 @@ export interface GameData {
   onRunEnd?: (w: World, me: Player) => RunReward | undefined;
 }
 
+/** How long an emote's hops last. */
+const EMOTE_HOP_MS = 400;
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
 /** Mimics look like their prop until they reveal. */
 const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden", ice_machine: "ice_hidden", toilet_mimic: "toilet_hidden", cryo_pod: "cryo_hidden", coffin_mimic: "coffin_hidden" };
@@ -160,6 +163,10 @@ interface PlayerView {
   tag: Phaser.GameObjects.BitmapText;
   gunKick: number;
   ghostTimer: number;
+  /** An emote's speech bubble, riding above the head until it fades. */
+  bubble?: Phaser.GameObjects.Container;
+  /** When the last emote started (scene ms), for its happy hop. */
+  emoteAt: number;
 }
 
 /** A predicted bullet of yours, drawn before the server confirms it. It only looks: the server deals the damage. */
@@ -434,11 +441,53 @@ export class GameScene extends Phaser.Scene {
       tag: this.add.bitmapText(0, 0, "pixel", p.name, 8).setOrigin(0.5, 1).setLetterSpacing(-1).setTint(SLOT_COLORS[p.slot] ?? 0xffffff).setDepth(D.text),
       gunKick: 0,
       ghostTimer: 0,
+      emoteAt: -Infinity,
     };
   }
 
   private destroyPlayerView(v: PlayerView): void {
     for (const o of [v.shadow, v.body, v.gun, v.hat, v.light, v.chargeGlow, v.tag]) o.destroy();
+    v.bubble?.destroy();
+  }
+
+  /** The emote you're wearing. */
+  get myEmote(): string {
+    return this.outfitOf(this.me).emote;
+  }
+
+  /** Co-op: the server says someone in the room emoted. */
+  emoteFrom(e: EmoteInfo): void {
+    if (!this.sys.isActive() || !this.net) return;
+    const seat = this.net.lobby?.seats.find((s) => s.sessionId === e.sessionId);
+    if (seat && seat.playerId >= 0) this.emote(seat.playerId, e.emote);
+  }
+
+  /** A speech bubble over a hero, with a little hop, like on the lobby stage. */
+  emote(playerId: number, emote: string): void {
+    const v = this.playerViews.get(playerId);
+    const p = this.world.players.find((pl) => pl.id === playerId);
+    if (!v || !p) return;
+    sfx.play("emote");
+    v.emoteAt = this.time.now;
+    v.bubble?.destroy();
+    const color = SLOT_COLORS[p.slot] ?? 0xffffff;
+    const text = this.add.bitmapText(0, 0, "pixel", EMOTE_LINES[emote] ?? "!", 8).setOrigin(0.5).setLetterSpacing(-1);
+    const w = Math.max(24, text.width + 10);
+    const bg = this.add.rectangle(0, 0, w, 14, 0x1b1020).setStrokeStyle(2, color);
+    const tail = this.add.triangle(0, 9, -3, 0, 3, 0, 0, 5, color);
+    const c = this.add.container(v.body.x, v.body.y, [tail, bg, text]).setDepth(D.text + 1).setScale(0);
+    v.bubble = c;
+    this.tweens.chain({
+      targets: c,
+      tweens: [
+        { scale: 1, duration: 220, ease: "Back.out" },
+        { alpha: 0, duration: 300, delay: 1300 },
+      ],
+      onComplete: () => {
+        c.destroy();
+        if (v.bubble === c) v.bubble = undefined;
+      },
+    });
   }
 
   /** What a player is wearing: yours from the menu in solo, everyone's from the lobby in co-op. */
@@ -1764,17 +1813,21 @@ export class GameScene extends Phaser.Scene {
   private renderPlayer(p: Player, pos: Vec, dt: number, t: number, v: PlayerView, coop: boolean): void {
     const mine = p.id === this.myId;
     const moving = len(p.vel) > 5;
-    const bob = moving && p.dashT <= 0 ? -Math.abs(Math.sin(t * 0.02)) * 1.5 : 0;
+    let bob = moving && p.dashT <= 0 ? -Math.abs(Math.sin(t * 0.02)) * 1.5 : 0;
     const left = p.facing.x < 0;
     const key = heroKey(p);
     const outfit = this.outfitOf(p);
+    // Emoting: two quick hops (none while downed).
+    const since = t - v.emoteAt;
+    if (since < EMOTE_HOP_MS && !p.downed) bob -= Math.abs(Math.sin((since / EMOTE_HOP_MS) * Math.PI * 2)) * 4;
+    v.bubble?.setPosition(Math.round(pos.x), Math.round(pos.y - 30));
 
     v.shadow.setPosition(pos.x, pos.y + p.radius - 1);
     v.body.setTexture(key).setPosition(pos.x, pos.y + p.radius + bob).setFlipX(left).setDepth(pos.y);
     v.light.setPosition(pos.x, pos.y).setVisible(!p.away);
-    // Teammates get a name tag; yours would just be clutter.
+    // Teammates get a name tag; yours would just be clutter. An emote bubble covers it for a moment.
     v.tag
-      .setVisible(coop && !mine)
+      .setVisible(coop && !mine && !v.bubble)
       .setText(p.away ? `${p.name} (AWAY)` : p.name)
       .setPosition(Math.round(pos.x), Math.round(pos.y - 17));
 

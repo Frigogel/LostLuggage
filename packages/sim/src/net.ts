@@ -696,6 +696,9 @@ export interface SeatInfo {
   outfit: Outfit;
 }
 
+/** Emotes are fun until someone holds the button down: one per player this often. */
+export const EMOTE_GAP_MS = 1200;
+
 /** Broadcast as "emote" when someone in the room plays one. */
 export interface EmoteInfo {
   sessionId: string;
