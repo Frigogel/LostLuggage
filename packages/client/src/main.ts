@@ -35,6 +35,23 @@ addEventListener("focusout", (e) => {
   if (typing(e.target) && game.input?.keyboard) game.input.keyboard.enabled = true;
 });
 
+// The height the browser really shows, which on phones leaves out the address bar (see #menu and #game).
+const fitHeight = () => document.documentElement.style.setProperty("--app-h", `${innerHeight}px`);
+fitHeight();
+addEventListener("resize", fitHeight);
+visualViewport?.addEventListener("resize", fitHeight);
+
+// Android: the first tap goes fullscreen, which hides the address bar for good. The whole page, not just the canvas,
+// so the lobby and menus (HTML over the canvas) stay visible. Needs a user gesture; iPhone only allows it for video.
+if (/Android/i.test(navigator.userAgent)) {
+  addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch" || document.fullscreenElement) return;
+    document.documentElement.requestFullscreen?.().catch(() => {
+      /* not allowed: fine */
+    });
+  });
+}
+
 const menu = new Menu(game);
 game.events.once("booted", () => {
   // Dev shortcuts (?seed=, ?room=, ?mythics) skip the menu straight into a solo run.

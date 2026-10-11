@@ -5,6 +5,7 @@
 import { confine, DT, hurtPlayer, pointInDome } from "./combat";
 import { ENEMIES } from "./data/enemies";
 import { REVIVE } from "./data/heroes";
+import { relicEffect } from "./loot";
 import { add, dist, dot, len, norm, scale, sub } from "./math";
 import type { AttackDef, Enemy, Player, PlayerInput, World } from "./types";
 
@@ -35,7 +36,8 @@ export function holding(e: Enemy): GrabAttack | undefined {
 /** The grab lands on whoever is in reach and in front. Returns false on a whiff. */
 export function tryGrab(w: World, e: Enemy, atk: GrabAttack): boolean {
   const p = w.players.find((pl) => {
-    if (pl.downed || pl.away || pl.pinnedBy || pl.iframes > 0) return false;
+    // Noise-Cancelling Headphones: nothing gets a grip on you.
+    if (pl.downed || pl.away || pl.pinnedBy || pl.iframes > 0 || relicEffect(pl) === "headphones") return false;
     const off = sub(pl.pos, e.pos);
     return len(off) < e.radius + pl.radius + atk.reach && dot(norm(off), e.attackDir) > 0.2 && !pointInDome(w, pl.pos);
   });

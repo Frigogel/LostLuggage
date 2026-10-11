@@ -1,7 +1,7 @@
 // Mythic art: each mythic has its own hand-drawn sprite (16x16, bigger and richer than any other item), and a framed,
 // shimmering icon built around it for the armory and the pickup banner. The in-game pickup spins `mythic-rays` behind
 // the sprite and cycles its glow through the mythic colors (see GameScene).
-import { MYTHIC_GUNS, type Grenade, type GunData } from "@lostluggage/sim";
+import { MYTHIC_GUNS, type Grenade, type GunData, type Relic } from "@lostluggage/sim";
 import { drawSprite, type PixelSprite } from "./pixels";
 
 /** The mythic colors, in order: pearl teal, violet, pink, gold. Glows and beams cycle through them. */
@@ -217,10 +217,98 @@ export const MYTHIC_ART: Record<string, PixelSprite> = {
       "................",
     ],
   },
+  // A bright orange life vest: reflective strips, a buckled strap, red pull tabs and the whistle on its cord.
+  life_vest: {
+    palette: { o: "#ff8a1f", O: "#c4570c", y: "#ffd34d", Y: "#c98a1a", w: "#f6eedb", r: "#e0405a", s: "#d9dde3" },
+    rows: [
+      "...kkk....kkk...",
+      "..kook....kook..",
+      "..koOk....kOok..",
+      ".kooOk....kOook.",
+      ".kooOkkkkkkOook.",
+      ".kwwwwkyykwwwwk.",
+      ".koooOkyYkOooOk.",
+      ".kyyyyyYYyyyyyk.",
+      ".koooOkyYkOooOk.",
+      ".kwwwwkyykwwwwk.",
+      ".koooOk.skOooOk.",
+      ".kOOOOk.skOOOOk.",
+      "..kkkkk.skkkkk..",
+      "...krk..kssk....",
+      "...krk...kk.....",
+      "....k...........",
+    ],
+  },
+  // Big violet headphones, and between the cups a sound wave with a red line through it.
+  headphones: {
+    palette: { m: "#b46cff", M: "#7a3fc4", p: "#2a2f3a", P: "#5a6270", c: "#62f5e0", r: "#e0405a", g: "#ffd34d" },
+    rows: [
+      "....kkkkkkkk....",
+      "...kmmmmmmmmk...",
+      "..kmMkkkkkkMmk..",
+      ".kmMk......kMmk.",
+      ".kmk........kmk.",
+      ".kmk........kmk.",
+      "kkmkk......kkmkk",
+      "kmmmmk...rkmmmmk",
+      "kmPPpkc.r.kmPPpk",
+      "kmPgpk.rc.kmPgpk",
+      "kmPPpkr..ckmPPpk",
+      "kmmmmk....kmmmmk",
+      "kMMMMk....kMMMMk",
+      ".kkkk......kkkk.",
+      "................",
+      "................",
+    ],
+  },
+  // A gold travel clock with a pale globe for a face, its hands stuck at five, leaving a violet blur behind it.
+  world_clock: {
+    palette: { g: "#ffd34d", G: "#c98a1a", f: "#dff8ff", l: "#7ee0a0", b: "#2a2f3a", r: "#e0405a", v: "#b46cff", V: "#5a2a9a" },
+    rows: [
+      ".......kk.......",
+      "......kgGk......",
+      "....kkkkkkkk....",
+      "...kgggggggGk...",
+      "..kgfffbfffflGk.",
+      ".vkgflfbfflllGk.",
+      "Vvkgflllbfffffgk",
+      "Vvkgbfffrbbbfbgk",
+      ".vkgflfffffllfGk",
+      "Vvkgfllfffflllgk",
+      ".vkgffllfbfffGk.",
+      "..kgffffffffGk..",
+      "...kGGGGGGGGk...",
+      "....kkkkkkkk....",
+      "...kGk....kGk...",
+      "...kk......kk...",
+    ],
+  },
+  // Two grenades arm in arm, one teal and one pink, under a gold plus.
+  plus_one: {
+    palette: { t: "#62f5e0", T: "#1d9fb8", m: "#ff6ad5", M: "#a8288c", s: "#d9dde3", g: "#ffd34d", G: "#c98a1a" },
+    rows: [
+      ".......kk.......",
+      "......kggk......",
+      ".....kgggGk.....",
+      "......kGGk......",
+      "...kk..kk..kk...",
+      "..kssk....kssk..",
+      "...kkkk..kkkk...",
+      "..kttttk.kmmmmk.",
+      ".kttTttTkmmMmmMk",
+      ".ktTttTtkmMmmMmk",
+      ".kttTttTkmmMmmMk",
+      ".ktTttTtkmMmmMmk",
+      ".kTTTTTTkMMMMMMk",
+      "..kTTTTk.kMMMMk.",
+      "...kkkk...kkkk..",
+      "................",
+    ],
+  },
 };
 
-/** The mythic art id of a gun or grenade, or undefined for everything else. */
-export function mythicArtId(item: GunData | Grenade): string | undefined {
+/** The mythic art id of a gun, grenade or relic, or undefined for everything else. */
+export function mythicArtId(item: GunData | Grenade | Relic): string | undefined {
   if ("perks" in item) return item.mythic && MYTHIC_ART[item.mythic] && MYTHIC_GUNS[item.mythic] ? item.mythic : undefined;
   return item.rarity === "mythic" && MYTHIC_ART[item.defId] ? item.defId : undefined;
 }

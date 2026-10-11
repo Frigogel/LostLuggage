@@ -13,6 +13,7 @@ import { GUNS } from "./data/guns";
 import { HEROES } from "./data/heroes";
 import { LEGENDARY_IDS } from "./data/legendaries";
 import { MYTHIC_GUN_IDS } from "./data/mythics";
+import { RELIC_KINDS } from "./data/relics";
 import { MAKER_IDS } from "./data/makers";
 import { SIGNATURE_IDS } from "./data/signatures";
 import { ELITE_IDS } from "./elites";
@@ -42,6 +43,7 @@ import type {
   Player,
   PlayerInput,
   Projectile,
+  Relic,
   RoomKind,
   RoomPlan,
   TwistId,
@@ -63,7 +65,7 @@ const STATES: EnemyState[] = ["move", "windup", "attack", "recover", "hidden", "
 const ROOM_KINDS: RoomKind[] = ["intro", "combat", "elite", "event", "shrine", "rest", "boss"];
 const DOOR_KINDS: DoorKind[] = [...ROOM_KINDS, "home"];
 const TWISTS: TwistId[] = ["", ...TWIST_IDS];
-const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost", "grenade"];
+const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost", "grenade", "relic"];
 const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush", "page"];
 const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave", "rewind"];
 const TRAP_KINDS: TrapKind[] = ["vent", "pipe", "laser"];
@@ -140,6 +142,14 @@ type GrenadeWire = [number, number];
 const encodeGrenade = (g: Grenade): GrenadeWire => [idx(GRENADE_KINDS, g.defId), idx(RARITIES, g.rarity)];
 const decodeGrenade = (a: GrenadeWire): Grenade => ({ defId: GRENADE_KINDS[a[0]] ?? "frag", rarity: RARITIES[a[1]] ?? "common" });
 
+// ---------------------------------------------------------------- relics
+
+/** [kind, rarity]. */
+type RelicWire = [number, number];
+
+const encodeRelic = (r: Relic): RelicWire => [idx(RELIC_KINDS, r.defId), idx(RARITIES, r.rarity)];
+const decodeRelic = (a: RelicWire): Relic => ({ defId: RELIC_KINDS[a[0]] ?? "neck_pillow", rarity: RARITIES[a[1]] ?? "common" });
+
 // ---------------------------------------------------------------- players
 
 function encodePlayer(p: Player): unknown[] {
@@ -155,7 +165,7 @@ function encodePlayer(p: Player): unknown[] {
     // Souvenir mods the client's movement prediction needs.
     q(p.mods.speed, 1000), q(p.mods.dashCd, 1000),
     SIGNATURE_IDS.indexOf(p.signature), q(p.shield, 10), Math.round(p.knock.x), Math.round(p.knock.y), q(p.slowT, T),
-    encodeGrenade(p.grenade), p.pinnedBy, q(p.freeProgress, 100),
+    encodeGrenade(p.grenade), p.pinnedBy, q(p.freeProgress, 100), p.relic ? encodeRelic(p.relic) : 0,
   ];
 }
 
@@ -165,6 +175,7 @@ function decodePlayer(a: unknown[]): Player {
   const boostsFlat = a[31] as number[];
   const boosts: Player["boosts"] = {};
   for (let i = 0; i < boostsFlat.length; i += 2) boosts[BOOST_IDS[boostsFlat[i]!]!] = boostsFlat[i + 1]!;
+  const relic = Array.isArray(a[43]) ? decodeRelic(a[43] as RelicWire) : undefined;
   return {
     id: n(0),
     heroId,
@@ -212,6 +223,7 @@ function decodePlayer(a: unknown[]): Player {
     markHits: 0,
     pinnedBy: (a[41] as number | undefined) ?? 0,
     freeProgress: ((a[42] as number | undefined) ?? 0) / 100,
+    ...(relic ? { relic } : {}),
   };
 }
 
@@ -381,7 +393,7 @@ function decodeVent(a: number[]): Vent {
 
 function encodePickup(p: Pickup): unknown[] {
   const extra =
-    p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "grenade" && p.grenade ? encodeGrenade(p.grenade) : p.kind === "boost" && p.boost ? [idx(BOOST_IDS, p.boost), p.owner ?? -1, p.group ?? 0] : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
+    p.kind === "gun" && p.gun ? encodeGun(p.gun) : p.kind === "grenade" && p.grenade ? encodeGrenade(p.grenade) : p.kind === "relic" && p.relic ? encodeRelic(p.relic) : p.kind === "boost" && p.boost ? [idx(BOOST_IDS, p.boost), p.owner ?? -1, p.group ?? 0] : p.kind === "shrine" && p.boost ? idx(BOOST_IDS, p.boost) : (p.heal ?? 0);
   return [p.id, idx(PICKUP_KINDS, p.kind), q(p.pos.x, POS), q(p.pos.y, POS), b(p.used), extra];
 }
 
@@ -390,6 +402,7 @@ function decodePickup(a: unknown[]): Pickup {
   const pk: Pickup = { id: a[0] as number, kind, pos: { x: (a[2] as number) / POS, y: (a[3] as number) / POS }, used: a[4] === 1 };
   if (kind === "gun") pk.gun = decodeGun(a[5] as GunWire);
   else if (kind === "grenade") pk.grenade = decodeGrenade(a[5] as GrenadeWire);
+  else if (kind === "relic") pk.relic = decodeRelic(a[5] as RelicWire);
   else if (kind === "shrine") pk.boost = BOOST_IDS[a[5] as number];
   else if (kind === "boost") {
     const [boost, owner, group] = a[5] as number[];
@@ -461,6 +474,9 @@ const EVENT_KEYS: EventKeys = {
   swap: ["id"],
   pickup: ["id", "gun"],
   grenadePickup: ["id", "grenade"],
+  relicPickup: ["id", "relic"],
+  vest: ["id"],
+  clock: ["x", "y", "radius"],
   loot: ["x", "y", "rarity"],
   heal: ["id", "amount"],
   shrine: ["id", "boost"],
@@ -488,6 +504,7 @@ export function encodeEvent(ev: SimEvent): unknown[] {
       if (k === "angle") return qa(v as number);
       if (k === "gun") return encodeGun(v as Gun);
       if (k === "grenade") return encodeGrenade(v as Grenade);
+      if (k === "relic") return encodeRelic(v as Relic);
       return ROUNDED.has(k) ? Math.round(v as number) : v;
     }),
   ];
@@ -499,7 +516,7 @@ export function decodeEvent(a: unknown[]): SimEvent | undefined {
   const ev: Record<string, unknown> = { type };
   (EVENT_KEYS[type] as readonly string[]).forEach((k, i) => {
     const v = a[i + 1];
-    ev[k] = k === "angle" ? (v as number) / 1000 : k === "gun" ? decodeGun(v as GunWire) : k === "grenade" ? decodeGrenade(v as GrenadeWire) : v;
+    ev[k] = k === "angle" ? (v as number) / 1000 : k === "gun" ? decodeGun(v as GunWire) : k === "grenade" ? decodeGrenade(v as GrenadeWire) : k === "relic" ? decodeRelic(v as RelicWire) : v;
   });
   return ev as unknown as SimEvent;
 }

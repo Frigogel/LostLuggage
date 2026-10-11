@@ -156,7 +156,19 @@ Loot is the Borderlands heart of the game: every gun is archetype + manufacturer
 
 **Legendaries** each have one rule-breaking effect with flavor text, Borderlands style. Examples: a shotgun whose pellets come back like boomerangs; an SMG that fires a homing rocket every 10th bullet; a sniper that leaves a damaging line on the ground.
 
-**Mythics** sit above legendary and are the rarest drops in the game. They're the one place the golden rule bends: a mythic hits 1.5x harder than a legendary, and carries an ability that breaks a rule everyone else plays by. They come as guns or grenades, each with its own hand-drawn icon, a prismatic beam on the floor and a fanfare when one drops.
+**Relics** fill the loadout's charm slot: nothing to press, they just work. Everyone starts with an empty pocket. Bosses always drop one, elites sometimes, and about a third of rest-room suitcases have one inside; the one in your pocket comes home at the end of a run. A regular relic nudges one stat, more the rarer it is, and stays inside the gear's narrow band:
+
+| Relic | Common → legendary |
+| --- | --- |
+| Neck Pillow | +4% → +12% max health |
+| Energy Drink | +3% → +8% damage |
+| Spinner Wheels | +3% → +8% move speed |
+| Priority Tag | -5% → -15% dash cooldown |
+| Travel Adapter | +5% → +15% action skill charge |
+| Hard-Shell Case | 3% → 8% less damage taken |
+| Pressed Penny | +5% → +25% loot luck |
+
+**Mythics** sit above legendary and are the rarest drops in the game. They're the one place the golden rule bends: a mythic hits 1.5x harder than a legendary, and carries an ability that breaks a rule everyone else plays by. They come as guns, grenades or relics, each with its own hand-drawn icon, a prismatic beam on the floor and a fanfare when one drops. A mythic relic trades the stat for its ability.
 
 | Mythic | Kind | The rule it breaks |
 | --- | --- | --- |
@@ -169,6 +181,10 @@ Loot is the Borderlands heart of the game: every gun is archetype + manufacturer
 | Boarding Pass | Sniper | A shot swaps your place with the first teammate or enemy it hits (not bosses), in a blast: the enemy lands stunned among whatever was chasing you, or you land beside a cornered teammate and give them a shield. The shot comes back |
 | Lost & Found | Grenade | Enemies in the blast are misplaced for 6s, then turn up dazed; bosses only stagger |
 | Duty Free | Grenade | Enemies in the blast that die within 5s drop an extra gun |
+| Life Vest | Relic | Once a room, a hit that would down you leaves you at 1 health, in a blast that throws enemies back |
+| Noise-Cancelling Headphones | Relic | Nothing moves you: grabbers can't hold you, hits don't shove you, slush doesn't slow you |
+| World Clock | Relic | Dashing leaves the clock behind: enemies near where you started crawl at a fifth of their speed for 3s (bosses less) |
+| Plus-One | Relic | Every grenade brings a friend: a second one lands beside it |
 
 They drop from bosses (and, ten times more rarely, elites) in solo and co-op: about 0.3% per boss on Normal, up to 2.5x on Nightmare, doubled in co-op when someone below the tier's level is along. Luck doesn't touch the roll. Bad-luck protection: every boss beaten since your last mythic adds 1% of the base chance.
 

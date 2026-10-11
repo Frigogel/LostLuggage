@@ -2,9 +2,10 @@ import { GRENADE_IDS, GRENADES } from "./data/grenades";
 import { GRENADE, GUNS } from "./data/guns";
 import { LEGENDARIES, LEGENDARY_IDS } from "./data/legendaries";
 import { MYTHIC, MYTHIC_GRENADE_IDS, MYTHIC_GUN_IDS, MYTHIC_GUNS } from "./data/mythics";
+import { MYTHIC_RELIC_IDS, RELIC_IDS, RELICS, type MythicRelicEffect, type RelicDef } from "./data/relics";
 import { MAKER_IDS, MAKERS } from "./data/makers";
 import { pick, rand } from "./math";
-import type { Archetype, Element, Grenade, GrenadeDef, Gun, GunData, GunStats, MakerId, PerkId, Player, Rarity, World } from "./types";
+import type { Archetype, Element, Grenade, GrenadeDef, Gun, GunData, GunStats, MakerId, PerkId, Player, Rarity, Relic, World } from "./types";
 
 export const RARITIES: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
 /** The rarities the regular roll picks from. Mythics have their own roll (see `mythicChance`), which luck doesn't touch. */
@@ -262,6 +263,28 @@ export function grenadeName(g: Grenade): string {
   return (GRENADES[g.defId] ?? GRENADES.frag!).name;
 }
 
+// ---------------------------------------------------------------- relics
+
+/** A random relic. Every kind is equally likely; rarity decides how big its bonus is. */
+export function rollRelic(w: World, luck = 0, minRarity: RolledRarity = "common"): Relic {
+  let rarity: RolledRarity = weighted(w, RARITY, luck);
+  if (RARITIES.indexOf(rarity) < RARITIES.indexOf(minRarity)) rarity = minRarity;
+  return { defId: pick(w, RELIC_IDS), rarity };
+}
+
+export function relicDef(r: Relic): RelicDef {
+  return RELICS[r.defId] ?? RELICS.neck_pillow!;
+}
+
+export function relicName(r: Relic): string {
+  return relicDef(r).name;
+}
+
+/** The mythic ability in a player's pocket, if any. */
+export function relicEffect(p: Pick<Player, "relic">): MythicRelicEffect | undefined {
+  return p.relic ? RELICS[p.relic.defId]?.mythic : undefined;
+}
+
 // ---------------------------------------------------------------- mythics
 
 /**
@@ -274,13 +297,19 @@ export function mythicChance(tier: number, boss: boolean, helped: boolean, pity 
   return base * (1 + MYTHIC.tierStep * Math.max(0, tier)) * (helped ? MYTHIC.helped : 1) * pityMult;
 }
 
-/** A random mythic: any of the guns or grenades, all equally likely. */
-export function rollMythic(w: World): { gun: Gun } | { grenade: Grenade } {
-  return mythicItem(w, pick(w, [...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS]));
+export type MythicDrop = { gun: Gun } | { grenade: Grenade } | { relic: Relic };
+
+/** Every mythic id: guns, grenades and relics. */
+export const MYTHIC_IDS = [...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS, ...MYTHIC_RELIC_IDS];
+
+/** A random mythic: any of the guns, grenades or relics, all equally likely. */
+export function rollMythic(w: World): MythicDrop {
+  return mythicItem(w, pick(w, MYTHIC_IDS));
 }
 
-/** One particular mythic, by its gun or grenade id. The element and perk still roll. */
-export function mythicItem(w: World, id: string): { gun: Gun } | { grenade: Grenade } {
+/** One particular mythic, by its gun, grenade or relic id. A gun's element and perk still roll. */
+export function mythicItem(w: World, id: string): MythicDrop {
+  if (RELICS[id]?.mythic) return { relic: { defId: id, rarity: "mythic" } };
   const def = MYTHIC_GUNS[id];
   if (!def) return { grenade: { defId: id, rarity: "mythic" } };
   const element = def.element ?? pick(w, ELEMENTS);

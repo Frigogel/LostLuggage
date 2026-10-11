@@ -18,6 +18,7 @@ import {
   MYTHIC_GRENADE_IDS,
   MYTHIC_GUN_IDS,
   MYTHIC_GUNS,
+  MYTHIC_RELIC_IDS,
   mythicChance,
   newProfile,
   playerOptions,
@@ -116,12 +117,15 @@ describe("mythics: power", () => {
         expect(m.gun.rarity).toBe("mythic");
         expect(m.gun.perks.length).toBe(1);
         seen.add(m.gun.mythic!);
+      } else if ("relic" in m) {
+        expect(m.relic.rarity).toBe("mythic");
+        seen.add(m.relic.defId);
       } else {
         expect(m.grenade.rarity).toBe("mythic");
         seen.add(m.grenade.defId);
       }
     }
-    expect([...seen].sort()).toEqual([...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS].sort());
+    expect([...seen].sort()).toEqual([...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS, ...MYTHIC_RELIC_IDS].sort());
     dropMythic(w, { x: 200, y: 150 });
     expect(w.pickups.length).toBe(1);
     expect(w.events.some((e) => e.type === "loot" && e.rarity === "mythic")).toBe(true);

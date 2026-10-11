@@ -1,4 +1,4 @@
-import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, spawnEnemy, submerged, targetable } from "./combat";
+import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, shovePlayer, spawnEnemy, submerged, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
 import { MYTHIC } from "./data/mythics";
 import { isBlackHole } from "./domes";
@@ -251,7 +251,7 @@ function updateEnemy(w: World, e: Enemy): void {
           if (hurtPlayer(w, p, atk.damage)) {
             e.hitPlayers.push(p.id);
             // Shoved out of the lane, sideways.
-            if (atk.push) p.knock = add(p.knock, scale(sideOf(e.attackDir, sub(p.pos, e.pos)), atk.push));
+            if (atk.push) shovePlayer(p, scale(sideOf(e.attackDir, sub(p.pos, e.pos)), atk.push));
           }
         }
       }
@@ -521,7 +521,7 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       for (const p of w.players) {
         if (p.downed || p.away || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
         if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
-        else if (hurtPlayer(w, p, atk.damage) && atk.push) p.knock = add(p.knock, scale(norm(sub(p.pos, e.pos)), atk.push));
+        else if (hurtPlayer(w, p, atk.damage) && atk.push) shovePlayer(p, scale(norm(sub(p.pos, e.pos)), atk.push));
       }
       hurtGadgetsIn(w, e.pos, atk.radius, atk.damage, e);
       break;
@@ -531,7 +531,7 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       for (const p of w.players) {
         if (p.downed || p.away || !inCone(e, p.pos, atk.length, atk.angleDeg, p.radius)) continue;
         if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
-        else if (hurtPlayer(w, p, atk.damage) && atk.push) p.knock = add(p.knock, scale(e.attackDir, atk.push));
+        else if (hurtPlayer(w, p, atk.damage) && atk.push) shovePlayer(p, scale(e.attackDir, atk.push));
       }
       for (const g of w.gadgets) if (g.kind === "turret" && inCone(e, g.pos, atk.length, atk.angleDeg, TURRET.radius)) hurtGadget(w, g, atk.damage, e);
       if (atk.ice) {
@@ -713,7 +713,7 @@ function updateSubmerge(w: World, e: Enemy, atk: Extract<AttackDef, { type: "sub
   for (const p of w.players) {
     if (p.downed || p.away || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
     if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
-    else if (hurtPlayer(w, p, atk.damage) && atk.push) p.knock = add(p.knock, scale(norm(sub(p.pos, e.pos)), atk.push));
+    else if (hurtPlayer(w, p, atk.damage) && atk.push) shovePlayer(p, scale(norm(sub(p.pos, e.pos)), atk.push));
   }
   hurtGadgetsIn(w, e.pos, atk.radius, atk.damage, e);
   const turn = rand(w) * Math.PI;

@@ -5,7 +5,8 @@ import { HEROES, levelMultiplier } from "./data/heroes";
 import { ELITE, ELITE_HP, onEliteDeath } from "./elites";
 import { onTurretKill, raiseGhost, TURRET_GUN } from "./gadgets";
 import { MYTHIC, MYTHIC_GUNS } from "./data/mythics";
-import { gunStats, mythicChance, rollGrenade, rollGun, rollMythic } from "./loot";
+import { RELICS, relicAmount } from "./data/relics";
+import { gunStats, mythicChance, relicEffect, rollGrenade, rollGun, rollMythic, rollRelic } from "./loot";
 import { markBonus, onMarkedDeath } from "./marks";
 import { add, clamp, dist, norm, pushCircleOutOfRect, rand, scale, sub, type Vec } from "./math";
 import type { Dome, Element, EliteId, Enemy, EnemyDef, HeroSkill, Player, Status, World } from "./types";
@@ -241,6 +242,8 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
     for (let i = 0; i < drops; i++) dropGun(w, add(e.pos, { x: (i - (drops - 1) / 2) * 20, y: 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
     // Grenades: rarer than guns, and every boss leaves a good one.
     if (def.boss || rand(w) < def.dropChance * 0.5 * (e.elite ? 2 : 1) * rush) dropGrenade(w, add(e.pos, { x: 0, y: drops > 0 ? 16 : 0 }), luck, def.boss ? "rare" : e.elite ? "uncommon" : "common");
+    // Relics: rarer still. Every boss leaves one, and elites now and then.
+    if (def.boss || (e.elite && rand(w) < 0.2)) dropRelic(w, add(e.pos, { x: def.boss ? 22 : 0, y: def.boss ? 16 : -14 }), luck, def.boss ? "rare" : "uncommon");
     if (!def.boss && rand(w) < 0.07) dropHeal(w, e.pos, 15);
     if ((def.boss || e.elite) && rand(w) < partyMythicChance(w, !!def.boss)) dropMythic(w, add(e.pos, { x: 0, y: -18 }));
     // Duty Free: a tagged enemy leaves an extra (luckier) gun behind.
@@ -299,6 +302,13 @@ export function dropGrenade(w: World, at: Vec, luck: number, minRarity: Paramete
   w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: grenade.rarity });
 }
 
+export function dropRelic(w: World, at: Vec, luck: number, minRarity: Parameters<typeof rollRelic>[2] = "common"): void {
+  const relic = rollRelic(w, luck, minRarity);
+  const pos = clampToArena(w, at, 16);
+  w.pickups.push({ id: newId(w), kind: "relic", pos, relic, used: false });
+  w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: relic.rarity });
+}
+
 /** Mythic odds for this party: the best pity in it, and double when someone newer is along in co-op. */
 function partyMythicChance(w: World, boss: boolean): number {
   const helped = w.run.coop && w.players.some((p) => p.level < p.syncLevel);
@@ -312,7 +322,8 @@ export function dropMythic(w: World, at: Vec): void {
   if ("gun" in m) {
     w.pickups.push({ id: newId(w), kind: "gun", pos, gun: m.gun, used: false });
     w.run.gunsFound++;
-  } else w.pickups.push({ id: newId(w), kind: "grenade", pos, grenade: m.grenade, used: false });
+  } else if ("relic" in m) w.pickups.push({ id: newId(w), kind: "relic", pos, relic: m.relic, used: false });
+  else w.pickups.push({ id: newId(w), kind: "grenade", pos, grenade: m.grenade, used: false });
   w.events.push({ type: "loot", x: pos.x, y: pos.y, rarity: "mythic" });
 }
 
@@ -377,8 +388,9 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
 
 export function hurtPlayer(w: World, p: Player, raw: number): boolean {
   if (p.downed || p.away || p.iframes > 0) return false;
-  // Later acts hit harder; Bubble Wrap takes the edge off.
-  const amount = raw * actDamage(w.run.plans[w.run.room.index]?.act ?? 0) * Math.pow(0.9, p.boosts.bubbleWrap ?? 0);
+  // Later acts hit harder; Bubble Wrap and a Hard-Shell Case take the edge off.
+  const armor = p.relic && RELICS[p.relic.defId]?.stat === "armor" ? relicAmount(RELICS[p.relic.defId], p.relic.rarity) : 0;
+  const amount = raw * actDamage(w.run.plans[w.run.room.index]?.act ?? 0) * Math.pow(0.9, p.boosts.bubbleWrap ?? 0) * (1 - armor);
   // Overheal shields soak the hit first.
   const soaked = Math.min(p.shield, amount);
   p.shield -= soaked;
@@ -398,6 +410,14 @@ export function hurtPlayer(w: World, p: Player, raw: number): boolean {
       w.events.push({ type: "saved", id: p.id });
     }
   }
+  // Life Vest: once a room, the hit that would down you leaves you at 1 HP, and the blast buys you room.
+  if (p.hp <= 0 && !p.vestUsed && relicEffect(p) === "vest") {
+    p.vestUsed = true;
+    p.hp = 1;
+    p.iframes = MYTHIC.vest.iframes;
+    w.events.push({ type: "vest", id: p.id });
+    playerExplosion(w, p.pos, MYTHIC.vest.radius, MYTHIC.vest.damage * levelMultiplier(p.syncLevel), MYTHIC.vest.knockback, p.id, "none", true);
+  }
   // Panic Room: a free dome when things get bad, once per room.
   if (p.hp > 0 && p.hp < p.maxHp * 0.3 && !p.panicUsed && p.skills.includes("vg_panic")) {
     p.panicUsed = true;
@@ -415,6 +435,11 @@ export function hurtPlayer(w: World, p: Player, raw: number): boolean {
     w.events.push({ type: "playerDowned", id: p.id, canRevive });
   }
   return true;
+}
+
+/** A shove from an enemy's attack or a hazard. Noise-Cancelling Headphones shrug it off. */
+export function shovePlayer(p: Player, v: Vec): void {
+  if (relicEffect(p) !== "headphones") p.knock = add(p.knock, v);
 }
 
 /** Overheal shield caps (Warden's Overheal and Bubble Wrap). */

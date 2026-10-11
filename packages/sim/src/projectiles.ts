@@ -1,4 +1,4 @@
-import { confine, damageEnemy, domeAt, DT, healPlayer, hurtPlayer, insideArenaSolid, nearestEnemy, newId, playerExplosion, targetable } from "./combat";
+import { confine, damageEnemy, domeAt, DT, healPlayer, hurtPlayer, insideArenaSolid, nearestEnemy, newId, playerExplosion, shovePlayer, targetable } from "./combat";
 import { domeBlocked, reflect } from "./domes";
 import { confiscate, shieldBlocks } from "./elites";
 import { hurtGadget, hurtGadgetsIn, magnetize } from "./gadgets";
@@ -7,7 +7,7 @@ import { levelMultiplier } from "./data/heroes";
 import { MYTHIC } from "./data/mythics";
 import { add, angleOf, dist, distToSegment, fromAngle, len, lerp, norm, rand, scale, sub, type Vec } from "./math";
 import { ENEMIES } from "./data/enemies";
-import { gunStats } from "./loot";
+import { gunStats, relicEffect } from "./loot";
 import { returnCharge } from "./enemies";
 import { dashedWithin, hasSkill, revive } from "./players";
 import { GRENADES } from "./data/grenades";
@@ -419,15 +419,16 @@ export function updateHazards(w: World): void {
           w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
           continue;
         }
-        if (hurtPlayer(w, p, h.damage) && h.push) p.knock = add(p.knock, scale(norm(sub(p.pos, h.pos)), h.push));
+        if (hurtPlayer(w, p, h.damage) && h.push) shovePlayer(p, scale(norm(sub(p.pos, h.pos)), h.push));
       }
       continue;
     }
     for (const p of w.players) {
       if (p.downed || p.dashT > 0 || dist(p.pos, h.pos) >= h.radius + p.radius * 0.3) continue;
       // Slush slows you down; acid hurts (player i-frames pace it into a hit about every half second).
-      if (h.kind === "ice") p.slowT = 0.3;
-      else hurtPlayer(w, p, h.damage);
+      // Noise-Cancelling Headphones walk straight through slush.
+      if (h.kind !== "ice") hurtPlayer(w, p, h.damage);
+      else if (relicEffect(p) !== "headphones") p.slowT = 0.3;
     }
   }
   w.hazards = w.hazards.filter((h) => h.t > 0);

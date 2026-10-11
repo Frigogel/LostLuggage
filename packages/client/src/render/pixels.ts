@@ -185,6 +185,35 @@ export const SPRITES: Record<string, PixelSprite> = {
     palette: { m: "#4e8a4e", M: "#356535", r: "#e0533d", d: "#5a6270" },
     rows: [".mmmmmmmmm.", "rMMMMMMMMMr", ".mmmmmmmmm.", "...d..d....", "...d......."],
   },
+  // Relics: small charms, one per kind. Mythic relics have their own art (see render/mythics).
+  relic_neck_pillow: {
+    palette: { p: "#b48cff", P: "#7a5ac4" },
+    rows: ["kk....kk", "kpk..kpk", "kpk..kpk", "kppkkppk", ".kpPPpk.", "..kkkk.."],
+  },
+  relic_energy_drink: {
+    palette: { s: "#d9dde3", b: "#3b6fd1", B: "#274a94", y: "#9ff3ff" },
+    rows: [".kkkk.", "kssssk", "kbbbbk", "kbyybk", "kbbybk", "kbyybk", "kBBBBk", ".kkkk."],
+  },
+  relic_spinner_wheels: {
+    palette: { d: "#5a6270", m: "#c9cfd6", M: "#f2c14e" },
+    rows: ["..kkk..", ".kdddk.", "kddmddk", "kdmMmdk", "kddmddk", ".kdddk.", "..kkk.."],
+  },
+  relic_priority_tag: {
+    palette: { y: "#f2c14e", Y: "#c98a1a", r: "#e0405a", s: "#d9dde3" },
+    rows: ["s......", ".kkkkk.", "kskyyyk", "kyyyyyk", "kyrrryk", "kYYYYYk", ".kkkkk."],
+  },
+  relic_travel_adapter: {
+    palette: { m: "#c9cfd6", g: "#f6eedb", G: "#a9b0b8", c: "#5fd3e8" },
+    rows: [".k.k.", ".m.m.", "kkkkk", "kgggk", "kgcgk", "kGGGk", ".kkk."],
+  },
+  relic_hard_case: {
+    palette: { s: "#c9cfd6", S: "#8a93a3", m: "#5a6270" },
+    rows: ["..kkk..", ".k...k.", "kkkkkkk", "ksSsSsk", "ksSsSsk", "kmmmmmk", "kSSSSSk", ".kkkkk."],
+  },
+  relic_pressed_penny: {
+    palette: { o: "#d9824a", O: "#9a5a2a", y: "#ffd0a0" },
+    rows: [".kkkk.", "kyoook", "koOOok", "koOook", "koOOok", "kooOok", ".kkkk."],
+  },
   grenade: {
     palette: { g: "#4e8a4e", G: "#356535", y: "#f2c14e" },
     rows: [".yy.", "gggg", "gGgg", ".gg."],

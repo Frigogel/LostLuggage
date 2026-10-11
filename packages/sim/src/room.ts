@@ -471,6 +471,7 @@ export function enterRoom(w: World, spec: RoomSpec): void {
     p.burstLeft = 0;
     p.charging = false;
     p.panicUsed = false;
+    p.vestUsed = false;
     p.pinnedBy = 0;
     p.freeProgress = 0;
     // Teammates left down in the last room get carried along.

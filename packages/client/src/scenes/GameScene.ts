@@ -19,8 +19,8 @@ import {
   doorAt,
   doorVotes,
   enterRoom,
-  MYTHIC_GRENADE_IDS,
-  MYTHIC_GUN_IDS,
+  MYTHIC,
+  MYTHIC_IDS,
   mythicItem,
   roomSpec,
   ROOM_NAMES,
@@ -300,15 +300,15 @@ export class GameScene extends Phaser.Scene {
         enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, biome: actBiome(this.world, act) }));
       }
       if (params.has("mythics")) {
-        const ids = [...MYTHIC_GUN_IDS, ...MYTHIC_GRENADE_IDS];
         const at = this.world.players[0]!.pos;
-        ids.forEach((id, i) => {
+        const perRow = Math.ceil(MYTHIC_IDS.length / 3);
+        MYTHIC_IDS.forEach((id, i) => {
           const m = mythicItem(this.world, id);
-          const row = Math.floor(i / 5);
-          const inRow = Math.min(5, ids.length - row * 5);
-          // One row above you, the rest below, so none hide under the HUD.
-          const pos = { x: at.x + ((i % 5) - (inRow - 1) / 2) * 44, y: at.y + (row === 0 ? -34 : 26) };
-          this.world.pickups.push({ id: this.world.nextId++, kind: "gun" in m ? "gun" : "grenade", pos, ...m, used: false });
+          const row = Math.floor(i / perRow);
+          const inRow = Math.min(perRow, MYTHIC_IDS.length - row * perRow);
+          // Rows above and below you, clear of the HUD and the lava.
+          const pos = { x: at.x + ((i % perRow) - (inRow - 1) / 2) * 40, y: at.y + [-34, 26, -74][row]! };
+          this.world.pickups.push({ id: this.world.nextId++, kind: "gun" in m ? "gun" : "relic" in m ? "relic" : "grenade", pos, ...m, used: false });
         });
       }
       this.myId = this.world.players[0]!.id;
@@ -1401,8 +1401,30 @@ export class GameScene extends Phaser.Scene {
         break;
       case "pickup":
       case "grenadePickup":
+      case "relicPickup":
         sfx.play("pickup");
         break;
+      case "vest": {
+        const p = at(ev.id);
+        this.ringFx(p.x, p.y, MYTHIC.vest.radius, 0xff8a1f, 500);
+        this.ringFx(p.x, p.y, 30, mythicHue(this.time.now), 450);
+        this.flash(p.x, p.y, 0xff8a1f, 80, 500);
+        this.floatText(p.x, p.y - 22, "LIFE VEST!", mythicHue(this.time.now), 8, 1200);
+        sfx.play("saved");
+        break;
+      }
+      case "clock": {
+        // The air where you were goes still: a slow violet ripple, and a clock face's ticks around it.
+        this.ringFx(ev.x, ev.y, ev.radius, 0xb46cff, 900);
+        this.ringFx(ev.x, ev.y, ev.radius * 0.6, 0x62f5e0, 700);
+        this.flash(ev.x, ev.y, 0xb46cff, ev.radius, 900, 0.5);
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          this.flash(ev.x + Math.cos(a) * ev.radius * 0.8, ev.y + Math.sin(a) * ev.radius * 0.8, i % 3 === 0 ? 0xffd34d : 0xb46cff, 6, 700);
+        }
+        sfx.play("chime");
+        break;
+      }
       case "loot": {
         if (ev.rarity === "mythic") {
           // The rarest thing in the game just dropped: everyone should know.
@@ -2400,6 +2422,10 @@ export class GameScene extends Phaser.Scene {
         const myth = mythicArtId(pk.grenade!);
         return myth ? `mythic_${myth}` : "grenade";
       }
+      case "relic": {
+        const myth = mythicArtId(pk.relic!);
+        return myth ? `mythic_${myth}` : `relic_${pk.relic!.defId}`;
+      }
     }
   }
 
@@ -2458,13 +2484,13 @@ export class GameScene extends Phaser.Scene {
         v = undefined;
       }
       if (!v) {
-        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "grenade" ? RARITY_COLORS[pk.grenade!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
+        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "grenade" ? RARITY_COLORS[pk.grenade!.rarity] : pk.kind === "relic" ? RARITY_COLORS[pk.relic!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
         v = {
           key,
-          sprite: this.add.image(pk.pos.x, pk.pos.y, key).setOrigin(0.5, pk.kind === "gun" || pk.kind === "grenade" ? 0.5 : 1),
+          sprite: this.add.image(pk.pos.x, pk.pos.y, key).setOrigin(0.5, pk.kind === "gun" || pk.kind === "grenade" || pk.kind === "relic" ? 0.5 : 1),
           glow: this.add.image(pk.pos.x, pk.pos.y - 2, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(color).setDepth(D.light),
         };
-        const beamH = pk.kind === "gun" ? BEAM_HEIGHT[pk.gun!.rarity] : pk.kind === "grenade" ? BEAM_HEIGHT[pk.grenade!.rarity] * 0.6 : 0;
+        const beamH = pk.kind === "gun" ? BEAM_HEIGHT[pk.gun!.rarity] : pk.kind === "grenade" ? BEAM_HEIGHT[pk.grenade!.rarity] * 0.6 : pk.kind === "relic" ? BEAM_HEIGHT[pk.relic!.rarity] * 0.8 : 0;
         if (beamH > 0) v.beam = this.add.image(pk.pos.x, pk.pos.y, "px").setOrigin(0.5, 1).setScale(1, beamH / 2).setTint(color).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.5).setDepth(D.light);
         if (key.startsWith("mythic_")) {
           v.rays = this.add.image(pk.pos.x, pk.pos.y, "mythic-rays").setBlendMode(Phaser.BlendModes.ADD).setDepth(D.light);
@@ -2493,6 +2519,13 @@ export class GameScene extends Phaser.Scene {
         v.glow.setAlpha(0.3 + bob * 0.1).setScale(rarity === "legendary" ? 1.1 : 0.7);
         v.beam?.setAlpha(0.35 + bob * 0.15);
         this.ground.fillStyle(RARITY_COLORS[rarity], 0.25).fillEllipse(pk.pos.x, pk.pos.y + 3, 12, 4);
+      } else if (pk.kind === "relic") {
+        // A relic hangs in the air turning slowly, as if on a string, over a rarity puddle.
+        const rarity = pk.relic!.rarity;
+        v.sprite.setPosition(pk.pos.x, pk.pos.y - 6 + bob * 2).setDepth(pk.pos.y + 1).setScale(1.3).setAngle(Math.sin(t * 0.002 + pk.id) * 12);
+        v.glow.setAlpha(0.35 + bob * 0.12).setScale(rarity === "legendary" ? 1.3 : 0.8);
+        v.beam?.setAlpha(0.35 + bob * 0.15);
+        this.ground.fillStyle(RARITY_COLORS[rarity], 0.25).fillEllipse(pk.pos.x, pk.pos.y + 3, 14, 5);
       } else if (pk.kind === "heal") {
         v.sprite.setPosition(pk.pos.x, pk.pos.y + 3 + bob).setDepth(pk.pos.y);
         v.glow.setAlpha(0.3).setScale(0.6);

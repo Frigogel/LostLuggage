@@ -20,6 +20,8 @@ import {
   MAKERS,
   MYTHIC_GUNS,
   PERKS,
+  relicDef,
+  relicText,
   gunDps,
   gunName,
   gunStats,
@@ -27,6 +29,7 @@ import {
   type Gun,
   type Pickup,
   type Player,
+  type Relic,
   type RoomKind,
   type Biome,
   type RunReward,
@@ -81,7 +84,7 @@ const BOSS_WINS: Record<string, string> = {
 /** Who splits into what, for introducing the pieces. */
 const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball", sewers: "fatberglet", orbital: "blob_spawn", crypt: "ecto_wisp" };
 /** What the pickup button says for each kind of item. */
-const PICKUP_VERBS = { gun: "SWAP", grenade: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
+const PICKUP_VERBS = { gun: "SWAP", grenade: "SWAP", relic: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
 const ROOM_ICONS: Record<RoomKind, number> = { intro: 0xc9cfd6, combat: 0xe0533d, elite: 0xff9a2a, event: 0xb46cff, shrine: 0xf2c14e, rest: 0x5fd36a, boss: 0xff3030 };
 /** What each kind of room says when you walk in. */
 const ROOM_BANNERS: Partial<Record<RoomKind, [string, string, number]>> = {
@@ -222,14 +225,6 @@ export class UIScene extends Phaser.Scene {
       const btn = this.panelButtons.find((b) => ptr.x >= b.x && ptr.x <= b.x + b.w && ptr.y >= b.y && ptr.y <= b.y + b.h);
       if (btn && (this.pausePanel || this.panel?.getData("ready"))) btn.action();
       else if (this.game_.paused) this.unpause();
-        // Fullscreen needs a user gesture; on iPhone it only works once installed to the home screen.
-      if (this.controls.touchMode && !this.scale.isFullscreen && this.sys.game.device.os.android) {
-        try {
-          this.scale.startFullscreen();
-        } catch {
-          /* not allowed: fine */
-        }
-      }
     });
     this.input.keyboard!.on("keydown-P", () => (this.game_.paused ? this.unpause() : this.pause()));
     this.input.keyboard!.on("keydown-ENTER", () => {
@@ -306,13 +301,30 @@ export class UIScene extends Phaser.Scene {
     return lines;
   }
 
-  /** The pause screen's look at what you carry: both guns and the grenade, with what each one does. Returns the y below it. */
+  /** What a relic is and does: name, rarity, and its stat or ability. */
+  private relicInfo(r: Relic): [string, number][] {
+    const def = relicDef(r);
+    const myth = r.rarity === "mythic";
+    return [
+      [def.name.toUpperCase(), myth ? mythicHue(this.time.now) : RARITY_COLORS[r.rarity]],
+      [`${r.rarity} relic`.toUpperCase(), 0xc9cfd6],
+      [`${myth ? "MYTHIC: " : ""}${relicText(def, r.rarity)}`.toUpperCase(), myth ? mythicHue(this.time.now) : 0xffffff],
+    ];
+  }
+
+  /** The relic's texture: its own mythic art, or the small charm for its kind. */
+  private relicKey(r: Relic): string {
+    const myth = mythicArtId(r);
+    return myth ? `mythic_${myth}` : `relic_${r.defId}`;
+  }
+
+  /** The pause screen's look at what you carry: both guns, the grenade and the relic, with what each one does. Returns the y below it. */
   private drawGear(c: Phaser.GameObjects.Container, p: Player, top: number): number {
     const left = -GEAR_W / 2;
     c.add(this.add.bitmapText(0, top, "pixel", "YOUR GEAR", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xf2c14e));
     let y = top + 8;
-    const item = (icon: string, label: string, lines: [string, number][]) => {
-      c.add(this.add.image(left - 14, y + 4, icon).setScale(icon.startsWith("mythic_") ? 0.75 : 1));
+    const item = (icon: string | undefined, label: string, lines: [string, number][]) => {
+      if (icon) c.add(this.add.image(left - 14, y + 4, icon).setScale(icon.startsWith("mythic_") ? 0.75 : 1));
       lines.forEach(([text, tint], i) => {
         for (const part of this.wrap(i === 0 ? `${label}${text}` : text, GEAR_W)) {
           c.add(this.add.bitmapText(left, y, "pixel", part, 8).setLetterSpacing(-1).setTint(tint));
@@ -335,6 +347,11 @@ export class UIScene extends Phaser.Scene {
       [`${p.grenade.rarity} grenade${elem !== "none" ? `  ${ELEMENT_INFO[elem].adjective}` : ""}  DMG ${Math.round(st.damage)}  EVERY ${st.cooldown.toFixed(1)}S`.toUpperCase(), elem !== "none" ? ELEMENT_COLORS[elem] : 0xc9cfd6],
       [st.def.text.toUpperCase(), myth ? mythicHue(this.time.now) : 0xffffff],
     ]);
+    if (p.relic) {
+      const lines = this.relicInfo(p.relic);
+      // Name and rarity share a line here: the pause screen is short on room.
+      item(this.relicKey(p.relic), "RELIC: ", [[`${lines[0]![0]} (${p.relic.rarity})`.toUpperCase(), lines[0]![1]], lines[2]!]);
+    } else item(undefined, "RELIC: ", [["EMPTY POCKET. BOSSES, ELITES AND SUITCASES DROP THEM", 0xc9cfd6]]);
     return y;
   }
 
@@ -538,6 +555,17 @@ export class UIScene extends Phaser.Scene {
             ev.grenade.rarity === "mythic" ? 3000 : 1600,
           );
           break;
+        case "relicPickup": {
+          if (ev.id !== myId) break;
+          const myth = ev.relic.rarity === "mythic";
+          this.showBanner(
+            relicDef(ev.relic).name.toUpperCase(),
+            `${myth ? "MYTHIC" : ev.relic.rarity} relic: ${relicText(relicDef(ev.relic), ev.relic.rarity)}`.toUpperCase(),
+            myth ? mythicHue(this.time.now) : RARITY_COLORS[ev.relic.rarity],
+            myth ? 3000 : 1600,
+          );
+          break;
+        }
         case "shrine": {
           if (ev.id !== myId) break;
           const b = BOOSTS[ev.boost];
@@ -609,7 +637,8 @@ export class UIScene extends Phaser.Scene {
     const up = r.levelAfter > r.levelBefore;
     lines[0]!.setText(`+${r.xp} XP${up ? `   LEVEL UP! LV ${r.levelAfter}` : ""}`).setTint(up ? 0xf2c14e : 0x5fd3e8);
     lines[1]!.setText(r.bonuses.join("  ")).setTint(0xc9cfd6);
-    const nade = r.grenade ? (r.kept === 0 ? "A NEW GRENADE BROUGHT HOME" : " + A NEW GRENADE") : "";
+    const extras = [r.grenade ? "GRENADE" : "", r.relic ? "RELIC" : ""].filter(Boolean).join(" + A NEW ");
+    const nade = extras ? (r.kept === 0 ? `A NEW ${extras} BROUGHT HOME` : ` + A NEW ${extras}`) : "";
     const loot = r.kept === 0 ? nade || "NO NEW GUNS THIS TIME" : `${r.kept} GUN${r.kept === 1 ? "" : "S"} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}${nade}`;
     lines[2]!.setText(loot + (r.scrapped ? ` (${r.scrapped} SCRAPPED: STASH FULL)` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
     // The last two lines go to the rarest news first.
@@ -914,6 +943,14 @@ export class UIScene extends Phaser.Scene {
       lines.push([`YOURS: ${mine.def.name} (${p.grenade.rarity})`.toUpperCase(), RARITY_COLORS[p.grenade.rarity]]);
       const dmg = Math.round(st.damage) - Math.round(mine.damage);
       lines.push([`DMG ${Math.round(st.damage)} (${dmg >= 0 ? "+" : ""}${dmg})  EVERY ${st.cooldown.toFixed(1)}S  ${press("SWAP")}`, dmg >= 0 ? 0x5fd36a : 0xe0533d]);
+    } else if (pk?.kind === "relic" && pk.relic) {
+      lines.push(...this.relicInfo(pk.relic));
+      lines.push([`"${relicDef(pk.relic).flavor}"`.toUpperCase(), 0xc9cfd6]);
+      const mine = p.relic;
+      // A mythic's ability is too long to repeat here: its name says enough.
+      const yours = mine && (mine.rarity === "mythic" ? `YOURS: ${relicDef(mine).name} (MYTHIC)` : `YOURS: ${relicDef(mine).name} (${mine.rarity}): ${relicText(relicDef(mine), mine.rarity)}`);
+      lines.push([yours ? yours.toUpperCase() : "YOUR POCKET IS EMPTY", mine ? (mine.rarity === "mythic" ? mythicHue(this.time.now) : RARITY_COLORS[mine.rarity]) : 0xc9cfd6]);
+      lines.push([press(mine ? "SWAP" : "TAKE"), 0xffffff]);
     } else if ((pk?.kind === "boost" || pk?.kind === "shrine") && pk.boost && BOOSTS[pk.boost]) {
       const b = BOOSTS[pk.boost]!;
       const have = this.game_.me.boosts[pk.boost] ?? 0;

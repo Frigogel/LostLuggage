@@ -4,8 +4,8 @@ import type { Element, MakerId } from "../types";
 // MYTHIC.damage), but what sets them apart is one ability that bends a rule everyone else plays by: the thing a
 // fresh profile and a maxed one can't otherwise get from each other (design doc: Mythics).
 //
-// Guns are a base gun plus an ability, like legendaries. Grenades are their own kinds in data/grenades, flagged
-// `mythic`, and never come from the regular grenade roll.
+// Guns are a base gun plus an ability, like legendaries. Grenades and relics are their own kinds in data/grenades and
+// data/relics, flagged `mythic`, and never come from the regular rolls.
 
 export type MythicGunEffect = "swat" | "confiscate" | "service" | "baggage" | "swap";
 
@@ -114,4 +114,10 @@ export const MYTHIC = {
   /** Duty Free: how long the tag lasts, and how much luckier its extra gun is. */
   dutyS: 5,
   dutyLuck: 0.6,
+  /** Life Vest: the safety after it saves you, and the blast that clears some room. */
+  vest: { iframes: 1.5, radius: 60, damage: 20, knockback: 320 },
+  /** World Clock: how far from where you dashed, how much slower, for how long. Bosses only feel part of it. */
+  clock: { radius: 70, slow: 0.8, bossSlow: 0.4, seconds: 3 },
+  /** Plus-One: how far from the first grenade the second one lands. */
+  plusOneSpread: 30,
 };

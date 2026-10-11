@@ -1,20 +1,22 @@
-import { confine, dropGrenade, dropGun, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
+import { confine, dropGrenade, dropGun, dropRelic, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
 import { BOOSTS } from "./data/boosts";
+import { ENEMIES } from "./data/enemies";
 import { GRENADE } from "./data/guns";
 import { DASH, HEROES, levelMultiplier, MAX_LEVEL, REVIVE, tierLevel } from "./data/heroes";
 import { LEGENDARIES, MOOD_CYCLE } from "./data/legendaries";
-import { MYTHIC_GUNS } from "./data/mythics";
+import { MYTHIC, MYTHIC_GUNS } from "./data/mythics";
+import { RELICS, relicAmount } from "./data/relics";
 import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { souvenirMods, type SouvenirRanks } from "./data/souvenirs";
 import { ambulanceNear, detonateTurrets, useDrone, useTurret } from "./gadgets";
 import { GRENADES } from "./data/grenades";
-import { gunFromData, gunStats, heldGrenade, heldStats, newGun, RARITIES, rollGun, STARTER_GRENADE } from "./loot";
+import { gunFromData, gunStats, heldGrenade, heldStats, newGun, RARITIES, relicEffect, rollGun, STARTER_GRENADE } from "./loot";
 import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
 import { rewindPending } from "./projectiles";
 import { updatePinned } from "./grabs";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
-import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
+import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, Relic, World } from "./types";
 import { beltAt, padAt, waterAt } from "./room";
 
 export const MAX_PLAYERS = 4;
@@ -28,6 +30,8 @@ export interface PlayerOptions {
   guns?: (GunData & { sid?: string })[];
   /** Saved grenade, with its stash id. Defaults to a common frag. */
   grenade?: Grenade;
+  /** Saved relic, with its stash id. None by default. */
+  relic?: Relic;
   /** Learned skill nodes. Anything the level can't afford is dropped. */
   skills?: string[];
   souvenirs?: SouvenirRanks;
@@ -41,6 +45,40 @@ export interface PlayerOptions {
 function savedGrenade(g: Grenade | undefined): Grenade {
   if (!g || !GRENADES[g.defId] || !RARITIES.includes(g.rarity)) return { ...STARTER_GRENADE };
   return g.sid ? { defId: g.defId, rarity: g.rarity, sid: g.sid } : { defId: g.defId, rarity: g.rarity };
+}
+
+/** A saved relic the sim knows, or none. */
+function savedRelic(r: Relic | undefined): Relic | undefined {
+  if (!r || !RELICS[r.defId] || !RARITIES.includes(r.rarity)) return undefined;
+  return r.sid ? { defId: r.defId, rarity: r.rarity, sid: r.sid } : { defId: r.defId, rarity: r.rarity };
+}
+
+/**
+ * Puts a relic in a player's pocket (or empties it), taking the old one's stat off first. Stats are multipliers, so
+ * this works on top of souvenirs and run boosts. Health keeps the same share of the bar.
+ */
+export function equipRelic(p: Player, relic: Relic | undefined): void {
+  const bonus = (r: Relic | undefined, stat: string) => {
+    const def = r ? RELICS[r.defId] : undefined;
+    return def?.stat === stat ? relicAmount(def, r!.rarity) : 0;
+  };
+  const swap = (stat: string, apply: (from: number, to: number) => void) => {
+    const from = bonus(p.relic, stat);
+    const to = bonus(relic, stat);
+    if (from !== to) apply(from, to);
+  };
+  swap("damage", (a, b) => (p.mods.damage *= (1 + b) / (1 + a)));
+  swap("speed", (a, b) => (p.mods.speed *= (1 + b) / (1 + a)));
+  swap("dash", (a, b) => (p.mods.dashCd *= (1 - b) / (1 - a)));
+  swap("charge", (a, b) => (p.mods.charge *= (1 + b) / (1 + a)));
+  swap("luck", (a, b) => (p.mods.luck += b - a));
+  swap("hp", (a, b) => {
+    const share = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+    p.maxHp = Math.round((p.maxHp * (1 + b)) / (1 + a));
+    if (!p.downed) p.hp = Math.max(1, Math.min(p.maxHp, Math.round(share * p.maxHp)));
+  });
+  if (relic) p.relic = relic;
+  else delete p.relic;
 }
 
 /** Level sync: co-op sets everyone to the dungeon tier's level; solo uses your own. */
@@ -107,6 +145,7 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     freeProgress: 0,
   };
   if (opts.mythicPity) p.mythicPity = Math.max(0, Math.floor(opts.mythicPity));
+  equipRelic(p, savedRelic(opts.relic));
   // Second Opinion: one more Second Wind.
   if (p.skills.includes("wd_opinion")) p.selfRevives = 2;
   return p;
@@ -323,6 +362,7 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     if (p.boosts.dashBurst) playerExplosion(w, p.pos, 34, 8 * p.boosts.dashBurst * levelMultiplier(p.syncLevel), 120, p.id, "shock");
     if (hasSkill(p, "gs_spin") || p.boosts.quickDraw) refillPip(p);
     if (p.boosts.seatbelt) p.shield = Math.min(10 * p.boosts.seatbelt + 10, p.shield + 10);
+    if (relicEffect(p) === "clock") stopTheClock(w, before);
     if (p.boosts.jetLag) {
       // Jet Lag: a line of fire along the dash.
       const reach = DASH.speed * (DASH.durationMs / 1000);
@@ -344,6 +384,17 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
   updateShooting(w, p, input);
 }
 
+/** World Clock: enemies near where a dash started crawl for a while. Bosses only feel part of it. */
+function stopTheClock(w: World, at: Vec): void {
+  const c = MYTHIC.clock;
+  for (const e of w.enemies) {
+    if (e.hp <= 0 || e.spawnT > 0 || dist(e.pos, at) > c.radius + e.radius) continue;
+    e.slow = Math.max(e.slow, ENEMIES[e.defId]?.boss ? c.bossSlow : c.slow);
+    e.slowT = Math.max(e.slowT, c.seconds);
+  }
+  w.events.push({ type: "clock", x: at.x, y: at.y, radius: c.radius });
+}
+
 /** Lobs the grenade on the player's belt. Its kind decides what the blast does when it lands (see updateLob). */
 function throwGrenade(w: World, p: Player, input: PlayerInput): void {
   const s = heldGrenade(p);
@@ -354,16 +405,21 @@ function throwGrenade(w: World, p: Player, input: PlayerInput): void {
     const target = nearestEnemy(w, p.pos, s.range);
     offset = target ? sub(target.pos, p.pos) : scale(p.facing, s.range * 0.6);
   }
-  const to = add(p.pos, offset);
-  const d = Math.max(16, len(offset));
   const cluster = Math.max(s.def.cluster ?? 0, p.boosts.partyPack ? 3 : 0);
-  w.projectiles.push({
-    id: newId(w), owner: "player", ownerId: p.id, kind: "grenade", element: s.def.element, pos: { ...p.pos }, vel: { x: 0, y: 0 },
-    radius: 3, damage: s.damage * levelMultiplier(p.syncLevel) * p.mods.damage, pierce: 0, bounces: 0, knockback: s.def.knockback, life: 99, hitIds: [], gunUid: -1,
-    lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: s.radius },
-    grenade: s.def.id,
-    ...(cluster ? { cluster } : {}),
-  });
+  // Plus-One: a second grenade lands beside the first, the two side by side across the throw.
+  const side = scale(norm({ x: -offset.y, y: offset.x }), MYTHIC.plusOneSpread / 2);
+  const targets = relicEffect(p) === "plusOne" && len(offset) > 0.01 ? [sub(offset, side), add(offset, side)] : [offset];
+  for (const off of targets) {
+    const to = add(p.pos, off);
+    const d = Math.max(16, len(off));
+    w.projectiles.push({
+      id: newId(w), owner: "player", ownerId: p.id, kind: "grenade", element: s.def.element, pos: { ...p.pos }, vel: { x: 0, y: 0 },
+      radius: 3, damage: s.damage * levelMultiplier(p.syncLevel) * p.mods.damage, pierce: 0, bounces: 0, knockback: s.def.knockback, life: 99, hitIds: [], gunUid: -1,
+      lob: { from: { ...p.pos }, to, t: 0, dur: d / GRENADE.speed, radius: s.radius },
+      grenade: s.def.id,
+      ...(cluster ? { cluster } : {}),
+    });
+  }
   p.grenadeCd = s.cooldown;
   w.events.push({ type: "grenade", id: p.id });
 }
@@ -636,6 +692,13 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       p.grenade = pk.grenade;
       pk.grenade = old;
       w.events.push({ type: "grenadePickup", id: p.id, grenade: p.grenade });
+    } else if (pk.kind === "relic" && pk.relic) {
+      // Relics too: pocket this one, and the old one stays on the floor. An empty pocket leaves nothing behind.
+      const old = p.relic;
+      equipRelic(p, pk.relic);
+      if (old) pk.relic = old;
+      else w.pickups.splice(w.pickups.indexOf(pk), 1);
+      w.events.push({ type: "relicPickup", id: p.id, relic: p.relic! });
     } else if (pk.kind === "boost" && pk.boost) {
       applyBoost(w, p, pk.boost);
       // The other two offers go away.
@@ -649,6 +712,8 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       dropGun(w, add(pk.pos, { x: -22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
       dropGun(w, add(pk.pos, { x: 22, y: 26 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
       dropGrenade(w, add(pk.pos, { x: 0, y: 40 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
+      // Sometimes somebody packed a lucky charm.
+      if (rand(w) < 0.35) dropRelic(w, add(pk.pos, { x: 0, y: 58 }), 0.5 + w.run.tier * 0.3 + partyLuck(w), "uncommon");
     }
   });
 }

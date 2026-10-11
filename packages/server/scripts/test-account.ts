@@ -1,5 +1,5 @@
 // A maxed-out account for trying things: every hero at the level cap (skill points unspent), every souvenir
-// at full rank, an armory with every legendary and mythic, every grenade, and the whole wardrobe.
+// at full rank, an armory with every legendary and mythic, every grenade and relic, and the whole wardrobe.
 // Run with `npm run test-account` (optionally `-- NAME PASSWORD`). Running it again resets the profile.
 // Defaults: name TESTER, password tester123. Writes to DB_PATH or data/lostluggage.db, like the server.
 import {
@@ -13,6 +13,8 @@ import {
   MAX_LEVEL,
   MYTHIC_GRENADE_IDS,
   MYTHIC_GUN_IDS,
+  MYTHIC_RELIC_IDS,
+  RELIC_IDS,
   SIGNATURE_IDS,
   SOUVENIRS,
   SOUVENIR_IDS,
@@ -28,6 +30,7 @@ import {
   type GunData,
   type StashGrenade,
   type StashGun,
+  type StashRelic,
 } from "@lostluggage/sim";
 import { cleanUsername, getDb } from "../src/db";
 
@@ -67,6 +70,10 @@ const grenades: StashGrenade[] = [
   ...GRENADE_IDS.map((defId) => ({ id: randomId(), defId, rarity: "legendary" as const, new: true })),
   ...MYTHIC_GRENADE_IDS.map((defId) => ({ id: randomId(), defId, rarity: "mythic" as const, new: true })),
 ];
+const relics: StashRelic[] = [
+  ...RELIC_IDS.map((defId) => ({ id: randomId(), defId, rarity: "legendary" as const, new: true })),
+  ...MYTHIC_RELIC_IDS.map((defId) => ({ id: randomId(), defId, rarity: "mythic" as const, new: true })),
+];
 
 const p = newProfile(username);
 for (const id of HERO_IDS) p.heroes[id] = { level: MAX_LEVEL, xp: 0, skills: [] };
@@ -74,6 +81,8 @@ p.stash = [...mythicGuns, ...legendaries.values(), ...epics];
 p.loadout = [mythicGuns[0]!.id, [...legendaries.values()][0]!.id];
 p.grenades = grenades;
 p.grenade = grenades[grenades.length - 1]!.id;
+p.relics = relics;
+p.relic = relics[relics.length - 1]!.id;
 for (const id of SOUVENIR_IDS) p.souvenirs[id] = SOUVENIRS[id].maxRanks;
 p.signatures = [...SIGNATURE_IDS];
 p.cosmetics = COSMETIC_IDS.filter((id) => !isStarter(id));
@@ -85,7 +94,7 @@ p.stats = { runs: 500, wins: 200, kills: 100_000, legendaries: 100, mythics: 25 
 const clean = cleanProfile(p, username);
 db.saveProfile(account.id, clean);
 console.log(
-  `${username}: ${HERO_IDS.length} heroes at level ${MAX_LEVEL}, ${clean.stash.length} guns, ${clean.grenades.length} grenades, ` +
+  `${username}: ${HERO_IDS.length} heroes at level ${MAX_LEVEL}, ${clean.stash.length} guns, ${clean.grenades.length} grenades, ${clean.relics.length} relics, ` +
     `${Object.keys(clean.souvenirs).length} souvenirs maxed, ${clean.signatures.length} signatures, ${clean.cosmetics.length} cosmetics`,
 );
 db.close();

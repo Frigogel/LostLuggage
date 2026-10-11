@@ -117,6 +117,16 @@ export interface Grenade {
   sid?: string;
 }
 
+// ---------------------------------------------------------------- relics
+
+/** What makes a relic that relic: everything a stash saves (see data/relics). */
+export interface Relic {
+  defId: string;
+  rarity: Rarity;
+  /** Stash id when the relic came from the player's saved loadout. Never sent over the wire. */
+  sid?: string;
+}
+
 // ---------------------------------------------------------------- heroes
 
 export type HeroSkill =
@@ -463,6 +473,10 @@ export interface Player {
   /** The grenade on the player's belt. */
   grenade: Grenade;
   grenadeCd: number;
+  /** The relic in your pocket, if you have one: a stat or an ability, always on. */
+  relic?: Relic;
+  /** Life Vest: used up until the next room. */
+  vestUsed?: boolean;
   downed: boolean;
   /** Second Wind countdown while downed. Infinity = waiting for a teammate. */
   reviveT: number;
@@ -726,7 +740,7 @@ export interface Vent {
   damage: number;
 }
 
-export type PickupKind = "gun" | "heal" | "shrine" | "chest" | "boost" | "grenade";
+export type PickupKind = "gun" | "heal" | "shrine" | "chest" | "boost" | "grenade" | "relic";
 
 export interface Pickup {
   id: number;
@@ -734,6 +748,7 @@ export interface Pickup {
   pos: Vec;
   gun?: Gun;
   grenade?: Grenade;
+  relic?: Relic;
   boost?: BoostId;
   heal?: number;
   /** Boost offers belong to one player: nobody else sees or takes them. */
@@ -971,6 +986,11 @@ export type SimEvent =
   | { type: "swap"; id: number }
   | { type: "pickup"; id: number; gun: Gun }
   | { type: "grenadePickup"; id: number; grenade: Grenade }
+  | { type: "relicPickup"; id: number; relic: Relic }
+  /** A Life Vest kept a player up. */
+  | { type: "vest"; id: number }
+  /** World Clock: time slowed around where a player dashed from. */
+  | { type: "clock"; x: number; y: number; radius: number }
   | { type: "loot"; x: number; y: number; rarity: Rarity }
   | { type: "heal"; id: number; amount: number }
   /** A player took a run boost. */
