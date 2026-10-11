@@ -2,7 +2,7 @@
 // Run with `npm run balance -w @lostluggage/sim` (optionally `-- 50` for the number of runs, `--hero tinker`,
 // `--biome caverns`, `--level 20`, `--tier 1`).
 // The bot is much worse than a person (no real dodging), so treat deaths as an upper bound on difficulty.
-import { createWorld, doorRect, EMPTY_INPUT, runResult, runXp, step, type Biome, type PlayerInput, type Vec, type World } from "../src";
+import { createWorld, doorRect, EMPTY_INPUT, runResult, runXp, step, trapPoint, ventState, type Biome, type PlayerInput, type Vec, type World } from "../src";
 
 const args = process.argv.slice(2);
 const opt = (name: string) => {
@@ -84,6 +84,16 @@ function botInput(w: World): PlayerInput {
     if (d < 36) {
       move.x += ((p.pos.x - cx) / (d || 1)) * 2;
       move.y += ((p.pos.y - cy) / (d || 1)) * 2;
+    }
+  }
+  // Step out of vents, sludge pipes and laser fences that are warning or going off, like a person would.
+  for (const v of w.run.room.vents) {
+    if (ventState(v) === "idle") continue;
+    const c = trapPoint(v, p.pos);
+    const d = Math.hypot(p.pos.x - c.x, p.pos.y - c.y);
+    if (d < v.radius + 22) {
+      move.x += ((p.pos.x - c.x) / (d || 1)) * 2;
+      move.y += ((p.pos.y - c.y) / (d || 1)) * 2;
     }
   }
   // Walked into a crate and not getting anywhere: try sideways for a moment, like a person would.

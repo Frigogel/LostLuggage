@@ -33,6 +33,30 @@ export const HATS: Record<string, PixelSprite> = {
     palette: { c: "#9fd8ff", C: "#5fa3d8" },
     rows: ["....k....", "...kWk...", "..kWck...", "..kccck..", ".kcccCck.", "kcccCCCck", "kkkkkkkkk"],
   },
+  hat_plunger: {
+    palette: { r: "#e0533d", R: "#a33a24", n: "#9a6a42" },
+    rows: ["...kk...", "...kn...", "...kn...", "...kn...", "..kkkk..", ".krrrrk.", "kRRRRRRk", "kkkkkkkk"],
+  },
+  hat_duck: {
+    palette: { y: "#f2c14e", Y: "#c8961e", o: "#ff7a1a", e: "#1b1020" },
+    rows: ["..kkk.....", ".kyyyk....", ".kyeykoo..", ".kyyykk...", "kyyyyyyk..", "kYyyyyYk..", ".kkkkkk..."],
+  },
+  hat_gator: {
+    palette: { g: "#5e9a4a", G: "#3e6a32", e: "#f2c14e", t: "#f4ecd8" },
+    rows: ["..k...k......", ".kek.kek.....", "kggggggggkkk.", "kgggggggggggk", "kGtGtGtGtGtGk", "kkkkkkkkkkkk."],
+  },
+  hat_antenna: {
+    palette: { m: "#a7b0bb", c: "#5fd3e8", r: "#e0533d" },
+    rows: ["c.......r", "k.......k", ".k.....k.", "..k...k..", "kkmmmmmkk"],
+  },
+  hat_bowl: {
+    palette: { c: "#9ff3ff", C: "#5fd3e8", m: "#a7b0bb" },
+    rows: ["...kkkkk...", "..kWcccck..", ".kWcccccCk.", "kcWccccccCk", "kcccccccCCk", "kmmmmmmmmmk", "kkkkkkkkkkk"],
+  },
+  hat_ufo: {
+    palette: { c: "#9ff3ff", m: "#a7b0bb", M: "#6d7682", y: "#f2c14e" },
+    rows: ["...kkk...", "..kcWck..", ".kkkkkkk.", "kmmymmymk", "kMMMMMMMk", ".kkkkkkk."],
+  },
   hat_propeller: {
     palette: { p: "#8c5ad1", P: "#5d3a94", y: "#f2c14e", r: "#e0533d" },
     rows: ["rrrrkyyyy", "....k....", "...kpk...", "..kpypk..", "..kpppk..", ".kpyppPk.", "kpppppPPk", "kkkkkkkkk"],

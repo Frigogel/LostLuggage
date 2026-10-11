@@ -12,7 +12,7 @@ import { gunFromData, gunStats, heldGrenade, heldStats, newGun, RARITIES, rollGu
 import { marksUp, nearestMarked, MARK, useMarks } from "./marks";
 import { add, angleOf, clamp, clampLen, dist, fromAngle, len, norm, rand, scale, sub, type Vec } from "./math";
 import type { BoostId, Grenade, Gun, GunData, Pickup, Player, PlayerInput, World } from "./types";
-import { beltAt } from "./room";
+import { beltAt, padAt, waterAt } from "./room";
 
 export const MAX_PLAYERS = 4;
 
@@ -175,19 +175,23 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
 
   const ice = w.arena.ice;
   p.slowT = Math.max(0, p.slowT - DT);
+  // Sewer water: wading is slow and the current carries you. A dash skims over it.
+  const current = w.arena.water.length > 0 && p.dashT <= 0 ? waterAt(w.arena, p.pos) : undefined;
   let vel: Vec;
   if (p.dashT > 0) {
     vel = scale(p.dashDir, DASH.speed * (ice ? DASH.iceBoost : 1) * (1 + 0.3 * (p.boosts.express ?? 0)));
     p.dashT -= DT;
   } else {
-    const speed = hero.speed * p.mods.speed * (p.charging ? 0.45 : 1) * (p.slowT > 0 ? ICE.slush : 1);
+    const speed = hero.speed * p.mods.speed * (p.charging ? 0.45 : 1) * (p.slowT > 0 ? ICE.slush : 1) * (current ? WATER.wade : 1);
     const want = scale(clampLen(input.move, 1), speed);
     // On ice you steer your momentum rather than set it: a dash keeps sliding, and stopping takes a moment.
     vel = ice ? add(p.vel, scale(sub(want, p.vel), Math.min(1, DT * ICE.grip))) : want;
   }
   // Baggage Claim: the belt under you carries you along (not while dashing).
   const belt = w.arena.belts.length > 0 && p.dashT <= 0 ? beltAt(w.arena, p.pos) : undefined;
-  p.pos = add(p.pos, scale(add(add(vel, p.knock), { x: belt?.vx ?? 0, y: 0 }), DT));
+  const drift = { x: (belt?.vx ?? 0) + (current?.vx ?? 0), y: current?.vy ?? 0 };
+  const from = { ...p.pos };
+  p.pos = add(p.pos, scale(add(add(vel, p.knock), drift), DT));
   // Shoves fade fast on deck plating and slowly on ice.
   p.knock = scale(p.knock, ice ? ICE.knockKeep : 0.7);
   if (len(p.knock) < 2) p.knock = { x: 0, y: 0 };
@@ -197,9 +201,17 @@ export function stepMovement(w: Pick<World, "arena">, p: Player, input: PlayerIn
     if (Math.abs(before.x - p.pos.x) > 0.01) vel = { x: 0, y: vel.y };
     if (Math.abs(before.y - p.pos.y) > 0.01) vel = { x: vel.x, y: 0 };
   }
+  // Orbital Deck: stepping onto a pad puts you on its partner. Only stepping on counts, so you don't bounce back.
+  if (w.arena.pads.length > 0 && !padAt(w.arena, from)) {
+    const pad = padAt(w.arena, p.pos);
+    if (pad) p.pos = { x: pad.to.x + (p.pos.x - pad.from.x), y: pad.to.y + (p.pos.y - pad.from.y) };
+  }
   p.vel = vel;
   return dashed;
 }
+
+/** Bilge Sewers movement: walking speed left while wading through deep water. */
+export const WATER = { wade: 0.55 };
 
 /** Frozen Caverns movement. */
 export const ICE = {
@@ -281,7 +293,11 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     }
   }
 
-  if (stepMovement(w, p, input)) {
+  const before = { ...p.pos };
+  const dashed = stepMovement(w, p, input);
+  // Nothing else moves a player this far in one tick: that was a teleporter pad.
+  if (w.arena.pads.length > 0 && dist(before, p.pos) > 40) w.events.push({ type: "warp", id: p.id, x1: before.x, y1: before.y, x2: p.pos.x, y2: p.pos.y });
+  if (dashed) {
     w.events.push({ type: "dash", id: p.id });
     if (p.boosts.dashBurst) playerExplosion(w, p.pos, 34, 8 * p.boosts.dashBurst * levelMultiplier(p.syncLevel), 120, p.id, "shock");
     if (hasSkill(p, "gs_spin") || p.boosts.quickDraw) refillPip(p);

@@ -191,6 +191,11 @@ export type AttackDef =
       rain?: boolean;
       /** Leaves a damaging puddle where it lands (or slippery slush, with `ice`). */
       puddle?: Puddle;
+      /**
+       * Boss: the shells land in lines marching out from the boss instead of on the target, `arms` lines (one aimed at
+       * the target) of `spacing` px steps, out to `range`.
+       */
+      cross?: { arms: number; spacing: number };
     })
   | (AttackBase & {
       /** Ground pound around the enemy itself. */
@@ -244,6 +249,39 @@ export type AttackDef =
       push?: number;
     })
   | (AttackBase & {
+      /**
+       * Boss: dives under the water and swims after its target, out of reach, then stops and bursts up under them:
+       * a hit around it, and a ring of bolts. The circle shows for `surfaceMs` before it comes up.
+       */
+      type: "submerge";
+      telegraph: "groundCircle";
+      swimMs: number;
+      surfaceMs: number;
+      /** px/s while under. */
+      swimSpeed: number;
+      radius: number;
+      damage: number;
+      push?: number;
+      /** Bolts thrown out when it comes up. */
+      bolts: number;
+      boltSpeed: number;
+      boltDamage: number;
+    })
+  | (AttackBase & {
+      /**
+       * Boss: `beams` laser beams out of the boss, turning `turnDeg` over `sweepMs`. Step over the beam as it comes,
+       * or dash through it.
+       */
+      type: "sweep";
+      telegraph: "beam";
+      beams: number;
+      sweepMs: number;
+      turnDeg: number;
+      /** Half the beam's width. */
+      width: number;
+      damage: number;
+    })
+  | (AttackBase & {
       /** Grants a blue shield bar to nearby allies. */
       type: "shieldAllies";
       telegraph: "channel";
@@ -267,6 +305,8 @@ export interface Puddle {
   damage: number;
   /** Slush that slows instead of acid that hurts. */
   ice?: boolean;
+  /** Burning slag instead of acid. */
+  fire?: boolean;
 }
 
 export interface BossPhase {
@@ -296,6 +336,8 @@ export interface EnemyDef {
   fireImmune?: boolean;
   /** Frost still slows it a little, but never freezes it. */
   frostImmune?: boolean;
+  /** Sewer family: swims through deep water at full speed, and the current doesn't carry it. */
+  swimmer?: boolean;
   /** Leaves a damaging trail while moving. */
   trail?: { intervalMs: number; radius: number; durationMs: number; damage: number };
   onDeath?: { split?: { enemyId: string; count: number } };
@@ -586,10 +628,18 @@ export interface Hazard {
   push?: number;
 }
 
-/** Burning Foundry terrain rule: vents erupt on a timer, hurting players and enemies alike. */
+/**
+ * Timed traps: they warn, then go off, on a loop. Foundry vents erupt in a circle; sewer pipes blast a jet of sludge
+ * from the wall along a lane, shoving whoever is in it; orbital laser fences switch on between their two posts.
+ */
+export type TrapKind = "vent" | "pipe" | "laser";
+
 export interface Vent {
   id: number;
+  kind: TrapKind;
   pos: Vec;
+  /** Pipes and lasers: the far end of the lane. `radius` is then half its width. */
+  to?: Vec;
   radius: number;
   periodS: number;
   warnS: number;
@@ -629,7 +679,7 @@ export type DoorKind = RoomKind | "home";
 export type TwistId = "" | "rush" | "dark" | "hold" | "belts" | "overbooked" | "convention" | "luggage" | "surrounded";
 
 /** Each biome brings an enemy family and a terrain rule (design doc: Biomes). */
-export type Biome = "foundry" | "caverns";
+export type Biome = "foundry" | "caverns" | "sewers" | "orbital";
 
 /** Where a door leads, decided when the doors appear. */
 export interface RoomSpec {
@@ -638,7 +688,7 @@ export interface RoomSpec {
   twist: TwistId;
   /** Mixed rooms draw enemies from every biome's family. */
   mix: boolean;
-  /** 0-2 is the adventure; 3 and up is endless. */
+  /** 0 to FINAL_ACT is the adventure; after that is endless. */
   act: number;
   /** Room number within the act: 0 is the arrival, the boss comes last. */
   step: number;
@@ -682,6 +732,8 @@ export interface Room {
 export interface Run {
   /** The adventure picked in the lobby: where the run starts, and what first clears count for. */
   biome: Biome;
+  /** The biome of each act of the adventure, in order (see director actOrder). Server only. */
+  order: Biome[];
   /** Every room entered so far, in order. The next one is planned when the party walks through a door. */
   plans: RoomPlan[];
   room: Room;
@@ -710,6 +762,21 @@ export interface Arena {
   spikes: Rect[];
   /** Baggage Claim twist: conveyor belts that carry whoever stands on them sideways. */
   belts: Belt[];
+  /** Sewers: deep water. Wading is slow, and the current carries you along. */
+  water: Current[];
+  /** Orbital Deck: teleporter pads in linked pairs. Step onto one and you come out of the other. */
+  pads: Pad[];
+}
+
+export interface Current extends Rect {
+  /** Which way the water flows, px/s. */
+  vx: number;
+  vy: number;
+}
+
+export interface Pad {
+  a: Vec;
+  b: Vec;
 }
 
 export interface Belt extends Rect {
@@ -762,6 +829,10 @@ export type SimEvent =
   | { type: "playerHurt"; id: number; damage: number }
   /** Someone (player or enemy) got shoved into a spike wall. */
   | { type: "spiked"; x: number; y: number }
+  /** A player stepped onto a teleporter pad and came out of the other one. */
+  | { type: "warp"; id: number; x1: number; y1: number; x2: number; y2: number }
+  /** A submerged boss burst up out of the water. */
+  | { type: "surface"; id: number; x: number; y: number }
   /** Gunslinger marked an enemy. */
   | { type: "mark"; id: number; by: number }
   /** A critical hit on a marked enemy (Bullseye), or a mark going off (Grand Finale). */

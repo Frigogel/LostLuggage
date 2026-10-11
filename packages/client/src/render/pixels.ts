@@ -590,6 +590,376 @@ export const SPRITES: Record<string, PixelSprite> = {
       ".......kkkkk..kkkkk...........",
     ],
   },
+
+  // ---------------------------------------------------------------- Bilge Sewers
+  sewer_roach: {
+    palette: { n: "#7a4a2a", N: "#4e2e1a", a: "#c89a6a", e: "#f2c14e" },
+    rows: [
+      ".a.......a..",
+      "..a.....a...",
+      "...kkkkkk...",
+      "..knnnnnnkk.",
+      ".knNnnNnnnek",
+      "kknnNnnNnnkk",
+      "..kNNNNNNk..",
+      ".k.k.k.k.k..",
+    ],
+  },
+  plunger_ogre: {
+    palette: { g: "#7a9a4a", G: "#56703a", b: "#3a5a8a", B: "#2a3f63", r: "#e0533d", n: "#9a6a42", e: "#1b1020" },
+    rows: [
+      "..........rrr...",
+      ".........rrrrr..",
+      "....kkkkk.kn....",
+      "...kgggggk.n....",
+      "..kgegggegkn....",
+      "..kgggggggkn....",
+      ".kkkgGGGgkkn....",
+      "kggkbbbbbkgnk...",
+      "kggkbbybbkggk...",
+      "kgGkbbbbbkGgk...",
+      ".kk.kBBBBk.kk...",
+      "....kbbkbbk.....",
+      "...kggk.kggk....",
+      "...kkk...kkk....",
+    ],
+  },
+  sewer_eel: {
+    palette: { t: "#3a8a7a", T: "#245a50", y: "#f2c14e", e: "#1b1020", c: "#9ff3ff" },
+    rows: [
+      "...........c..",
+      "......kkkkkc..",
+      "....kkttttttk.",
+      "..kkttTtttettk",
+      ".kttTttyttttkk",
+      "kttTttyykkkk..",
+      "kTkkkkkk......",
+      ".k............",
+    ],
+  },
+  spitting_toad: {
+    palette: { g: "#5e9a4a", G: "#3e6a32", y: "#f2e08a", e: "#f2c14e", p: "#e05a9a" },
+    rows: [
+      "...kk..kk...",
+      "..kek.kekk..",
+      ".kggkkkgggk.",
+      "kgggggggggkp",
+      "kgGgggGggggp",
+      "kyyyyyyyyyk.",
+      ".kGGgggGGk..",
+      "kGk.....kGk.",
+    ],
+  },
+  sludge_slime: {
+    palette: { s: "#8a8a3a", S: "#5e5e2a", e: "#1b1020", b: "#c8c86a" },
+    rows: [
+      "......b.....",
+      "....b.......",
+      "..kkssssskk.",
+      ".ksssSsssssk",
+      "kssesssessssk",
+      "ksssssssssSk",
+      "kSssssssSssk",
+      ".kkkkkkkkkk.",
+    ],
+  },
+  drain_shaman: {
+    palette: { r: "#8a5a2a", R: "#5e3a1a", g: "#7fbf4a", f: "#c8b48a", e: "#1b1020", c: "#5fd3e8", m: "#a7b0bb" },
+    rows: [
+      ".m..........",
+      ".m..kkkk....",
+      ".m.kggggk...",
+      ".mkggggggk..",
+      ".m.kffefk...",
+      ".m.kffffk...",
+      "cmkrrrrrrk..",
+      ".mkrRrrRrrk.",
+      ".mkrrcrrrrk.",
+      ".mkrRrrrRrk.",
+      ".m.krrrrrrk.",
+      "...kkk.kkk..",
+    ],
+  },
+  roach_motel: {
+    palette: { y: "#f2c14e", Y: "#b5862a", r: "#e0533d", d: "#2a2230", n: "#7a4a2a" },
+    rows: [
+      "..kkkkkkkkkkkkkk..",
+      ".kyyyyyyyyyyyyyyk.",
+      "kyyrrrrrrrrrrrryyk",
+      "kyyyyyyyyyyyyyyyyk",
+      "kYYYYYYYYYYYYYYYYk",
+      "kyykkkkkykkkkkkyyk",
+      "kyykddddykddddkyyk",
+      "kyykddndykdnddkyyk",
+      "kyykddddykddddkyyk",
+      "kYYYYYYYYYYYYYYYYk",
+      "kkkkkkkkkkkkkkkkkk",
+    ],
+  },
+  toilet_mimic: {
+    palette: { w: "#e8eef2", s: "#a7b0bb", r: "#e0533d", e: "#f2c14e", t: "#f4ecd8" },
+    rows: [
+      "kkkkkkk.......",
+      "kWWWWWk.......",
+      "kWsssWk.......",
+      "kWWWWWkkkkkk..",
+      "kWWWkrrrrrrrk.",
+      "kWWkrtrtrtrtek",
+      "kWWkrrrrrrrrrk",
+      "kWWWkWWWWWWWk.",
+      ".kWWWWWWWWWk..",
+      "..kWsssssWk...",
+      "..kkkkkkkkk...",
+    ],
+  },
+  fatberg: {
+    palette: { f: "#d8c890", F: "#a8985a", w: "#f4ecd8", e: "#1b1020", b: "#7a6a3a" },
+    rows: [
+      "....kkkkkk....",
+      "..kkffwfffkk..",
+      ".kfffffFfwffk.",
+      "kffefffffeffFk",
+      "kfFffwffffffbk",
+      "kffffffbFffffk",
+      "kfwfFfffffwfFk",
+      "kFfffffwffffFk",
+      ".kFFfbFFFFFFk.",
+      "..kkkkkkkkkk..",
+    ],
+  },
+  fatberglet: {
+    palette: { f: "#d8c890", F: "#a8985a", w: "#f4ecd8", e: "#1b1020" },
+    rows: ["..kkkk..", ".kfwffk.", "kfeffefk", "kffffFfk", "kFfwfFFk", ".kkkkkk."],
+  },
+  toilet_hidden: {
+    palette: { s: "#a7b0bb" },
+    rows: [
+      "kkkkkkk.......",
+      "kWWWWWk.......",
+      "kWsssWk.......",
+      "kWWWWWkkkkkk..",
+      "kWWWkWWWWWWWk.",
+      "kWWkssssssssWk",
+      "kWWkssssssssWk",
+      "kWWWkWWWWWWWk.",
+      ".kWWWWWWWWWk..",
+      "..kWsssssWk...",
+      "..kkkkkkkkk...",
+    ],
+  },
+  lost_found_gator: {
+    palette: { g: "#5e9a4a", G: "#3e6a32", l: "#a8c87a", e: "#f2c14e", t: "#f4ecd8", b: "#3b6fd1", B: "#274a94", y: "#f2c14e", r: "#e0533d" },
+    rows: [
+      "...........kkk..kkk...........",
+      "..........kgekkkgek...........",
+      ".........kggggggggggkkkkkkkk..",
+      "........kgggGgggggggggggggggk.",
+      "........kggggggggggggggGgggggk",
+      "........kgggggggggtgtgtgtgtgk.",
+      ".........kgggggkkkkkkkkkkkkk..",
+      "..........kggggktgtgtgtgk.....",
+      "...........kgggkkkkkkkkk......",
+      "...kk.....kggggggk............",
+      "..kggk...kgglllllgk...........",
+      ".kgGggk.kggllllllggkkkkkkk....",
+      "kgggGgkkggllllllllgkbbbbbbk...",
+      "kgGgggggggllllllllgkbrryrrbk..",
+      ".kggGggggglllllllggkbbbbbbbk..",
+      "..kkggGgggglllllgggkbBByBBBk..",
+      "....kgggggggllllggggkbbbbbbk..",
+      ".....kgggggggggggggk.kkkkkk...",
+      "......kGGGGGGGGGGGk...........",
+      ".......kggk...kggk............",
+      "......kggGk...kggGk...........",
+      "......kkkkk...kkkkk...........",
+    ],
+  },
+
+  // ---------------------------------------------------------------- Orbital Deck
+  roomba_drone: {
+    palette: { m: "#a7b0bb", M: "#6d7682", c: "#5fd3e8", r: "#e0533d" },
+    rows: [
+      "....kkkk....",
+      "..kkmmmmkk..",
+      ".kmmmccmmmk.",
+      "kmmMmmmmmMrk",
+      "kMMMMMMMMMMk",
+      ".kkkkkkkkkk.",
+      "..k......k..",
+    ],
+  },
+  security_mech: {
+    palette: { m: "#a7b0bb", M: "#6d7682", d: "#3a3a46", c: "#5fd3e8", y: "#f2c14e" },
+    rows: [
+      ".....kkkkkk.....",
+      "....kmmmmmmk....",
+      "....kmccccmk....",
+      "....kmmmmmmk....",
+      "..kkkkMMMMkkkk..",
+      ".kmmkmmmmmmkmmk.",
+      "kmMmkmyyyymkmMmk",
+      "kmMmkmmmmmmkmMmk",
+      "kMMkkMMMMMMkkMMk",
+      ".kk.kddkddk..kk.",
+      "....kmmkmmk.....",
+      "...kmmk.kmmk....",
+      "...kMMk.kMMk....",
+      "...kkk...kkk....",
+    ],
+  },
+  rocket_cart: {
+    palette: { m: "#a7b0bb", M: "#6d7682", b: "#3b6fd1", r: "#e0533d", f: "#ffb238", y: "#f2c14e", d: "#2a2230" },
+    rows: [
+      "....kkkkkkkk..",
+      "...kbbbbbbbbk.",
+      "...kbrrbbbbbk.",
+      "kkkkmmmmmmmmmk",
+      "fkMMmmmmmmmmmk",
+      "ffkMMMMMMMMMMk",
+      "f..kkkkkkkkkk.",
+      "....kdk..kdk..",
+      "....kk....kk..",
+    ],
+  },
+  dish_crab: {
+    palette: { m: "#c9cfd6", M: "#7a8494", r: "#e0533d", R: "#a33a24", e: "#1b1020", c: "#5fd3e8" },
+    rows: [
+      "....kkkk....",
+      "...kmmmMk...",
+      "..kmmcmMk...",
+      "...kmmMk....",
+      ".....k......",
+      "..kkkkkkkk..",
+      ".krrrrrrrrk.",
+      "krerrrrrerRk",
+      "kRRRRRRRRRRk",
+      ".k.k.kk.k.k.",
+    ],
+  },
+  gray_goo: {
+    palette: { s: "#8a93a3", S: "#5a6270", c: "#9ff3ff", e: "#1b1020" },
+    rows: [
+      ".........c..",
+      "...c........",
+      "..kkssssskk.",
+      ".ksssSssssk.",
+      "kssessseSssk",
+      "ksSsssssssSk",
+      "kSssscssSssk",
+      ".kkkkkkkkkk.",
+    ],
+  },
+  holo_concierge: {
+    palette: { c: "#5fd3e8", C: "#3a8aa8", h: "#9ff3ff", e: "#1b1020" },
+    rows: [
+      "....kkkk....",
+      "...khhhhk...",
+      "...khehek...",
+      "...khhhhk...",
+      "....kcck....",
+      "..kcccccck..",
+      ".kcChcchCck.",
+      ".kcCcccccCk.",
+      "..kcccccck..",
+      "...kCcCck...",
+      "....kcck....",
+      ".....kk.....",
+      "...h.h.h....",
+    ],
+  },
+  drone_dock: {
+    palette: { m: "#a7b0bb", M: "#6d7682", d: "#2a2230", c: "#5fd3e8", y: "#f2c14e" },
+    rows: [
+      "......kkkkkk......",
+      "....kkmmmmmmkk....",
+      "...kmmmmccmmmmk...",
+      "..kmmMMMMMMMMmmk..",
+      ".kmmkkkkkkkkkkmmk.",
+      ".kmkddddddddddkmk.",
+      "kmmkdcdddddddckmmk",
+      "kmmkddddddddddkmmk",
+      "kMMkkkkkkkkkkkkMMk",
+      "kyMyMyMyMyMyMyMyMk",
+      "kkkkkkkkkkkkkkkkkk",
+    ],
+  },
+  cryo_pod: {
+    palette: { m: "#a7b0bb", M: "#6d7682", c: "#9ff3ff", C: "#5fd3e8", r: "#e0533d", t: "#f4ecd8", e: "#e0533d" },
+    rows: [
+      "..kkkkkkkk....",
+      ".kmmmmmmmmk...",
+      "kmkkkkkkkkmk..",
+      "kmkrrrrrrkmkk.",
+      "kmkrtrtrtekmk.",
+      "kmkrrrrrrrkmk.",
+      "kmkkkkkkkkmk..",
+      "kmmmmrmmmmmk..",
+      "kMMMMMMMMMMk..",
+      ".kkkkkkkkkk...",
+    ],
+  },
+  cryo_hidden: {
+    palette: { m: "#a7b0bb", M: "#6d7682", c: "#9ff3ff", C: "#5fd3e8", g: "#5fd36a" },
+    rows: [
+      "..kkkkkkkk....",
+      ".kmmmmmmmmk...",
+      "kmkkkkkkkkmk..",
+      "kmkcccccckmk..",
+      "kmkcCccWckmk..",
+      "kmkccCcccckmk.",
+      "kmkkkkkkkkmk..",
+      "kmmmmgmmmmmk..",
+      "kMMMMMMMMMMk..",
+      ".kkkkkkkkkk...",
+    ],
+  },
+  space_blob: {
+    palette: { p: "#b46cff", P: "#7a3ac8", e: "#5fd36a", c: "#e8d0ff" },
+    rows: [
+      "..k.....k.....",
+      "..kek..kek....",
+      "...kk..kk.....",
+      "...kkkkkkkk...",
+      "..kppcppppppk.",
+      ".kppppepPpppk.",
+      "kpppPpppppPppk",
+      "kppppppPppppPk",
+      "kPpppPpppppPPk",
+      ".kPPPPPPPPPPk.",
+      "..kkkkkkkkkk..",
+    ],
+  },
+  blob_spawn: {
+    palette: { p: "#b46cff", P: "#7a3ac8", e: "#5fd36a" },
+    rows: ["..k..k..", ".kkkkkk.", "kpeppepk", "kppppPpk", "kPpppPPk", ".kkkkkk."],
+  },
+  autopilot: {
+    palette: { m: "#c9cfd6", M: "#7a8494", d: "#2a2230", c: "#5fd3e8", C: "#3a8aa8", r: "#e0533d", y: "#f2c14e", w: "#ffffff" },
+    rows: [
+      ".............c.............",
+      ".............k.............",
+      "..........kkkmkkk..........",
+      "........kkmmmmmmmkk........",
+      ".......kmmmmmmmmmmmk.......",
+      "......kmmddddddddddmk......",
+      "......kmdcccccccccdmk......",
+      "......kmdcwcccrcccdmk......",
+      "......kmdcccccccccdmk......",
+      "......kmmddddddddddmk......",
+      ".......kmmmmmmmmmmmk.......",
+      "...kkkkkkMMMMMMMMMkkkkkk...",
+      "..kmmmmkmmmmmmmmmmkmmmmmk..",
+      ".kmMMmkkmkkkkkkkkmkkmMMmk..",
+      ".kmMmk.kmkyCcCcykmk.kmMmk..",
+      ".kmMmk.kmkCcCcCckmk.kmMmk..",
+      ".kmmk..kmkyCcCcykmk..kmmk..",
+      ".kccck.kmkkkkkkkkmk.kccck..",
+      "..kkk..kmmmmmmmmmmk..kkk...",
+      "........kMMk..kMMk.........",
+      ".......kMMMk..kMMMk........",
+      ".......kkkkk..kkkkk........",
+    ],
+  },
 };
 
 // Recolors of existing shapes.
@@ -606,6 +976,8 @@ SPRITES.ice_machine = {
 export const BIOME_ART = {
   foundry: { sea: ["#5a0f12", "#8c1d14", "#c8401a", "#f07a22", "#ffc14a"], glow: 0xff7a1a, ambient: [0xffb238, 0xff7a1a, 0xffe08a], fade: [27, 16, 32] },
   caverns: { sea: ["#0c1a2e", "#14304a", "#1f4a6e", "#3a7aa8", "#9fd8ff"], glow: 0x5fb3ff, ambient: [0xffffff, 0xcfe8ff, 0x9ff3ff], fade: [12, 20, 36] },
+  sewers: { sea: ["#0e1a10", "#18301a", "#24462a", "#3a6a3a", "#8ab86a"], glow: 0x7ee05a, ambient: [0xc8ff9a, 0x7ee05a, 0xe8f0c8], fade: [12, 22, 14] },
+  orbital: { sea: ["#05030f", "#0c0a24", "#1a1440", "#2a2060", "#8a7aff"], glow: 0x8a7aff, ambient: [0xffffff, 0x9ff3ff, 0xd8c8ff], fade: [8, 6, 24] },
 } as const;
 
 export function drawVent(r: number): HTMLCanvasElement {
@@ -782,7 +1154,7 @@ function hash(x: number, y: number, s = 0): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/** The sea under the deck: lava in the foundry, icy water in the caverns. */
+/** The sea under the deck: lava in the foundry, icy water in the caverns, sludge in the sewers, space in orbit. */
 export function drawLava(size: number, cols: readonly string[] = BIOME_ART.foundry.sea): HTMLCanvasElement {
   const [c, ctx] = canvas(size, size);
   // Tileable value noise: sample a wrapped lattice and smooth it.
@@ -1016,5 +1388,164 @@ export function drawOrb(): HTMLCanvasElement {
     ctx.fillStyle = cols[ch]!;
     ctx.fillRect(x, y, 1, 1);
   }));
+  return c;
+}
+
+/** The sewers floor: wet brick with moss in the cracks and puddles. */
+export function drawSewerFloor(w: number, h: number, pad: number): HTMLCanvasElement {
+  const [c, ctx] = canvas(w + pad * 2, h + pad * 2);
+  // Rim: a rusty pipe all the way round.
+  ctx.fillStyle = "#3a2a1e";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#6a4a2a";
+  ctx.fillRect(0, 2, c.width, 2);
+  ctx.fillRect(0, c.height - 4, c.width, 2);
+  for (let x = 0; x < c.width; x += 24) {
+    ctx.fillStyle = "#8a6a3a";
+    ctx.fillRect(x, 0, 3, 6);
+    ctx.fillRect(x, c.height - 6, 3, 6);
+  }
+  ctx.fillStyle = "#101810";
+  ctx.fillRect(pad - 2, pad - 2, w + 4, h + 4);
+
+  // Bricks, offset every other row.
+  const BW = 16;
+  const BH = 8;
+  for (let ty = 0; ty < h / BH; ty++) {
+    const off = ty % 2 === 0 ? 0 : BW / 2;
+    for (let tx = -1; tx < w / BW + 1; tx++) {
+      const x = pad + tx * BW + off;
+      const y = pad + ty * BH;
+      const r = hash(tx, ty, 21);
+      ctx.fillStyle = r < 0.2 ? "#3a4a3a" : r < 0.65 ? "#425244" : "#4a5a4a";
+      ctx.fillRect(Math.max(pad, x), y, Math.min(BW - 1, pad + w - x), BH - 1);
+      ctx.fillStyle = "#56685a";
+      if (x >= pad) ctx.fillRect(x, y, BW - 1, 1);
+      if (r > 0.85 && x >= pad) {
+        // Moss.
+        ctx.fillStyle = "#5e8a3a";
+        ctx.fillRect(x + 2, y + BH - 2, 5, 1);
+        ctx.fillRect(x + 3, y + BH - 3, 2, 1);
+      }
+    }
+  }
+  // Puddles that catch the light.
+  for (let i = 0; i < 14; i++) {
+    const sx = pad + hash(i, 1, 22) * w;
+    const sy = pad + hash(i, 2, 22) * h;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 14);
+    g.addColorStop(0, "rgba(120,180,120,0.18)");
+    g.addColorStop(1, "rgba(120,180,120,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - 14, sy - 14, 28, 28);
+  }
+  return c;
+}
+
+/** The orbital floor: clean white panels, seams and blinking guide lights. */
+export function drawOrbitalFloor(w: number, h: number, pad: number): HTMLCanvasElement {
+  const [c, ctx] = canvas(w + pad * 2, h + pad * 2);
+  // Rim: a glowing cyan edge.
+  ctx.fillStyle = "#1a1e2e";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#5fd3e8";
+  ctx.fillRect(0, 2, c.width, 1);
+  ctx.fillRect(0, c.height - 3, c.width, 1);
+  ctx.fillRect(2, 0, 1, c.height);
+  ctx.fillRect(c.width - 3, 0, 1, c.height);
+  ctx.fillStyle = "#0a0c16";
+  ctx.fillRect(pad - 2, pad - 2, w + 4, h + 4);
+
+  const T = 24;
+  for (let ty = 0; ty < h / T; ty++) {
+    for (let tx = 0; tx < w / T; tx++) {
+      const x = pad + tx * T;
+      const y = pad + ty * T;
+      const r = hash(tx, ty, 31);
+      ctx.fillStyle = r < 0.2 ? "#4a5068" : r < 0.7 ? "#525a72" : "#58607a";
+      ctx.fillRect(x, y, T, T);
+      ctx.fillStyle = "#6a7290";
+      ctx.fillRect(x, y, T, 1);
+      ctx.fillRect(x, y, 1, T);
+      ctx.fillStyle = "#363c52";
+      ctx.fillRect(x, y + T - 1, T, 1);
+      ctx.fillRect(x + T - 1, y, 1, T);
+      if (r > 0.9) {
+        // A guide light.
+        ctx.fillStyle = "#5fd3e8";
+        ctx.fillRect(x + T / 2 - 1, y + T / 2 - 1, 2, 2);
+      } else if (r > 0.8) {
+        // A vent grille.
+        ctx.fillStyle = "#3a4058";
+        for (let i = 6; i < T - 6; i += 3) ctx.fillRect(x + 6, y + i, T - 12, 1);
+      }
+    }
+  }
+  return c;
+}
+
+/** A mossy stone block, in place of a cargo crate. */
+export function drawStoneBlock(w: number, h: number): HTMLCanvasElement {
+  const front = 8;
+  const [c, ctx] = canvas(w, h + front);
+  ctx.fillStyle = "#1b1020";
+  ctx.fillRect(0, 0, w, h + front);
+  ctx.fillStyle = "#6a7a6a";
+  ctx.fillRect(1, 1, w - 2, h - 2);
+  ctx.fillStyle = "#7a8a7a";
+  ctx.fillRect(2, 2, w - 4, 2);
+  ctx.fillStyle = "#5e8a3a";
+  ctx.fillRect(2, 1, Math.min(8, w - 4), 2);
+  ctx.fillRect(w - 8, h - 4, 5, 2);
+  ctx.fillStyle = "#4a5a4a";
+  ctx.fillRect(1, h - 1, w - 2, front);
+  ctx.fillStyle = "#3a4a3a";
+  for (let x = 6; x < w - 2; x += 10) ctx.fillRect(x, h, 1, front - 2);
+  return c;
+}
+
+/** A sealed cargo pod with a status light, in place of a cargo crate. */
+export function drawCargoPod(w: number, h: number): HTMLCanvasElement {
+  const front = 8;
+  const [c, ctx] = canvas(w, h + front);
+  ctx.fillStyle = "#1b1020";
+  ctx.fillRect(0, 0, w, h + front);
+  ctx.fillStyle = "#c9cfd6";
+  ctx.fillRect(1, 1, w - 2, h - 2);
+  ctx.fillStyle = "#e8eef2";
+  ctx.fillRect(2, 2, w - 4, 1);
+  ctx.fillStyle = "#a7b0bb";
+  ctx.fillRect(3, Math.floor(h / 2) - 1, w - 6, 2);
+  ctx.fillStyle = "#7a8494";
+  ctx.fillRect(1, h - 1, w - 2, front);
+  ctx.fillStyle = "#5fd3e8";
+  ctx.fillRect(3, h + 2, Math.min(w - 6, 8), 2);
+  ctx.fillStyle = "#5fd36a";
+  ctx.fillRect(w - 6, h + 2, 2, 2);
+  return c;
+}
+
+/** A teleporter pad: a ring of lights round a glowing plate. Tinted per pair in the game. */
+export function drawPad(r: number): HTMLCanvasElement {
+  const size = r * 2 + 4;
+  const [c, ctx] = canvas(size, size);
+  const cx = size / 2;
+  ctx.fillStyle = "#1b1020";
+  ctx.beginPath();
+  ctx.arc(cx, cx, r + 1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6a7290";
+  ctx.beginPath();
+  ctx.arc(cx, cx, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#c8f4ff";
+  ctx.beginPath();
+  ctx.arc(cx, cx, r - 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  for (let a = 0; a < 8; a++) {
+    const ang = (a / 8) * Math.PI * 2;
+    ctx.fillRect(Math.round(cx + Math.cos(ang) * (r - 1) - 0.5), Math.round(cx + Math.sin(ang) * (r - 1) - 0.5), 1, 1);
+  }
   return c;
 }

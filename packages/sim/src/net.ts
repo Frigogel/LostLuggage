@@ -20,7 +20,7 @@ import { clamp, fromAngle, angleOf, type Vec } from "./math";
 import { EMPTY_INPUT } from "./players";
 import type { Outfit } from "./data/cosmetics";
 import type { Profile, RunReward } from "./progress";
-import { beltsFor, LAYOUTS } from "./room";
+import { arenaFor } from "./room";
 import { ARENA } from "./room";
 import type {
   Biome,
@@ -44,6 +44,7 @@ import type {
   RoomKind,
   RoomPlan,
   TwistId,
+  TrapKind,
   SimEvent,
   Vent,
   World,
@@ -64,6 +65,7 @@ const TWISTS: TwistId[] = ["", ...TWIST_IDS];
 const PICKUP_KINDS: PickupKind[] = ["gun", "heal", "shrine", "chest", "boost", "grenade"];
 const PROJ_KINDS = ["pistol", "shotgun", "smg", "sniper", "launcher", "grenade", "mortar", "acid", "bolt", "rocket", "turret", "doom", "slush"];
 const HAZARD_KINDS: Hazard["kind"][] = ["acid", "fire", "ice", "wave"];
+const TRAP_KINDS: TrapKind[] = ["vent", "pipe", "laser"];
 
 const POS = 4; // quarter pixels
 const T = 100; // centiseconds
@@ -346,10 +348,17 @@ const decodeHazard = (a: number[]): Hazard => ({
   id: a[0]!, kind: HAZARD_KINDS[a[1]!] ?? "acid", owner: a[2] ? "enemy" : "player", pos: { x: a[3]! / POS, y: a[4]! / POS }, radius: a[5]!, t: a[6]! / T, maxT: a[7]! / T, damage: 0,
 });
 
-const encodeVent = (v: Vent): number[] => [v.id, v.pos.x, v.pos.y, v.radius, q(v.periodS, T), q(v.warnS, T), q(v.eruptS, T), q(v.t, T)];
-const decodeVent = (a: number[]): Vent => ({
-  id: a[0]!, pos: { x: a[1]!, y: a[2]! }, radius: a[3]!, periodS: a[4]! / T, warnS: a[5]! / T, eruptS: a[6]! / T, t: a[7]! / T, damage: 0,
-});
+/** [id, x, y, radius, period, warn, erupt, t, kind, and for lanes: toX, toY]. */
+const encodeVent = (v: Vent): number[] => [
+  v.id, v.pos.x, v.pos.y, v.radius, q(v.periodS, T), q(v.warnS, T), q(v.eruptS, T), q(v.t, T), idx(TRAP_KINDS, v.kind), ...(v.to ? [v.to.x, v.to.y] : []),
+];
+function decodeVent(a: number[]): Vent {
+  const v: Vent = {
+    id: a[0]!, kind: TRAP_KINDS[a[8]!] ?? "vent", pos: { x: a[1]!, y: a[2]! }, radius: a[3]!, periodS: a[4]! / T, warnS: a[5]! / T, eruptS: a[6]! / T, t: a[7]! / T, damage: 0,
+  };
+  if (a.length > 10) v.to = { x: a[9]!, y: a[10]! };
+  return v;
+}
 
 function encodePickup(p: Pickup): unknown[] {
   const extra =
@@ -402,6 +411,8 @@ const EVENT_KEYS: EventKeys = {
   ventErupt: ["id", "x", "y"],
   playerHurt: ["id", "damage"],
   spiked: ["x", "y"],
+  warp: ["id", "x1", "y1", "x2", "y2"],
+  surface: ["id", "x", "y"],
   mark: ["id", "by"],
   crit: ["x", "y"],
   gadget: ["id", "kind", "x", "y", "gone"],
@@ -503,7 +514,6 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
     });
   }
   const index = r[0]!;
-  const layout = LAYOUTS[plans[index]?.layout ?? 0] ?? LAYOUTS[0]!;
   const twist = TWISTS[r[17]!] ?? "";
   const doors: Door[] = (s.dr ?? []).map((d) => ({
     x: d[0]!, kind: DOOR_KINDS[d[1]!] ?? "combat", twist: TWISTS[d[2]!] ?? "", biome: BIOME_IDS[d[3]!] ?? "foundry", mix: d[4] === 1, act: d[5]!, step: d[6]!,
@@ -513,7 +523,7 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
     time: s.t / 30,
     seed: 0,
     nextId: 0,
-    arena: { w: ARENA.w, h: ARENA.h, obstacles: layout.obstacles.map((o) => ({ ...o })), ice: !!layout.ice, spikes: (layout.spikes ?? []).map((o) => ({ ...o })), belts: beltsFor(twist) },
+    arena: { w: ARENA.w, h: ARENA.h, ...arenaFor(plans[index]?.layout ?? 0, twist) },
     players: s.p.map(decodePlayer),
     enemies: s.e.map(decodeEnemy),
     projectiles: s.j.map(decodeProjectile),
@@ -523,6 +533,7 @@ export function decodeSnapshot(s: Snapshot): { world: World; events: SimEvent[];
     pickups: s.k.map(decodePickup),
     run: {
       biome: BIOME_IDS[r[13]!] ?? "foundry",
+      order: [],
       plans,
       room: {
         index,

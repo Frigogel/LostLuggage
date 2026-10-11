@@ -78,7 +78,7 @@ function updateLob(w: World, pr: Projectile): boolean {
   }
   if (lob.puddle) {
     const pd = lob.puddle;
-    w.hazards.push({ id: newId(w), kind: pd.ice ? "ice" : "acid", owner: "enemy", pos: { ...lob.to }, radius: pd.radius, t: pd.durationMs / 1000, maxT: pd.durationMs / 1000, damage: pd.damage });
+    w.hazards.push({ id: newId(w), kind: pd.ice ? "ice" : pd.fire ? "fire" : "acid", owner: "enemy", pos: { ...lob.to }, radius: pd.radius, t: pd.durationMs / 1000, maxT: pd.durationMs / 1000, damage: pd.damage });
   }
   return false;
 }

@@ -295,6 +295,12 @@ Each biome brings an enemy family and a terrain rule, and its enemies are design
 | Burning Foundry | Lava vents erupt on a timer | Fire-immune enemies luring you near vents | Shields, Fire-immune |
 | Drowned Crypt | Vision limited to a radius around each player | Ambushers striking from the dark | Flesh |
 | Storm Peaks | Wind gusts push players and projectiles | Artillery firing with the wind | Shields |
+| Bilge Sewers | Deep water slows you and its current carries you; sludge pipes blast a lane on a timer | Swimming through the channels at full speed while you wade | Flesh |
+| Orbital Deck | Laser fences switch on and off; teleporter pads link two spots | Cornering you against fences (the robots can't use the pads, so you can) | Shields |
+
+Each biome's boss has one signature attack built around that biome: the Foreman's Slag Cross (lines of burning
+slag), the Dragon's frost breath, the Gator's Submerge (dives under and surfaces beneath you) and the Autopilot's
+Laser Sweep (turning beams that crates block).
 
 The MVP needs only one biome; the Burning Foundry is the simplest to build (timed hazards, no new physics).
 

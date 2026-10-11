@@ -38,6 +38,12 @@ const LIST: CosmeticDef[] = [
   { id: "hat_beanie", slot: "hat", name: "Bobble Beanie", flavor: "Knitted by a yeti. Itchy.", unlock: { kind: "clear", biome: "caverns", tier: 1 } },
   { id: "hat_horns", slot: "hat", name: "Furnace Horns", flavor: "The foreman's. He has spares.", unlock: { kind: "clear", biome: "foundry", tier: 2 } },
   { id: "hat_iceberg", slot: "hat", name: "Tiny Iceberg", flavor: "Only the tip is showing.", unlock: { kind: "clear", biome: "caverns", tier: 2 } },
+  { id: "hat_plunger", slot: "hat", name: "Plunger", flavor: "Suction-mounted. Very secure.", unlock: { kind: "clear", biome: "sewers", tier: 0 } },
+  { id: "hat_duck", slot: "hat", name: "Rubber Duck", flavor: "Made it all the way down the drain.", unlock: { kind: "clear", biome: "sewers", tier: 1 } },
+  { id: "hat_gator", slot: "hat", name: "Gator Hood", flavor: "It was in the Lost & Found. Now you are.", unlock: { kind: "clear", biome: "sewers", tier: 2 } },
+  { id: "hat_antenna", slot: "hat", name: "Antenna Headband", flavor: "Picks up four hundred channels.", unlock: { kind: "clear", biome: "orbital", tier: 0 } },
+  { id: "hat_bowl", slot: "hat", name: "Space Helmet", flavor: "Fishbowl, technically.", unlock: { kind: "clear", biome: "orbital", tier: 1 } },
+  { id: "hat_ufo", slot: "hat", name: "Tiny UFO", flavor: "They come in peace. They stay for the buffet.", unlock: { kind: "clear", biome: "orbital", tier: 2 } },
   { id: "hat_propeller", slot: "hat", name: "Propeller Wizard Hat", flavor: "Spins when you think hard.", unlock: drop },
   { id: "hat_chef", slot: "hat", name: "Chef's Toque", flavor: "From the buffet. Don't ask.", unlock: drop },
   { id: "hat_head", slot: "hat", name: "Tiny Second Head", flavor: "He has opinions.", unlock: { kind: "stat", stat: "wins", n: 25 } },
@@ -87,7 +93,7 @@ export function isStarter(id: string): boolean {
 export function unlockText(c: CosmeticDef): string {
   const u = c.unlock;
   const tiers = ["Normal", "Hard", "Nightmare"];
-  const biomes: Record<Biome, string> = { foundry: "the Burning Foundry", caverns: "the Frozen Caverns" };
+  const biomes: Record<Biome, string> = { foundry: "the Burning Foundry", caverns: "the Frozen Caverns", sewers: "the Bilge Sewers", orbital: "the Orbital Deck" };
   switch (u.kind) {
     case "starter":
       return "Everyone has this one.";

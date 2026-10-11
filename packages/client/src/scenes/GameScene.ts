@@ -1,7 +1,15 @@
 import Phaser from "phaser";
 import {
+  actBiome,
   BIOMES,
   BOOSTS,
+  beamLength,
+  FINAL_ACT,
+  PAD,
+  submerged,
+  sweepAngle,
+  sweepBeams,
+  trapDist,
   createWorld,
   DEFAULT_OUTFIT,
   DOOR,
@@ -69,7 +77,20 @@ export interface GameData {
 
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
 /** Mimics look like their prop until they reveal. */
-const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden", ice_machine: "ice_hidden" };
+const HIDDEN_TEXTURE: Record<string, string> = { vending_mimic: "vending_hidden", ice_machine: "ice_hidden", toilet_mimic: "toilet_hidden", cryo_pod: "cryo_hidden" };
+/** Each biome's look: the sea under the deck, the floor, what the crates are, and the weather. */
+const BIOME_LOOK: Record<Biome, { sea: string; floor: string; block: string; ambient: { speedY: [number, number]; speedX: [number, number]; scale: number; every: number } }> = {
+  // Embers rising.
+  foundry: { sea: "lava", floor: "floor", block: "crate", ambient: { speedY: [-26, -8], speedX: [-6, 6], scale: 0.6, every: 45 } },
+  // Snow drifting down.
+  caverns: { sea: "sea-caverns", floor: "floor-caverns", block: "ice", ambient: { speedY: [8, 24], speedX: [-14, 4], scale: 0.9, every: 30 } },
+  // Bubbles and spores, slowly rising.
+  sewers: { sea: "sea-sewers", floor: "floor-sewers", block: "stone", ambient: { speedY: [-12, -4], speedX: [-4, 4], scale: 0.7, every: 60 } },
+  // Stars streaming past the windows.
+  orbital: { sea: "sea-orbital", floor: "floor-orbital", block: "pod", ambient: { speedY: [-2, 2], speedX: [-40, -18], scale: 0.5, every: 35 } },
+};
+/** Teleporter pad pairs: each pair glows its own color. */
+const PAD_COLORS = [0x5fd3e8, 0xd29bff, 0x5fd36a];
 const textureFor = (e: Enemy) => (e.state === "hidden" && HIDDEN_TEXTURE[e.defId]) || e.defId;
 const heroKey = (p: Player) => `${p.heroId}_${p.slot}`;
 const BEAM_HEIGHT = { common: 0, uncommon: 14, rare: 24, epic: 36, legendary: 64 };
@@ -250,15 +271,16 @@ export class GameScene extends Phaser.Scene {
       this.world = this.net.frame(0, 0)!.world;
       this.myId = this.net.myId;
     } else {
-      // Dev shortcuts: ?seed=123 replays a run; ?room=boss (or elite, event, shrine, rest) jumps to a room,
-      // with &act=2 for a later act and &twist=belts for a twist.
+      // Dev shortcuts: ?seed=123 replays a run; ?biome=sewers starts in that adventure; ?room=boss (or combat, elite,
+      // event, shrine, rest) jumps to a room, with &act=4 for a later act (in that act's biome) and &twist=belts.
       const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
-      this.world = createWorld({ seed, players: [this.profile], biome: this.biome });
+      const biome = params.get("biome") as Biome | null;
+      this.world = createWorld({ seed, players: [this.profile], biome: biome && biome in BIOMES ? biome : this.biome });
       const room = params.get("room") as RoomKind | null;
       if (room && room in ROOM_NAMES) {
         const act = Number(params.get("act")) || 0;
-        enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, ...(act === 2 ? { mix: true } : {}) }));
+        enterRoom(this.world, roomSpec(this.world, room, { act, twist: (params.get("twist") ?? "") as TwistId, ...actBiome(this.world, act) }));
       }
       this.myId = this.world.players[0]!.id;
     }
@@ -427,27 +449,28 @@ export class GameScene extends Phaser.Scene {
     for (const o of this.biomeObjs) o.destroy();
     this.biomeObjs = [];
     const { w, h } = this.world.arena;
-    const caverns = biome === "caverns";
+    const look = BIOME_LOOK[biome];
     const art = BIOME_ART[biome];
-    // Lava (or icy water) under the deck, with glow along the rim: atmosphere for the price of one tile.
-    this.lava = this.add.tileSprite(-240, -240, w + 480, h + 480, caverns ? "sea-caverns" : "lava").setOrigin(0).setDepth(D.lava);
-    this.biomeObjs.push(this.lava, this.add.image(-FLOOR_PAD, -FLOOR_PAD, caverns ? "floor-caverns" : "floor").setOrigin(0).setDepth(D.floor));
+    // Lava (or icy water, or sludge, or space) under the deck, with glow along the rim: atmosphere for one tile.
+    this.lava = this.add.tileSprite(-240, -240, w + 480, h + 480, look.sea).setOrigin(0).setDepth(D.lava);
+    this.biomeObjs.push(this.lava, this.add.image(-FLOOR_PAD, -FLOOR_PAD, look.floor).setOrigin(0).setDepth(D.floor));
     for (let x = 0; x <= w; x += 60) {
       for (const y of [-14, h + 14]) this.lavaGlow(x, y);
     }
     for (let y = 30; y < h; y += 60) {
       for (const x of [-14, w + 14]) this.lavaGlow(x, y);
     }
-    // Ambient particles: embers rising in the foundry, snow drifting down in the caverns.
+    // Ambient particles: the biome's weather.
+    const a = look.ambient;
     this.ambient = this.add.particles(0, 0, "px", {
       emitZone: { type: "random", source: new Phaser.Geom.Rectangle(-200, -100, w + 400, h + 300) } as Phaser.Types.GameObjects.Particles.ParticleEmitterRandomZoneConfig,
       lifespan: { min: 2000, max: 4500 },
-      speedY: caverns ? { min: 8, max: 24 } : { min: -26, max: -8 },
-      speedX: caverns ? { min: -14, max: 4 } : { min: -6, max: 6 },
-      scale: { start: caverns ? 0.9 : 0.6, end: 0 },
+      speedY: { min: a.speedY[0], max: a.speedY[1] },
+      speedX: { min: a.speedX[0], max: a.speedX[1] },
+      scale: { start: a.scale, end: 0 },
       alpha: { start: 0.9, end: 0 },
       tint: [...art.ambient],
-      frequency: caverns ? 30 : 45,
+      frequency: a.every,
       blendMode: Phaser.BlendModes.ADD,
     }).setDepth(D.light);
     this.biomeObjs.push(this.ambient);
@@ -482,7 +505,7 @@ export class GameScene extends Phaser.Scene {
       // Lights Out: a dark layer over the room, under the HUD bits (bars, telegraphs) that keep it fair.
       this.dark = this.add.renderTexture(0, 0, this.scale.width, this.scale.height).setOrigin(0).setScrollFactor(0).setDepth(D.overlay - 10);
     }
-    const block = room.biome === "caverns" ? "ice" : "crate";
+    const block = BIOME_LOOK[room.biome].block;
     for (const o of this.world.arena.obstacles) {
       this.roomObjs.push(this.add.image(o.x, o.y - 8, `${block}-${o.w}x${o.h}`).setOrigin(0).setDepth(o.y + o.h));
     }
@@ -492,11 +515,22 @@ export class GameScene extends Phaser.Scene {
       this.roomObjs.push(this.add.image(s.x, s.y, key).setOrigin(0).setDepth(s.y + s.h));
     }
     for (const v of room.vents) {
-      this.roomObjs.push(this.add.image(v.pos.x, v.pos.y, "vent").setDepth(D.floor + 2));
-      const glow = this.add.image(v.pos.x, v.pos.y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(0xff7a1a).setScale(1.6).setAlpha(0.2).setDepth(D.light);
+      if (v.kind === "vent") this.roomObjs.push(this.add.image(v.pos.x, v.pos.y, "vent").setDepth(D.floor + 2));
+      const tint = v.kind === "pipe" ? 0x7ee05a : v.kind === "laser" ? 0xff3a5a : 0xff7a1a;
+      const glow = this.add.image(v.pos.x, v.pos.y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(tint).setScale(1.6).setAlpha(0.2).setDepth(D.light);
       this.roomObjs.push(glow);
       this.ventViews.set(v.id, { glow });
     }
+    // Teleporter pads: a pair shares a color, so you can tell where each one goes.
+    this.world.arena.pads.forEach((pd, i) => {
+      const c = PAD_COLORS[i % PAD_COLORS.length]!;
+      for (const at of [pd.a, pd.b]) {
+        this.roomObjs.push(this.add.image(at.x, at.y, "pad").setTint(c).setDepth(D.floor + 2));
+        const glow = this.add.image(at.x, at.y, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(c).setScale(1.4).setAlpha(0.5).setDepth(D.light);
+        this.tweens.add({ targets: glow, alpha: 0.2, scale: 1.1, duration: 700, yoyo: true, repeat: -1, ease: "Sine.inOut" });
+        this.roomObjs.push(glow);
+      }
+    });
     // A shut hatch in the middle of the top wall while the fight is on; the real doors appear once it's clear.
     this.door = this.add.image(this.world.arena.w / 2 - DOOR.w / 2, -6, "door-closed").setOrigin(0).setDepth(D.floor + 3);
     this.roomObjs.push(this.door);
@@ -527,7 +561,7 @@ export class GameScene extends Phaser.Scene {
   private doorLabel(d: Door): string {
     const here = this.world.run.plans[this.world.run.room.index];
     if (d.kind === "home") return "FLY HOME";
-    if (here && d.act > here.act) return d.act > 2 ? `ENDLESS ${d.act - 2}` : `ACT ${d.act + 1}`;
+    if (here && d.act > here.act) return d.act > FINAL_ACT ? `ENDLESS ${d.act - FINAL_ACT}` : `ACT ${d.act + 1}`;
     return ROOM_NAMES[d.kind].toUpperCase();
   }
 
@@ -580,6 +614,27 @@ export class GameScene extends Phaser.Scene {
       if (e.spawnT > 0 || e.state === "hidden") continue;
       const c = e.state === "windup" ? 0xff3030 : 0xffe08a;
       this.over.fillStyle(c, 0.9).fillRect(Math.round(e.pos.x - 2), Math.round(e.pos.y - e.radius * 1.4), 1, 1).fillRect(Math.round(e.pos.x + 1), Math.round(e.pos.y - e.radius * 1.4), 1, 1);
+    }
+  }
+
+  /** Sewer water: murky channels with ripples drifting the way the current goes. */
+  private renderWater(t: number): void {
+    const g = this.ground;
+    for (const c of this.world.arena.water) {
+      g.fillStyle(0x1e3a24, 0.75).fillRect(c.x, c.y, c.w, c.h);
+      g.fillStyle(0x3a6a3a, 0.35).fillRect(c.x, c.y, c.w, 2).fillRect(c.x, c.y + c.h - 2, c.w, 2);
+      const sp = Math.hypot(c.vx, c.vy) || 1;
+      const dx = c.vx / sp;
+      const dy = c.vy / sp;
+      // Streaks laid out on a grid that slides with the flow.
+      const off = ((t / 1000) * sp) % 28;
+      for (let i = 0; i < c.w; i += 28) {
+        for (let j = 0; j < c.h; j += 14) {
+          const x = c.x + ((i + dx * off + 28 + (j % 28 === 0 ? 0 : 14)) % c.w);
+          const y = c.y + ((j + dy * off + c.h) % c.h);
+          g.lineStyle(1, 0x8ab86a, 0.35).lineBetween(x, y, x + dx * 6, y + dy * 6);
+        }
+      }
     }
   }
 
@@ -933,7 +988,7 @@ export class GameScene extends Phaser.Scene {
       case "enemyWindup": {
         const map: Record<string, string> = {
           melee: "windupMelee", dash: "windupDash", lobbedProjectile: "windupLob", slam: "windupLob", cone: "windupBreath", projectile: "windupMelee", summon: "summon", shieldAllies: "summon",
-          nova: "bossPhase", shockwave: "windupLob",
+          nova: "bossPhase", shockwave: "windupLob", submerge: "windupLob", sweep: "charge",
         };
         sfx.play(map[ev.attack] ?? "windupMelee");
         break;
@@ -942,6 +997,8 @@ export class GameScene extends Phaser.Scene {
         if (ev.attack === "melee") sfx.play("bite");
         else if (ev.attack === "lobbedProjectile") sfx.play("mortarFire");
         else if (ev.attack === "projectile" || ev.attack === "nova") sfx.play("bolt");
+        else if (ev.attack === "sweep") sfx.play("sweep");
+        else if (ev.attack === "submerge") sfx.play("splash");
         else if (ev.attack === "shockwave") {
           sfx.play("slam");
           this.shake(250, 0.008);
@@ -987,15 +1044,45 @@ export class GameScene extends Phaser.Scene {
         sfx.play("ventWarn");
         break;
       case "ventErupt": {
+        const v = this.world.run.room.vents.find((x) => x.id === ev.id);
+        const near = (v ? trapDist(v, me.pos) : Math.hypot(me.pos.x - ev.x, me.pos.y - ev.y)) < 160;
+        if (v?.kind === "laser") {
+          if (near) sfx.play("laserOn");
+          break;
+        }
+        if (v?.kind === "pipe") {
+          this.goo.get("sludge_slime")?.explode(20, ev.x, ev.y);
+          if (near) {
+            this.shake(120, 0.003);
+            sfx.play("pipeBlast");
+          }
+          break;
+        }
         this.flames.explode(30, ev.x, ev.y);
         this.flash(ev.x, ev.y, 0xff7a1a, 80, 500);
-        const near = Math.hypot(me.pos.x - ev.x, me.pos.y - ev.y) < 160;
         if (near) {
           this.shake(150, 0.004);
           sfx.play("ventErupt");
         }
         break;
       }
+      case "warp":
+        for (const [x, y] of [[ev.x1, ev.y1], [ev.x2, ev.y2]] as const) {
+          this.flash(x, y, 0x9ff3ff, 40, 250);
+          this.ringFx(x, y, 18, 0x9ff3ff, 300);
+          this.sparks.explode(6, x, y);
+        }
+        sfx.play("warp");
+        // Don't smear the hero across the room.
+        this.prev.delete(ev.id);
+        break;
+      case "surface":
+        this.goo.get("lost_found_gator")?.explode(40, ev.x, ev.y);
+        this.goo.get("sludge_slime")?.explode(30, ev.x, ev.y);
+        this.ringFx(ev.x, ev.y, 50, 0x8ab86a, 400);
+        this.shake(300, 0.01);
+        sfx.play("splash");
+        break;
       case "playerHurt":
         if (ev.id === this.myId) {
           this.shake(150, 0.008);
@@ -1198,6 +1285,7 @@ export class GameScene extends Phaser.Scene {
     const player = this.me;
     const pp = this.lerpPos(player.id, player.pos, alpha);
 
+    this.renderWater(t);
     this.renderBelts(t);
     this.renderVents(t);
     this.renderHazards(t);
@@ -1226,6 +1314,11 @@ export class GameScene extends Phaser.Scene {
     for (const v of this.world.run.room.vents) {
       const view = this.ventViews.get(v.id);
       const state = ventState(v);
+      if (v.to) {
+        this.renderLane(v, state, t);
+        view?.glow.setAlpha(state === "erupt" ? 0.9 : state === "warn" ? 0.5 : 0.2);
+        continue;
+      }
       if (state === "warn") {
         // Warning: the grate glows and a ring pulses so you know to step off.
         const k = ((v.t % v.periodS) - (v.periodS - v.eruptS - v.warnS)) / v.warnS;
@@ -1240,6 +1333,115 @@ export class GameScene extends Phaser.Scene {
         view?.glow.setAlpha(0.18 + Math.sin(t * 0.003 + v.id) * 0.05).setScale(1.6);
       }
     }
+  }
+
+  /** Sewer pipes and laser fences: the lane they cover, faint when idle, flashing as a warning, solid when on. */
+  private renderLane(v: World["run"]["room"]["vents"][number], state: ReturnType<typeof ventState>, t: number): void {
+    const g = this.ground;
+    const o = this.over;
+    const to = v.to!;
+    const k = state === "warn" ? ((v.t % v.periodS) - (v.periodS - v.eruptS - v.warnS)) / v.warnS : 0;
+    if (v.kind === "pipe") {
+      this.renderPipe(v.pos, to, v.radius, state, k, t);
+      return;
+    }
+    // Laser fence: two posts and the beam between them.
+    for (const p of [v.pos, to]) {
+      g.fillStyle(0x1b1020).fillRect(p.x - 4, p.y - 4, 8, 8);
+      g.fillStyle(0xa7b0bb).fillRect(p.x - 3, p.y - 3, 6, 6);
+      g.fillStyle(state === "idle" ? 0x5a6270 : 0xff3a5a).fillRect(p.x - 1, p.y - 1, 2, 2);
+    }
+    if (state === "warn") {
+      // Flickers on, more and more often.
+      if (Math.sin(t * (0.02 + 0.05 * k)) > 0.2) o.lineStyle(1, 0xff6a7a, 0.3 + 0.5 * k).lineBetween(v.pos.x, v.pos.y, to.x, to.y);
+    } else if (state === "erupt") {
+      o.lineStyle(v.radius * 2 + 2, 0xff3a5a, 0.35).lineBetween(v.pos.x, v.pos.y, to.x, to.y);
+      o.lineStyle(2, 0xffd0d8, 0.95).lineBetween(v.pos.x, v.pos.y, to.x, to.y);
+      if (Math.random() < 0.3) {
+        const r = Math.random();
+        this.sparks.explode(1, v.pos.x + (to.x - v.pos.x) * r, v.pos.y + (to.y - v.pos.y) * r);
+      }
+    }
+  }
+
+  /**
+   * A sludge pipe sticking out of the wall: a rusty body with a bolted flange and a dark mouth that drips. Sludge
+   * builds up in the mouth during the warning, then the jet fires down the lane from there.
+   */
+  private renderPipe(from: Vec, to: Vec, radius: number, state: ReturnType<typeof ventState>, k: number, t: number): void {
+    const g = this.ground;
+    const o = this.over;
+    const l = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+    const d = { x: (to.x - from.x) / l, y: (to.y - from.y) / l };
+    const across = { x: -d.y, y: d.x };
+    const at = (along: number, side = 0): Vec => ({ x: from.x + d.x * along + across.x * side, y: from.y + d.y * along + across.y * side });
+    const body = radius * 2 - 6;
+    const len = 18;
+    const mouth = at(len + 2);
+    const lane = radius * 2;
+
+    // The lane: a pulsing warning band while it builds up, a jet of sludge when it fires.
+    if (state === "warn") {
+      g.fillStyle(0x7ee05a, 0.06 + 0.16 * k);
+      g.lineStyle(1, 0x9ff36a, 0.35 + 0.35 * Math.sin(t * 0.04));
+      this.laneRect(g, mouth, to, lane, true);
+    } else if (state === "erupt") {
+      g.fillStyle(0x6a7a2a, 0.75);
+      this.laneRect(g, mouth, to, lane, false);
+      o.fillStyle(0xc8c86a, 0.4);
+      this.laneRect(o, mouth, to, lane * 0.45, false);
+      if (Math.random() < 0.7) {
+        const r = Math.random();
+        this.goo.get("sludge_slime")?.explode(2, mouth.x + (to.x - mouth.x) * r, mouth.y + (to.y - mouth.y) * r);
+      }
+    } else {
+      // A little puddle where it has been dripping.
+      const p = at(len + 8);
+      g.fillStyle(0x3a6a3a, 0.45).fillEllipse(p.x, p.y + 2, radius * 1.4, radius * 0.7);
+    }
+
+    // The pipe itself: outline, rusty body, a highlight along one side and a shadow along the other.
+    g.fillStyle(0x1b1020);
+    this.laneRect(g, at(-4), at(len), body + 2, false);
+    g.fillStyle(0x7a5232);
+    this.laneRect(g, at(-4), at(len), body, false);
+    g.fillStyle(0xa8743e);
+    this.laneRect(g, at(-4, -body / 2 + 3), at(len, -body / 2 + 3), 2, false);
+    g.fillStyle(0x4e3220);
+    this.laneRect(g, at(-4, body / 2 - 3), at(len, body / 2 - 3), 3, false);
+    // Rust patches.
+    g.fillStyle(0xb8602a, 0.8);
+    this.laneRect(g, at(5, -2), at(8, -2), 3, false);
+    this.laneRect(g, at(11, 3), at(13, 3), 2, false);
+    // The flange round the mouth, with bolts.
+    g.fillStyle(0x1b1020);
+    this.laneRect(g, at(len - 5), at(len + 2), body + 8, false);
+    g.fillStyle(0x8a6a4a);
+    this.laneRect(g, at(len - 4), at(len + 1), body + 6, false);
+    g.fillStyle(0xc9cfd6);
+    for (const side of [-(body + 6) / 2 + 2, (body + 6) / 2 - 2]) {
+      const b = at(len - 1.5, side);
+      g.fillRect(Math.round(b.x) - 1, Math.round(b.y) - 1, 2, 2);
+    }
+    // The dark mouth, filling with sludge as the warning runs.
+    g.fillStyle(0x0e1a10);
+    this.laneRect(g, at(len + 1), at(len + 3), body - 4, false);
+    if (state !== "idle") {
+      g.fillStyle(0x7ee05a, state === "erupt" ? 0.9 : 0.4 + 0.5 * k);
+      this.laneRect(g, at(len + 1), at(len + 3 + (state === "erupt" ? 2 : 3 * k)), (body - 4) * (state === "erupt" ? 1 : 0.4 + 0.6 * k), false);
+    }
+    // Drips: now and then while idle, constantly while it builds up.
+    if (Math.random() < (state === "warn" ? 0.35 : state === "idle" ? 0.02 : 0)) this.goo.get("sludge_slime")?.explode(1, mouth.x, mouth.y);
+  }
+
+  /** A lane `w` wide from `a` to `b`, filled (and outlined, if asked). */
+  private laneRect(g: Phaser.GameObjects.Graphics, a: Vec, b: Vec, w: number, stroke: boolean): void {
+    const ang = angleOf(sub(b, a));
+    const l = Math.hypot(b.x - a.x, b.y - a.y);
+    const pt = (x: number, y: number) => ({ x: a.x + x * Math.cos(ang) - y * Math.sin(ang), y: a.y + x * Math.sin(ang) + y * Math.cos(ang) });
+    const pts = [pt(0, -w / 2), pt(l, -w / 2), pt(l, w / 2), pt(0, w / 2)];
+    g.fillPoints(pts, true);
+    if (stroke) g.strokePoints(pts, true);
   }
 
   private renderHazards(t: number): void {
@@ -1441,6 +1643,13 @@ export class GameScene extends Phaser.Scene {
         v.shadow.setVisible(false);
         continue;
       }
+      if (submerged(e)) {
+        // Under the water: just a wake, then the circle where it's about to come up.
+        v.body.setVisible(false);
+        v.shadow.setVisible(false);
+        this.drawSubmerged(e, pos, t);
+        continue;
+      }
       v.body.setVisible(true).setTexture(textureFor(e));
       v.shadow.setVisible(true).setPosition(pos.x, pos.y + e.radius - 1);
 
@@ -1471,6 +1680,7 @@ export class GameScene extends Phaser.Scene {
       } else if (e.state === "attack") {
         sx = 1.15;
         sy = 0.9;
+        if (atk.type === "sweep") this.drawSweep(e, pos, 1, t);
       } else if (e.state === "move" && !frozen) {
         sy = 1 + Math.sin(t * 0.025 + e.id) * 0.06;
       }
@@ -1600,6 +1810,48 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** A boss under the water: ripples where it swims, then a closing circle where it surfaces. */
+  private drawSubmerged(e: Enemy, pos: Vec, t: number): void {
+    const atk = ENEMIES[e.defId]!.attacks[e.attackIdx]!;
+    if (atk.type !== "submerge") return;
+    const g = this.dark ? this.over : this.ground;
+    const surfacing = e.stateT <= atk.surfaceMs / 1000;
+    for (let i = 0; i < 3; i++) {
+      const r = ((t * 0.05 + i * 8) % 24) + 4;
+      g.lineStyle(1, 0x8ab86a, 0.7 * (1 - r / 28)).strokeEllipse(pos.x, pos.y, r * 2, r * 1.2);
+    }
+    if (surfacing) this.groundCircle(pos, atk.radius, 1 - e.stateT / (atk.surfaceMs / 1000), t);
+    else if (Math.random() < 0.2) this.goo.get("sludge_slime")?.explode(1, pos.x, pos.y);
+  }
+
+  /** Laser Sweep beams: thin and flickering while it charges (`k` < 1), then solid as they turn. */
+  private drawSweep(e: Enemy, pos: Vec, k: number, t: number): void {
+    const atk = ENEMIES[e.defId]!.attacks[e.attackIdx]!;
+    if (atk.type !== "sweep") return;
+    const n = sweepBeams(e, atk);
+    const a0 = sweepAngle(e, atk);
+    const live = e.state === "attack";
+    const g = this.over;
+    for (let i = 0; i < n; i++) {
+      const dir = fromAngle(a0 + (i / n) * Math.PI * 2);
+      const l = beamLength(this.world.arena, pos, dir);
+      const end = { x: pos.x + dir.x * l, y: pos.y + dir.y * l };
+      if (live) {
+        g.lineStyle(atk.width * 2 + 4, 0xff3a5a, 0.3).lineBetween(pos.x, pos.y, end.x, end.y);
+        g.lineStyle(atk.width, 0xffd0d8, 0.95).lineBetween(pos.x, pos.y, end.x, end.y);
+        if (Math.random() < 0.5) this.sparks.explode(1, end.x, end.y);
+      } else {
+        g.lineStyle(1, 0xff3a5a, (0.3 + 0.6 * k) * (0.6 + 0.4 * Math.sin(t * 0.05))).lineBetween(pos.x, pos.y, end.x, end.y);
+        // Which way it will turn: a short arc at the end of the first beam.
+        if (i === 0) {
+          const spin = (e.attackPoints[0]?.x ?? 1) < 0 ? -1 : 1;
+          const ang = a0 + spin * 0.35;
+          g.lineStyle(2, 0xff9a2a, 0.8).beginPath().arc(pos.x, pos.y, 40, Math.min(a0, ang), Math.max(a0, ang)).strokePath();
+        }
+      }
+    }
+  }
+
   /** Telegraphs stay serious even when the enemies aren't: red flash = melee, line = dash, circle = area. */
   private drawTelegraph(e: Enemy, pos: Vec, k: number, t: number): void {
     const def = ENEMIES[e.defId]!;
@@ -1636,7 +1888,14 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case "lobbedProjectile":
-        for (const p of e.attackPoints) this.groundCircle(p, atk.radius, k * 0.5, t, atk.puddle ? 0x7ee05a : 0xe0533d);
+        for (const p of e.attackPoints) this.groundCircle(p, atk.radius, k * 0.5, t, atk.puddle?.fire ? 0xff9a2a : atk.puddle ? 0x7ee05a : 0xe0533d);
+        break;
+      case "submerge":
+        // Taking a breath: the water churns around it.
+        g.lineStyle(2, 0x8ab86a, 0.4 + 0.5 * k).strokeEllipse(pos.x, pos.y + e.radius * 0.5, (e.radius + 6 + 10 * k) * 2, (e.radius + 6 + 10 * k) * 1.1);
+        break;
+      case "sweep":
+        this.drawSweep(e, pos, k, t);
         break;
       case "slam":
         this.groundCircle(e.pos, atk.radius, k, t);
@@ -1705,7 +1964,7 @@ export class GameScene extends Phaser.Scene {
         v.img.setPosition(pos.x, pos.y - z).setDepth(D.air).setAngle(pr.kind === "grenade" ? k * 720 : 0).setVisible(!doom);
         v.glow.setPosition(pos.x, pos.y - z).setVisible(!doom);
         v.shadow?.setPosition(pos.x, pos.y).setScale(1 - (z / arc) * 0.5).setVisible(!doom);
-        const ring = doom ? 0xff6a3c : pr.kind === "slush" ? 0x7ad7ff : pr.lob.puddle ? 0x7ee05a : 0xe0533d;
+        const ring = doom ? 0xff6a3c : pr.kind === "slush" ? 0x7ad7ff : pr.lob.puddle && pr.element === "fire" ? 0xff9a2a : pr.lob.puddle ? 0x7ee05a : 0xe0533d;
         if (pr.owner === "enemy") this.groundCircle(pr.lob.to, pr.lob.radius, 0.5 + k * 0.5, this.time.now, ring);
       } else {
         v.img.setPosition(pos.x, pos.y).setRotation(Math.atan2(pr.vel.y, pr.vel.x)).setDepth(pos.y + 1);

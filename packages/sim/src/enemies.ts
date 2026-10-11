@@ -1,12 +1,13 @@
-import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, spawnEnemy, targetable } from "./combat";
+import { clampToArena, confine, damageEnemy, DT, hurtPlayer, newId, nearestPlayer, pointInDome, spawnEnemy, submerged, targetable } from "./combat";
 import { ENEMIES } from "./data/enemies";
 import { isBlackHole } from "./domes";
 import { eliteHaste, eliteSpeed, updateElite } from "./elites";
 import { hurtGadget, hurtGadgetsIn, tauntOf, tauntSlow, TURRET } from "./gadgets";
 import { MARK, tickMark } from "./marks";
-import { add, clamp, dist, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
-import type { AttackDef, Enemy, EnemyDef, Player, World } from "./types";
-import { beltAt, ventState } from "./room";
+import { add, clamp, dist, distToSegment, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
+import type { Arena, AttackDef, Enemy, EnemyDef, Player, World } from "./types";
+import { beltAt, trapPoint, ventState, waterAt } from "./room";
+import { WATER } from "./players";
 import { actHaste } from "./director";
 
 /** Whatever an enemy is going after: a player, or a turret that taunted it. */
@@ -27,12 +28,15 @@ export function updateEnemies(w: World): void {
   pressure = new Map();
   for (const e of [...w.enemies]) updateEnemy(w, e);
   separate(w);
-  // Baggage Claim belts carry enemies too.
-  if (w.arena.belts.length > 0) {
+  // Baggage Claim belts carry enemies too, and so does sewer water (unless they swim).
+  if (w.arena.belts.length > 0 || w.arena.water.length > 0) {
     for (const e of w.enemies) {
-      if (e.state === "hidden" || e.spawnT > 0 || ENEMIES[e.defId]!.movement.type === "stationary" || e.state === "attack") continue;
+      const def = ENEMIES[e.defId]!;
+      if (e.state === "hidden" || e.spawnT > 0 || def.movement.type === "stationary" || e.state === "attack") continue;
       const belt = beltAt(w.arena, e.pos);
       if (belt) e.pos.x += belt.vx * DT;
+      const current = def.swimmer ? undefined : waterAt(w.arena, e.pos);
+      if (current) e.pos = add(e.pos, scale({ x: current.vx, y: current.vy }, DT));
     }
   }
   for (const e of w.enemies) {
@@ -210,6 +214,14 @@ function updateEnemy(w: World, e: Enemy): void {
         updateBurst(w, e, atk);
         break;
       }
+      if (atk.type === "submerge") {
+        updateSubmerge(w, e, atk, target);
+        break;
+      }
+      if (atk.type === "sweep") {
+        updateSweep(w, e, atk);
+        break;
+      }
       if (atk.type !== "dash") break;
       e.vel = scale(e.attackDir, atk.dashSpeed * slow);
       e.pos = add(e.pos, scale(e.vel, DT));
@@ -301,17 +313,17 @@ function move(w: World, e: Enemy, def: EnemyDef, target: Target, slow: number): 
     }
   }
 
-  // Enemies that can burn keep clear of vents that are about to blow. Fire-immune ones use them as bait.
-  if (!def.fireImmune) {
-    for (const v of w.run.room.vents) {
-      if (ventState(v) === "idle") continue;
-      const off = sub(e.pos, v.pos);
-      const l = len(off);
-      if (l < v.radius + e.radius + 14) want = add(want, scale(norm(off), 1.5));
-    }
+  // Enemies keep clear of traps that are about to go off. Fire-immune ones use vents as bait.
+  for (const v of w.run.room.vents) {
+    if (ventState(v) === "idle" || (v.kind === "vent" && def.fireImmune)) continue;
+    const off = sub(e.pos, trapPoint(v, e.pos));
+    const l = len(off);
+    if (l < v.radius + e.radius + 14) want = add(want, scale(l > 0.01 ? norm(off) : { x: -dir.y, y: dir.x }, 1.5));
   }
 
-  e.vel = scale(norm(want), def.speed * slow * Math.min(1, len(want) || 0));
+  // Wading is slow for everyone but the sewer family.
+  const wade = !def.swimmer && w.arena.water.length > 0 && waterAt(w.arena, e.pos) ? WATER.wade : 1;
+  e.vel = scale(norm(want), def.speed * slow * wade * Math.min(1, len(want) || 0));
   e.pos = add(e.pos, scale(e.vel, DT));
 }
 
@@ -347,7 +359,7 @@ function dropTrail(w: World, e: Enemy, def: EnemyDef): void {
 }
 
 function attackRange(def: EnemyDef): number {
-  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" || a.type === "nova" || a.type === "shockwave" ? m : Math.min(m, a.range)), Infinity);
+  return def.attacks.reduce((m, a) => (a.type === "shieldAllies" || a.type === "summon" || a.type === "nova" || a.type === "shockwave" || a.type === "submerge" || a.type === "sweep" ? m : Math.min(m, a.range)), Infinity);
 }
 
 function childrenAlive(w: World, e: Enemy): number {
@@ -366,7 +378,7 @@ function canUse(w: World, e: Enemy, atk: AttackDef, d: number): boolean {
 }
 
 /** Boss attacks big enough to get their own call-out on screen. */
-const BIG = new Set(["nova", "shockwave"]);
+const BIG = new Set(["nova", "shockwave", "submerge", "sweep"]);
 
 function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void {
   const d = dist(e.pos, target.pos) - target.radius - e.radius;
@@ -383,7 +395,21 @@ function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void
   if (atk.type === "lobbedProjectile") {
     // Lead the target by most of the flight: walking in a straight line gets you hit, changing direction doesn't.
     e.attackPoints = [clampToArena(w, lead(target, atk.flightMs / 1000, 0.55), 8)];
-    if (atk.rain) {
+    if (atk.cross) {
+      // Slag Cross: lines marching out from the boss, one of them straight at you. Step between the arms.
+      // Past half health it grows two more arms, so the gaps get tighter.
+      e.attackPoints = [];
+      const arms = atk.cross.arms + (e.phase >= 2 ? 2 : 0);
+      const base = angleOf(sub(target.pos, e.pos));
+      for (let a = 0; a < arms; a++) {
+        const dir = fromAngle(base + (a / arms) * Math.PI * 2);
+        for (let d = atk.cross.spacing; d <= atk.range; d += atk.cross.spacing) {
+          const at = add(e.pos, scale(dir, d));
+          if (at.x < 8 || at.y < 8 || at.x > w.arena.w - 8 || at.y > w.arena.h - 8) break;
+          e.attackPoints.push(at);
+        }
+      }
+    } else if (atk.rain) {
       // Boss rain: one on every player, the rest all over the arena.
       for (const p of w.players) if (!p.downed && !p.away && dist(p.pos, target.pos) > 1) e.attackPoints.push(clampToArena(w, lead(p, atk.flightMs / 1000, 0.4), 8));
       while (e.attackPoints.length < (atk.count ?? 1)) e.attackPoints.push({ x: randRange(w, 30, w.arena.w - 30), y: randRange(w, 40, w.arena.h - 30) });
@@ -394,6 +420,9 @@ function tryStartAttack(w: World, e: Enemy, def: EnemyDef, target: Target): void
       }
     }
   }
+  // Sweeps turn whichever way the target isn't already running. The direction rides along in attackPoints[0].x so
+  // co-op clients can draw the beams too.
+  if (atk.type === "sweep") e.attackPoints = [{ x: target.vel.x * -e.attackDir.y + target.vel.y * e.attackDir.x > 0 ? -1 : 1, y: 0 }];
   w.events.push({ type: "enemyWindup", id: e.id, attack: atk.type });
   if (BIG.has(atk.type) || (atk.type === "lobbedProjectile" && atk.rain)) w.events.push({ type: "bossCall", id: e.id, attack: atk.type });
 }
@@ -441,9 +470,10 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
     case "lobbedProjectile": {
       for (const to of e.attackPoints) {
         const d = dist(e.pos, to);
+        const pd = atk.puddle;
         w.projectiles.push({
-          id: newId(w), owner: "enemy", ownerId: e.id, kind: atk.puddle ? (atk.puddle.ice ? "slush" : "acid") : "mortar",
-          element: atk.puddle ? (atk.puddle.ice ? "frost" : "acid") : "none",
+          id: newId(w), owner: "enemy", ownerId: e.id, kind: pd && !pd.fire ? (pd.ice ? "slush" : "acid") : "mortar",
+          element: pd ? (pd.ice ? "frost" : pd.fire ? "fire" : "acid") : "none",
           pos: { ...e.pos }, vel: { x: 0, y: 0 }, radius: 4, damage: atk.damage, pierce: 0, bounces: 0, knockback: 0, life: 99,
           hitIds: [], gunUid: -1,
           lob: { from: { ...e.pos }, to: { ...to }, t: 0, dur: Math.max(0.3, (atk.flightMs / 1000) * (0.6 + (0.4 * d) / atk.range)), radius: atk.radius, puddle: atk.puddle },
@@ -501,6 +531,19 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       e.burst = atk.type === "nova" ? atk.volleys : atk.rings;
       e.stateT = 0;
       e.attackPoints = [];
+      break;
+    }
+    case "submerge": {
+      // Under it goes: the swim and the surfacing are handled in the attack state.
+      e.state = "attack";
+      e.stateT = (atk.swimMs + atk.surfaceMs) / 1000;
+      e.knock = { x: 0, y: 0 };
+      break;
+    }
+    case "sweep": {
+      e.state = "attack";
+      e.stateT = atk.sweepMs / 1000;
+      e.hitPlayers = [];
       break;
     }
     case "shieldAllies": {
@@ -573,7 +616,7 @@ function separate(w: World): void {
       b.pos.x += nx * push * (1 - wa);
       b.pos.y += ny * push * (1 - wa);
     }
-    if (fixed(a)) continue;
+    if (fixed(a) || submerged(a)) continue;
     for (const p of w.players) {
       if (p.downed || p.away || p.dashT > 0) continue;
       const off = sub(a.pos, p.pos);
@@ -581,6 +624,92 @@ function separate(w: World): void {
       const l = len(off);
       if (l < min) a.pos = add(p.pos, scale(l > 0.01 ? scale(off, 1 / l) : { x: 1, y: 0 }, min));
     }
+  }
+}
+
+/** Submerge: swim after the target out of reach, stop where it's going to come up, then burst out of the water. */
+function updateSubmerge(w: World, e: Enemy, atk: Extract<AttackDef, { type: "submerge" }>, target: Target | undefined): void {
+  e.stateT -= DT;
+  if (e.stateT > atk.surfaceMs / 1000) {
+    if (target && dist(target.pos, e.pos) > 4) {
+      e.vel = scale(norm(sub(target.pos, e.pos)), Math.min(atk.swimSpeed, dist(target.pos, e.pos) / DT));
+      e.pos = add(e.pos, scale(e.vel, DT));
+      confine(w, e.pos, e.radius);
+    }
+    return;
+  }
+  // The circle is showing: it holds still so you can get out.
+  if (e.stateT > 0) return;
+  w.events.push({ type: "surface", id: e.id, x: e.pos.x, y: e.pos.y });
+  w.events.push({ type: "explosion", x: e.pos.x, y: e.pos.y, radius: atk.radius, owner: "enemy", element: "acid" });
+  for (const p of w.players) {
+    if (p.downed || p.away || dist(p.pos, e.pos) > atk.radius + p.radius * 0.5) continue;
+    if (pointInDome(w, p.pos)) w.events.push({ type: "blocked", x: p.pos.x, y: p.pos.y });
+    else if (hurtPlayer(w, p, atk.damage) && atk.push) p.knock = add(p.knock, scale(norm(sub(p.pos, e.pos)), atk.push));
+  }
+  hurtGadgetsIn(w, e.pos, atk.radius, atk.damage, e);
+  const turn = rand(w) * Math.PI;
+  for (let k = 0; k < atk.bolts; k++) {
+    const a = turn + (k / atk.bolts) * Math.PI * 2;
+    w.projectiles.push({
+      id: newId(w), owner: "enemy", ownerId: e.id, kind: "bolt", element: "none", pos: add(e.pos, fromAngle(a, e.radius)),
+      vel: fromAngle(a, atk.boltSpeed), radius: 3, damage: atk.boltDamage, pierce: 0, bounces: 0, knockback: 0, life: 4, hitIds: [], gunUid: -1,
+    });
+  }
+  e.state = "recover";
+  e.stateT = atk.recoverMs / 1000;
+}
+
+/** How many beams a sweep has: one more once the boss is past half health. */
+export function sweepBeams(e: Pick<Enemy, "phase">, atk: Extract<AttackDef, { type: "sweep" }>): number {
+  return atk.beams + (e.phase >= 2 ? 1 : 0);
+}
+
+/**
+ * The angle of a sweep's first beam: from where it aimed, turning at a steady rate through the attack. Worked out from
+ * the attack clock, so co-op clients draw the same beams the server hits with.
+ */
+export function sweepAngle(e: Pick<Enemy, "state" | "stateT" | "attackDir" | "attackPoints">, atk: Extract<AttackDef, { type: "sweep" }>): number {
+  const done = e.state === "attack" ? clamp(1 - e.stateT / (atk.sweepMs / 1000), 0, 1) : 0;
+  const spin = (e.attackPoints[0]?.x ?? 1) < 0 ? -1 : 1;
+  return angleOf(e.attackDir) + spin * done * (atk.turnDeg * Math.PI) / 180;
+}
+
+/** How far a beam from `from` gets before a crate or a wall stops it. Crates are cover. */
+export function beamLength(arena: Pick<Arena, "w" | "h" | "obstacles">, from: Vec, dir: Vec): number {
+  const max = Math.hypot(arena.w, arena.h);
+  for (let d = 12; d < max; d += 4) {
+    const x = from.x + dir.x * d;
+    const y = from.y + dir.y * d;
+    if (x < 0 || y < 0 || x > arena.w || y > arena.h) return d;
+    if (arena.obstacles.some((o) => x > o.x && x < o.x + o.w && y > o.y && y < o.y + o.h)) return d;
+  }
+  return max;
+}
+
+/** Laser Sweep: the beams turn; anyone they cross gets hit (dashing through works, crates block them). */
+function updateSweep(w: World, e: Enemy, atk: Extract<AttackDef, { type: "sweep" }>): void {
+  e.stateT -= DT;
+  const n = sweepBeams(e, atk);
+  const a0 = sweepAngle(e, atk);
+  for (let k = 0; k < n; k++) {
+    const dir = fromAngle(a0 + (k / n) * Math.PI * 2);
+    const end = add(e.pos, scale(dir, beamLength(w.arena, e.pos, dir)));
+    for (const p of w.players) {
+      if (p.downed || p.away || distToSegment(p.pos, e.pos, end) > atk.width + p.radius * 0.6 || pointInDome(w, p.pos)) continue;
+      hurtPlayer(w, p, atk.damage);
+    }
+    for (const g of w.gadgets) {
+      if (g.kind === "turret" && !e.hitPlayers.includes(-g.id) && distToSegment(g.pos, e.pos, end) < atk.width + TURRET.radius) {
+        e.hitPlayers.push(-g.id);
+        hurtGadget(w, g, atk.damage, e);
+      }
+    }
+  }
+  if (e.stateT <= 0) {
+    e.hitPlayers = [];
+    e.state = "recover";
+    e.stateT = atk.recoverMs / 1000;
   }
 }
 

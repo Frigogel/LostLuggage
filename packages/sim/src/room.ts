@@ -5,8 +5,8 @@ import { ACT_ROOMS, FINAL_ACT, MAX_ENEMIES, planDoors, planRoom, firstRoom } fro
 import { linkPairs, parseElite } from "./elites";
 import { canAct, startPos } from "./players";
 import { newGun } from "./loot";
-import { clamp, dist, randRange, rand, type Rect, type Vec } from "./math";
-import type { Belt, Door, Enemy, Player, Room, RoomKind, RoomSpec, Vent, World } from "./types";
+import { clamp, dist, distToSegment, norm, randRange, rand, scale, sub, type Rect, type Vec } from "./math";
+import type { Belt, Current, Door, Enemy, Pad, Player, Room, RoomKind, RoomSpec, Vent, World } from "./types";
 
 export const ARENA = { w: 720, h: 440 };
 export const START = { x: ARENA.w / 2, y: ARENA.h - 40 };
@@ -22,6 +22,14 @@ interface Layout {
   spikes?: Rect[];
   /** Icy floor. */
   ice?: boolean;
+  /** Bilge Sewers: sludge pipes, from the mouth in the wall to the end of the jet. */
+  pipes?: [Vec, Vec][];
+  /** Bilge Sewers: deep water and which way it flows. */
+  water?: Current[];
+  /** Orbital Deck: laser fences between two posts. */
+  lasers?: [Vec, Vec][];
+  /** Orbital Deck: linked teleporter pads. */
+  pads?: Pad[];
 }
 
 const crate = (x: number, y: number, w = 32, h = 32): Rect => ({ x, y, w, h });
@@ -31,6 +39,10 @@ const leftSpikes = (y: number, h: number): Rect => ({ x: 0, y, w: SPIKE, h });
 const rightSpikes = (y: number, h: number): Rect => ({ x: ARENA.w - SPIKE, y, w: SPIKE, h });
 // Top-wall spikes stay in the corners: the middle of the top wall is where the doors open.
 const topSpikes = (x: number, w: number): Rect => ({ x, y: 0, w, h: SPIKE });
+const v = (x: number, y: number): Vec => ({ x, y });
+/** A channel of sewer water flowing (vx, vy). */
+const water = (x: number, y: number, w: number, h: number, vx: number, vy: number): Current => ({ x, y, w, h, vx, vy });
+const pads = (ax: number, ay: number, bx: number, by: number): Pad => ({ a: v(ax, ay), b: v(bx, by) });
 
 /** Hand-placed room layouts. Crates come in 32x32 and 48x16 so the client has art for them. */
 export const LAYOUTS: Layout[] = [
@@ -135,7 +147,137 @@ export const LAYOUTS: Layout[] = [
     spikes: [{ x: 356, y: 130, w: SPIKE, h: 60 }, { x: 356, y: 250, w: SPIKE, h: 60 }, leftSpikes(180, 80), rightSpikes(180, 80)],
     ice: true,
   },
+
+  // Bilge Sewers: deep water you wade through (the sewer family swims it), and sludge pipes that blast a lane.
+  // 16: intro, one channel across the middle and a single pipe to learn the warning drip on
+  {
+    obstacles: [crate(160, 150), crate(528, 150), crate(160, 300), crate(528, 300)],
+    vents: [],
+    water: [water(0, 196, ARENA.w, 48, 55, 0)],
+    pipes: [[v(0, 120), v(300, 120)]],
+  },
+  // 17: the outflow, two channels pouring down the room and pipes from either side
+  {
+    obstacles: [crate(96, 200), crate(592, 200), crate(344, 110), crate(336, 260, 48, 16)],
+    vents: [],
+    water: [water(196, 30, 48, 410, 0, 60), water(476, 30, 48, 410, 0, 60)],
+    pipes: [[v(0, 310), v(330, 310)], [v(ARENA.w, 140), v(390, 140)]],
+  },
+  // 18: the cistern, a slow pool in the middle and pipes at the top and bottom
+  {
+    obstacles: [crate(120, 100), crate(568, 100), crate(120, 300), crate(568, 300), crate(336, 214, 48, 16)],
+    vents: [],
+    water: [water(220, 150, 280, 140, 45, 0)],
+    pipes: [[v(0, 80), v(320, 80)], [v(ARENA.w, 360), v(400, 360)]],
+  },
+  // 19: the sluice, two channels flowing opposite ways and pipes that meet in the middle
+  {
+    obstacles: [crate(150, 150), crate(538, 150), crate(336, 40, 48, 16), crate(336, 384, 48, 16)],
+    vents: [],
+    water: [water(0, 100, ARENA.w, 40, 65, 0), water(0, 300, ARENA.w, 40, -65, 0)],
+    pipes: [[v(0, 222), v(340, 222)], [v(ARENA.w, 222), v(380, 222)]],
+  },
+  // 20: the drain, channels up one side and down the other
+  {
+    obstacles: [crate(300, 150), crate(388, 150), crate(300, 260), crate(388, 260), crate(60, 60, 48, 16), crate(612, 60, 48, 16)],
+    vents: [],
+    water: [water(150, 40, 44, 400, 0, 65), water(526, 0, 44, 400, 0, -65)],
+    pipes: [[v(0, 340), v(300, 340)], [v(ARENA.w, 110), v(420, 110)]],
+  },
+  // 21: rest stop
+  {
+    obstacles: [crate(200, 200), crate(488, 200)],
+    vents: [],
+    water: [water(0, 280, ARENA.w, 36, 40, 0)],
+  },
+  // 22: the overflow chamber, water circling the room and pipes on both sides
+  {
+    obstacles: [crate(120, 200), crate(568, 200)],
+    vents: [],
+    water: [water(60, 100, 600, 40, 55, 0), water(60, 300, 600, 40, -55, 0)],
+    pipes: [[v(0, 60), v(260, 60)], [v(ARENA.w, 60), v(460, 60)], [v(0, 380), v(240, 380)], [v(ARENA.w, 380), v(480, 380)]],
+  },
+
+  // Orbital Deck: laser fences on a timer, and teleporter pads in pairs (only the crew knows how to use them).
+  // 23: intro, one fence across the middle and one pair of pads
+  {
+    obstacles: [crate(160, 112), crate(528, 112), crate(160, 296), crate(528, 296)],
+    vents: [],
+    lasers: [[v(250, 220), v(470, 220)]],
+    pads: [pads(90, 340, 630, 90)],
+  },
+  // 24: the hangar, two fences and pads corner to corner
+  {
+    obstacles: [crate(120, 200), crate(568, 200), crate(344, 120), crate(336, 300, 48, 16)],
+    vents: [],
+    lasers: [[v(240, 70), v(240, 210)], [v(480, 230), v(480, 370)]],
+    pads: [pads(70, 70, 650, 330), pads(650, 70, 70, 330)],
+  },
+  // 25: the corridor, fences from either side with a gap to slip through
+  {
+    obstacles: [crate(110, 60), crate(578, 340), crate(250, 210), crate(438, 210)],
+    vents: [],
+    lasers: [[v(30, 150), v(330, 150)], [v(390, 290), v(690, 290)]],
+    pads: [pads(90, 330, 630, 110)],
+  },
+  // 26: the reactor, a laser cross in the middle
+  {
+    obstacles: [crate(110, 90), crate(578, 90), crate(110, 310), crate(578, 310)],
+    vents: [],
+    lasers: [[v(280, 220), v(440, 220)], [v(360, 140), v(360, 300)]],
+    pads: [pads(220, 100, 500, 340), pads(500, 100, 220, 340)],
+  },
+  // 27: the airlock, two slanted fences pointing at the doors
+  {
+    obstacles: [crate(336, 150, 48, 16), crate(344, 280), crate(80, 330, 48, 16), crate(592, 330, 48, 16)],
+    vents: [],
+    lasers: [[v(140, 90), v(290, 250)], [v(580, 90), v(430, 250)]],
+    pads: [pads(60, 220, 660, 220)],
+  },
+  // 28: rest stop
+  {
+    obstacles: [crate(200, 200), crate(488, 200)],
+    vents: [],
+    pads: [pads(90, 330, 630, 330)],
+  },
+  // 29: the bridge, short fences at the sides and pads in every corner
+  {
+    obstacles: [crate(150, 300), crate(538, 300)],
+    vents: [],
+    lasers: [[v(40, 220), v(190, 220)], [v(530, 220), v(680, 220)]],
+    pads: [pads(70, 70, 650, 370), pads(650, 70, 70, 370)],
+  },
 ];
+
+/** Teleporter pads: how close to the middle counts as standing on one. */
+export const PAD = { radius: 12 };
+
+/** The pad a point is standing on and where it leads, if any. */
+export function padAt(arena: { pads: Pad[] }, p: Vec): { from: Vec; to: Vec } | undefined {
+  for (const pd of arena.pads) {
+    if (dist(p, pd.a) < PAD.radius) return { from: pd.a, to: pd.b };
+    if (dist(p, pd.b) < PAD.radius) return { from: pd.b, to: pd.a };
+  }
+  return undefined;
+}
+
+/** The water under a point, if any. */
+export function waterAt(arena: { water: Current[] }, p: Vec): Current | undefined {
+  return arena.water.find((c) => p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h);
+}
+
+/** A room's terrain, built the same way by the sim and by co-op clients from the layout number. */
+export function arenaFor(layout: number, twist: string): Pick<World["arena"], "obstacles" | "spikes" | "ice" | "belts" | "water" | "pads"> {
+  const l = LAYOUTS[layout] ?? LAYOUTS[0]!;
+  return {
+    obstacles: l.obstacles.map((o) => ({ ...o })),
+    spikes: (l.spikes ?? []).map((o) => ({ ...o })),
+    ice: !!l.ice,
+    belts: beltsFor(twist),
+    water: (l.water ?? []).map((c) => ({ ...c })),
+    pads: (l.pads ?? []).map((pd) => ({ a: { ...pd.a }, b: { ...pd.b } })),
+  };
+}
 
 /** Baggage Claim: three conveyor belts across the room, alternating directions. */
 export function beltsFor(twist: string): Belt[] {
@@ -156,6 +298,30 @@ export function beltAt(arena: { belts: Belt[] }, p: Vec): Belt | undefined {
 
 export type VentState = "idle" | "warn" | "erupt";
 
+/** The middle of a vent, or the point of a pipe's or laser's lane nearest to `p`. */
+export function trapPoint(v: Pick<Vent, "pos" | "to">, p: Vec): Vec {
+  if (!v.to) return v.pos;
+  const ab = sub(v.to, v.pos);
+  const l2 = ab.x * ab.x + ab.y * ab.y || 1;
+  const k = clamp(((p.x - v.pos.x) * ab.x + (p.y - v.pos.y) * ab.y) / l2, 0, 1);
+  return { x: v.pos.x + ab.x * k, y: v.pos.y + ab.y * k };
+}
+
+/** How far a point is from a trap's area. */
+export function trapDist(v: Pick<Vent, "pos" | "to">, p: Vec): number {
+  return v.to ? distToSegment(p, v.pos, v.to) : dist(p, v.pos);
+}
+
+/** Pipes and lasers loop faster than vents, and lasers stay on longer. */
+const TRAPS = {
+  vent: { period: [5, 7.5], warn: 1.2, erupt: 0.9, radius: 18, damage: 18 },
+  pipe: { period: [5, 7], warn: 1.2, erupt: 1.1, radius: 14, damage: 14 },
+  laser: { period: [4, 5.5], warn: 0.9, erupt: 1.8, radius: 3, damage: 16 },
+} as const;
+/** A sludge jet shoves you down its lane; a laser bumps you off it. */
+const PIPE_PUSH = 280;
+const LASER_PUSH = 140;
+
 export function ventState(v: Vent): VentState {
   const c = v.t % v.periodS;
   if (c >= v.periodS - v.eruptS) return "erupt";
@@ -173,15 +339,25 @@ function updateVents(w: World, room: Room): void {
     if (now !== "erupt") continue;
     if (before !== "erupt") w.events.push({ type: "ventErupt", id: v.id, x: v.pos.x, y: v.pos.y });
 
+    // Which way a lane shoves: down a pipe's jet, or sideways off a laser.
+    const along = v.to ? norm(sub(v.to, v.pos)) : { x: 0, y: 0 };
+    const away = (p: Vec): Vec => {
+      if (v.kind === "pipe") return along;
+      if (!v.to) return norm(sub(p, v.pos));
+      const across = { x: -along.y, y: along.x };
+      return (p.x - v.pos.x) * across.x + (p.y - v.pos.y) * across.y >= 0 ? across : scale(across, -1);
+    };
     for (const p of w.players) {
-      if (!p.downed && dist(p.pos, v.pos) < v.radius + p.radius * 0.5) hurtPlayer(w, p, v.damage);
+      if (p.downed || trapDist(v, p.pos) >= v.radius + p.radius * 0.5) continue;
+      if (hurtPlayer(w, p, v.damage) && v.kind !== "vent") p.knock = scale(away(p.pos), v.kind === "pipe" ? PIPE_PUSH : LASER_PUSH);
     }
-    // Enemies get burned at the start and middle of an eruption. Fire-immune ones don't care.
+    // Enemies get hit at the start and middle of an eruption. Vents don't burn the fire-immune.
     const mid = v.periodS - v.eruptS / 2;
     if (before !== "erupt" || (beforeC < mid && v.t % v.periodS >= mid)) {
       for (const e of [...w.enemies]) {
-        if (e.spawnT > 0 || ENEMIES[e.defId]!.fireImmune || dist(e.pos, v.pos) > v.radius + e.radius) continue;
-        damageEnemy(w, e, v.damage, { dir: { x: e.pos.x - v.pos.x, y: e.pos.y - v.pos.y }, knockback: 80, sourcePlayerId: -1, element: "fire" });
+        if (e.spawnT > 0 || (v.kind === "vent" && ENEMIES[e.defId]!.fireImmune) || trapDist(v, e.pos) > v.radius + e.radius) continue;
+        const dir = v.kind === "vent" ? { x: e.pos.x - v.pos.x, y: e.pos.y - v.pos.y } : away(e.pos);
+        damageEnemy(w, e, v.damage, { dir, knockback: v.kind === "pipe" ? 200 : 80, sourcePlayerId: -1, element: v.kind === "vent" ? "fire" : "none" });
       }
     }
   }
@@ -206,10 +382,7 @@ export function enterRoom(w: World, spec: RoomSpec): void {
   w.run.plans.push(plan);
   const index = w.run.plans.length - 1;
   const layout = LAYOUTS[plan.layout]!;
-  w.arena.obstacles = layout.obstacles.map((o) => ({ ...o }));
-  w.arena.spikes = (layout.spikes ?? []).map((o) => ({ ...o }));
-  w.arena.ice = !!layout.ice;
-  w.arena.belts = beltsFor(plan.twist);
+  Object.assign(w.arena, arenaFor(plan.layout, plan.twist));
   w.enemies = [];
   w.projectiles = [];
   w.hazards = [];
@@ -217,10 +390,18 @@ export function enterRoom(w: World, spec: RoomSpec): void {
   w.gadgets = [];
   w.pickups = [];
 
-  const vents: Vent[] = layout.vents.map((pos) => {
-    const periodS = randRange(w, 5, 7.5);
-    return { id: newId(w), pos: { ...pos }, radius: 18, periodS, warnS: 1.2, eruptS: 0.9, t: randRange(w, 0, periodS * 0.6), damage: 18 };
-  });
+  const trap = (kind: Vent["kind"], pos: Vec, to?: Vec): Vent => {
+    const c = TRAPS[kind];
+    const periodS = randRange(w, c.period[0], c.period[1]);
+    const t: Vent = { id: newId(w), kind, pos: { ...pos }, radius: c.radius, periodS, warnS: c.warn, eruptS: c.erupt, t: randRange(w, 0, periodS * 0.6), damage: c.damage };
+    if (to) t.to = { ...to };
+    return t;
+  };
+  const vents: Vent[] = [
+    ...layout.vents.map((pos) => trap("vent", pos)),
+    ...(layout.pipes ?? []).map(([a, b]) => trap("pipe", a, b)),
+    ...(layout.lasers ?? []).map(([a, b]) => trap("laser", a, b)),
+  ];
   // Plain wave ids; "!" marks ambushers that wait in the room from the start.
   const waves = plan.waves.map((wave) => wave.filter((id) => !id.startsWith("!")));
   const props = plan.waves.flatMap((wave) => wave.filter((id) => id.startsWith("!")).map((id) => id.slice(1)));
@@ -322,11 +503,12 @@ export function offerBoosts(w: World, near: Vec, quality: number): void {
   }
 }
 
-/** The spot nearest `near` with room for a row of three offers: clear of crates, spikes and vents. */
+/** The spot nearest `near` with room for a row of three offers: clear of crates, spikes, traps, water and pads. */
 function openSpot(w: World, near: Vec): Vec {
   const blocked = (c: Vec) =>
-    [...w.arena.obstacles, ...w.arena.spikes].some((o) => c.x > o.x - 66 && c.x < o.x + o.w + 66 && c.y > o.y - 22 && c.y < o.y + o.h + 22) ||
-    w.run.room.vents.some((v) => Math.abs(v.pos.x - c.x) < v.radius + 50 && Math.abs(v.pos.y - c.y) < v.radius + 14);
+    [...w.arena.obstacles, ...w.arena.spikes, ...w.arena.water].some((o) => c.x > o.x - 66 && c.x < o.x + o.w + 66 && c.y > o.y - 22 && c.y < o.y + o.h + 22) ||
+    w.run.room.vents.some((v) => (v.to ? trapDist(v, c) < v.radius + 22 : Math.abs(v.pos.x - c.x) < v.radius + 50 && Math.abs(v.pos.y - c.y) < v.radius + 14)) ||
+    w.arena.pads.some((pd) => [pd.a, pd.b].some((at) => Math.abs(at.x - c.x) < PAD.radius + 50 && Math.abs(at.y - c.y) < PAD.radius + 14));
   for (let r = 0; r < 220; r += 12) {
     for (let k = 0; k < 12; k++) {
       const c = { x: clamp(near.x + Math.cos((k / 12) * Math.PI * 2) * r, 70, ARENA.w - 70), y: clamp(near.y + Math.sin((k / 12) * Math.PI * 2) * r * 0.7, 60, ARENA.h - 50) };
@@ -520,7 +702,7 @@ function spawnPoint(w: World, minPlayerDist: number): Vec {
     const p = { x: randRange(w, 30, w.arena.w - 30), y: randRange(w, 40, w.arena.h - 30) };
     if (insideArenaSolid(w, p) || [...w.arena.obstacles, ...w.arena.spikes].some((o) => p.x > o.x - 12 && p.x < o.x + o.w + 12 && p.y > o.y - 12 && p.y < o.y + o.h + 12)) continue;
     if (w.players.some((pl) => dist(pl.pos, p) < minPlayerDist)) continue;
-    if (w.run.room.vents.some((v) => dist(v.pos, p) < v.radius + 12)) continue;
+    if (w.run.room.vents.some((v) => trapDist(v, p) < v.radius + 12)) continue;
     return p;
   }
   return { x: 40, y: 60 };

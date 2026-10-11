@@ -1,6 +1,6 @@
 export * from "./types";
 export * from "./math";
-export { DT, TICK_HZ, elementMultiplier, partyHpMultiplier } from "./combat";
+export { DT, TICK_HZ, elementMultiplier, partyHpMultiplier, submerged } from "./combat";
 export { GUNS, GRENADE } from "./data/guns";
 export { GRENADES, GRENADE_IDS } from "./data/grenades";
 export { BIOMES, BIOME_IDS, ENEMIES } from "./data/enemies";
@@ -9,7 +9,7 @@ export { SIGNATURES, SIGNATURE_IDS, signaturesFor, type SignatureDef } from "./d
 export { ELITES, ELITE_IDS, type EliteDef } from "./elites";
 export { DRONE, TURRET } from "./gadgets";
 export { MARK, marksUp, nearestMarked } from "./marks";
-export { inCone } from "./enemies";
+export { beamLength, inCone, sweepAngle, sweepBeams } from "./enemies";
 export { LEGENDARIES, LEGENDARY_IDS, type LegendaryDef } from "./data/legendaries";
 export { MAKERS, MAKER_IDS, type MakerDef } from "./data/makers";
 export { SKILL_TREES, skillPoints, spentPoints, validSkills, type SkillNode, type SkillTree } from "./data/skills";
@@ -45,10 +45,10 @@ export {
   updateFacing,
   type PlayerOptions,
 } from "./players";
-export { ACT_ROOMS, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, actDamage, actHaste, actHp, depthOf, eliteShare, firstRoom, planDoors, planRoom, planWave, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
+export { ACT_ROOMS, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, actLevel, actOrder, actDamage, actHaste, actHp, depthOf, eliteShare, firstRoom, planDoors, planRoom, planWave, planCombatWaves, roomBudget, MAX_ENEMIES } from "./director";
 export { BOOSTS, BOOST_IDS, boostOffers, playerTags, stacks, type BoostDef, type BoostRarity, type BoostTag } from "./data/boosts";
 export { ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, grenadeName, grenadeStats, heldGrenade, heldStats, newGun, rollGrenade, rollGun, STARTER_GRENADE, unpredictable, type GrenadeStats } from "./loot";
-export { ARENA, DOOR, EXIT_WAIT_S, HOLD_S, LAYOUTS, ROOM_NAMES, START, beltAt, beltsFor, doorAt, doorRect, doorVotes, enterRoom, offerBoosts, roomAct, roomSpec, ventState, type VentState } from "./room";
+export { ARENA, DOOR, EXIT_WAIT_S, HOLD_S, LAYOUTS, PAD, ROOM_NAMES, START, arenaFor, beltAt, beltsFor, padAt, trapDist, trapPoint, waterAt, doorAt, doorRect, doorVotes, enterRoom, offerBoosts, roomAct, roomSpec, ventState, type VentState } from "./room";
 export { createWorld, step, type WorldOptions } from "./world";
 export * from "./progress";
 export * from "./net";

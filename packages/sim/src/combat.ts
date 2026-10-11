@@ -45,9 +45,14 @@ export function clampToArena(w: World, p: Vec, margin: number): Vec {
   return { x: clamp(p.x, margin, w.arena.w - margin), y: clamp(p.y, margin, w.arena.h - margin) };
 }
 
-/** Enemies that can be targeted: arrived, alive and not disguised. */
+/** Enemies that can be targeted: arrived, alive, not disguised and not under the water. */
 export function targetable(e: Enemy): boolean {
-  return e.spawnT <= 0 && e.hp > 0 && e.state !== "hidden";
+  return e.spawnT <= 0 && e.hp > 0 && e.state !== "hidden" && !submerged(e);
+}
+
+/** A boss swimming under the water (Submerge): out of reach until it comes up. */
+export function submerged(e: Pick<Enemy, "defId" | "state" | "attackIdx">): boolean {
+  return e.state === "attack" && ENEMIES[e.defId]?.attacks[e.attackIdx]?.type === "submerge";
 }
 
 export function nearestEnemy(w: World, from: Vec, maxRange = Infinity, except = -1): Enemy | undefined {
@@ -111,7 +116,7 @@ export interface DamageOpts {
 export const skillDamage = (p: Player, base: number): number => base * levelMultiplier(p.syncLevel) * p.mods.damage;
 
 export function damageEnemy(w: World, e: Enemy, amount: number, o: DamageOpts): void {
-  if (e.hp <= 0 || e.state === "hidden") return;
+  if (e.hp <= 0 || e.state === "hidden" || submerged(e)) return;
   const def = ENEMIES[e.defId]!;
   const { mult, weak } = elementMultiplier(def, o.element);
   let dmg = amount * mult;

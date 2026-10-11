@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACT_ROOMS,
   BIOMES,
+  BIOME_IDS,
   BOOSTS,
   BOOST_IDS,
   boostOffers,
@@ -385,26 +386,36 @@ describe("director and run", () => {
     }
   });
 
-  it("ends each act with a boss, crosses biomes, and brings both bosses at the end", () => {
+  it("ends each act with a boss, visits every biome, and brings two bosses at the end", () => {
     const w = createWorld({ seed: 5 });
     // The last room of an act only leads to its boss.
     enterRoom(w, roomSpec(w, "combat", { step: ACT_ROOMS - 1 }));
     w.run.room.cleared = true;
     expect(planDoors(w).map((d) => d.kind)).toEqual(["boss"]);
-    // After the first boss, the next act is in the other biome.
+    // The adventure visits every biome once, starting with the picked one, before the mixed final act.
+    expect(w.run.order[0]).toBe("foundry");
+    expect([...w.run.order].sort()).toEqual([...BIOME_IDS].sort());
+    expect(FINAL_ACT).toBe(BIOME_IDS.length);
+    // After the first boss, the next act is in the next biome.
     enterRoom(w, roomSpec(w, "boss"));
     expect(w.run.plans.at(-1)!.waves).toEqual([[BIOMES.foundry.boss]]);
     w.run.room.cleared = true;
     const next = planDoors(w);
-    expect(next.map((d) => [d.kind, d.act, d.biome])).toEqual([["combat", 1, "caverns"]]);
-    // The final act's boss room brings both, and its doors lead home or on into endless.
+    expect(next.map((d) => [d.kind, d.act, d.biome])).toEqual([["combat", 1, w.run.order[1]]]);
+    // A different seed can visit them in a different order.
+    const orders = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => createWorld({ seed }).run.order.join()));
+    expect(orders.size).toBeGreaterThan(1);
+    // The final act's boss room brings its own boss and one other, and its doors lead home or on into endless.
     enterRoom(w, roomSpec(w, "boss", { act: FINAL_ACT, biome: "caverns", mix: true }));
-    expect(w.run.plans.at(-1)!.waves[0]!.map((id) => id.split("@")[0])).toEqual([BIOMES.foundry.boss, BIOMES.caverns.boss]);
+    const duo = w.run.plans.at(-1)!.waves[0]!.map((id) => id.split("@")[0]);
+    expect(duo).toHaveLength(2);
+    expect(duo[0]).toBe(BIOMES.caverns.boss);
+    expect(BIOME_IDS.filter((b) => b !== "caverns").map((b) => BIOMES[b].boss)).toContain(duo[1]);
     w.run.room.cleared = true;
     expect(planDoors(w).map((d) => [d.kind, d.act])).toEqual([["home", FINAL_ACT + 1], ["combat", FINAL_ACT + 1]]);
   });
 
-  it("mixed rooms draw enemies from both families", () => {
+  it("mixed rooms draw enemies from every family", () => {
     const w = createWorld({ seed: 3 });
     const biomes = new Set<string>();
     for (let i = 0; i < 20; i++) {
@@ -414,7 +425,7 @@ describe("director and run", () => {
         if (def.biomes.length === 1) biomes.add(def.biomes[0]!);
       }
     }
-    expect([...biomes].sort()).toEqual(["caverns", "foundry"]);
+    expect([...biomes].sort()).toEqual([...BIOME_IDS].sort());
   });
 
   it("later acts make enemies tougher, hit harder and attack sooner", () => {
@@ -451,13 +462,13 @@ describe("director and run", () => {
     }
   });
 
-  it("can be played through all three acts to a win, or on into endless", () => {
+  it("can be played through every act to a win, or on into endless", () => {
     const play = (endless: boolean) => {
       const w = createWorld({ seed: 17 });
       const p = w.players[0]!;
       const rooms: string[] = [];
       let finale = false;
-      for (let t = 0; t < 30 * 60 * 40 && !w.run.victory && w.run.bosses < 5; t++) {
+      for (let t = 0; t < 30 * 60 * 80 && !w.run.victory && w.run.bosses < FINAL_ACT + 3; t++) {
         p.hp = p.maxHp;
         // A god-mode bot: delete visible enemies, then hop through the first door (or home, if it's going home).
         for (const e of w.enemies) if (e.spawnT <= 0 && e.state !== "hidden") damageEnemy(w, e, 1e6, { dir: { x: 0, y: 1 }, knockback: 0, sourcePlayerId: p.id, element: "none" });
@@ -481,7 +492,7 @@ describe("director and run", () => {
     // Endless keeps going past the final boss.
     const more = play(true);
     expect(more.w.run.victory).toBe(false);
-    expect(more.w.run.bosses).toBe(5);
+    expect(more.w.run.bosses).toBe(FINAL_ACT + 3);
     expect(more.w.run.plans.at(-1)!.act).toBeGreaterThan(FINAL_ACT);
   });
 });

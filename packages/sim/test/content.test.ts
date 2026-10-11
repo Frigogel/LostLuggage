@@ -9,7 +9,9 @@ import {
   ENEMIES,
   enterRoom,
   HEROES,
+  LAYOUTS,
   newProfile,
+  PAD,
   planCombatWaves,
   planRoom,
   roomSpec,
@@ -24,7 +26,9 @@ import {
   type PlayerOptions,
   type World,
 } from "../src";
-import { damageEnemy, hurtPlayer, spawnEnemy } from "../src/combat";
+import { damageEnemy, hurtPlayer, spawnEnemy, submerged } from "../src/combat";
+import { beamLength } from "../src/enemies";
+import { dist, distToSegment } from "../src/math";
 import { linkPairs } from "../src/elites";
 import { newGun } from "../src/loot";
 
@@ -380,6 +384,196 @@ describe("Frozen Caverns", () => {
     run(w, 40);
     expect(p.hp).toBeLessThan(p.maxHp);
     expect(w.hazards.some((h) => h.kind === "ice")).toBe(true);
+  });
+});
+
+describe("Bilge Sewers", () => {
+  it("plans its own family, layouts and the gator", () => {
+    const w = createWorld({ seed: 3, biome: "sewers" });
+    expect(w.arena.water.length).toBeGreaterThan(0);
+    expect(w.run.room.vents.some((v) => v.kind === "pipe" && v.to)).toBe(true);
+    expect(planRoom(w, roomSpec(w, "boss"), 0, 1).waves).toEqual([[BIOMES.sewers.boss]]);
+    const rooms = [1, 2, 3, 4, 5].map((step) => planRoom(w, roomSpec(w, "combat", { step }), 0, 1));
+    const ids = [...w.run.plans, ...rooms].flatMap((p) => p.waves.flat()).map((id) => id.replace("!", "").split("@")[0]!);
+    expect(ids.every((id) => ENEMIES[id]!.biomes.includes("sewers"))).toBe(true);
+  });
+
+  it("deep water slows you down and carries you, but the sewer family swims", () => {
+    const walk = (inWater: boolean) => {
+      const w = quiet([{}], 1, "sewers");
+      const p = w.players[0]!;
+      const c = w.arena.water[0]!;
+      p.pos = inWater ? { x: 200, y: c.y + c.h / 2 } : { x: 200, y: c.y - 40 };
+      const y = p.pos.y;
+      run(w, 10, [input({ move: { x: 0, y: -1 } })]);
+      return { up: y - p.pos.y, drift: p.pos.x - 200 };
+    };
+    expect(walk(true).up).toBeLessThan(walk(false).up * 0.7);
+    expect(walk(true).drift).toBeGreaterThan(5);
+    expect(walk(false).drift).toBeCloseTo(0, 1);
+
+    const swim = (defId: string) => {
+      const w = quiet([{}], 1, "sewers");
+      const c = w.arena.water[0]!;
+      // Upstream of it, so the current works against the wader.
+      w.players[0]!.pos = { x: 40, y: 400 };
+      const e = dummy(w, defId, 200, c.y + c.h / 2);
+      e.cooldowns = e.cooldowns.map(() => 99);
+      const x = e.pos.x;
+      run(w, 10);
+      return dist(e.pos, { x, y: c.y + c.h / 2 });
+    };
+    expect(swim("sewer_roach")).toBeGreaterThan(swim("cone_rat"));
+  });
+
+  it("no crate sits in a sludge pipe's lane", () => {
+    LAYOUTS.forEach((l, i) => {
+      for (const [a, b] of l.pipes ?? []) {
+        for (const o of l.obstacles) {
+          const corners = [{ x: o.x, y: o.y }, { x: o.x + o.w, y: o.y }, { x: o.x, y: o.y + o.h }, { x: o.x + o.w, y: o.y + o.h }, { x: o.x + o.w / 2, y: o.y + o.h / 2 }];
+          const edges = [0, 0.25, 0.5, 0.75, 1].flatMap((k) => [{ x: o.x + o.w * k, y: o.y }, { x: o.x + o.w * k, y: o.y + o.h }, { x: o.x, y: o.y + o.h * k }, { x: o.x + o.w, y: o.y + o.h * k }]);
+          const hit = [...corners, ...edges].some((p) => distToSegment(p, a, b) < 14);
+          expect(hit, `layout ${i}: crate at ${o.x},${o.y}`).toBe(false);
+        }
+      }
+    });
+  });
+
+  it("sludge pipes warn, then blast whoever is in the lane down it", () => {
+    const w = quiet([{}], 1, "sewers");
+    enterRoom(w, roomSpec(w, "combat", { step: 1 }));
+    w.enemies = [];
+    w.run.room.waves = [];
+    const pipe = w.run.room.vents.find((v) => v.kind === "pipe")!;
+    w.run.room.vents = [pipe];
+    const p = w.players[0]!;
+    const mid = { x: (pipe.pos.x + pipe.to!.x) / 2, y: (pipe.pos.y + pipe.to!.y) / 2 };
+    p.pos = { ...mid };
+    pipe.t = pipe.periodS - pipe.eruptS - 0.05;
+    run(w, 4);
+    expect(p.hp).toBeLessThan(p.maxHp);
+    const along = Math.sign(pipe.to!.x - pipe.pos.x);
+    expect(Math.sign(p.knock.x) === along || Math.sign(p.pos.x - mid.x) === along).toBe(true);
+  });
+
+  it("the gator dives out of reach, then surfaces under you", () => {
+    const w = quiet([{}], 1, "sewers");
+    const p = w.players[0]!;
+    p.pos = { x: 400, y: 250 };
+    const g = dummy(w, "lost_found_gator", 200, 150, 5000);
+    g.cooldowns = g.cooldowns.map((_, i) => (i === 4 ? 0 : 99));
+    let under = false;
+    let surfaced = false;
+    for (let t = 0; t < 30 * 5 && !surfaced; t++) {
+      step(w, [EMPTY_INPUT]);
+      if (submerged(g)) {
+        under = true;
+        const hp = g.hp;
+        shoot(w, g, p.id, 100);
+        expect(g.hp).toBe(hp);
+      }
+      surfaced = w.events.some((ev) => ev.type === "surface");
+    }
+    expect(under).toBe(true);
+    expect(surfaced).toBe(true);
+    expect(dist(g.pos, p.pos)).toBeLessThan(40);
+    expect(p.hp).toBeLessThan(p.maxHp);
+  });
+});
+
+describe("Orbital Deck", () => {
+  it("plans its own family, layouts and the autopilot", () => {
+    const w = createWorld({ seed: 3, biome: "orbital" });
+    expect(w.arena.pads.length).toBeGreaterThan(0);
+    expect(w.run.room.vents.some((v) => v.kind === "laser" && v.to)).toBe(true);
+    expect(planRoom(w, roomSpec(w, "boss"), 0, 1).waves).toEqual([[BIOMES.orbital.boss]]);
+    const rooms = [1, 2, 3, 4, 5].map((step) => planRoom(w, roomSpec(w, "combat", { step }), 0, 1));
+    const ids = [...w.run.plans, ...rooms].flatMap((p) => p.waves.flat()).map((id) => id.replace("!", "").split("@")[0]!);
+    expect(ids.every((id) => ENEMIES[id]!.biomes.includes("orbital"))).toBe(true);
+  });
+
+  it("stepping onto a pad puts you on the other one, and you don't bounce straight back", () => {
+    const w = quiet([{}], 1, "orbital");
+    const p = w.players[0]!;
+    const pad = w.arena.pads[0]!;
+    p.pos = { x: pad.a.x - PAD.radius - 4, y: pad.a.y };
+    let warps = 0;
+    for (let t = 0; t < 8; t++) {
+      step(w, [input({ move: { x: 1, y: 0 } })]);
+      warps += w.events.filter((ev) => ev.type === "warp").length;
+    }
+    expect(warps).toBe(1);
+    expect(dist(p.pos, pad.b)).toBeLessThan(PAD.radius + 30);
+    // The client predicts the same jump with the same movement code.
+    const snap = decodeSnapshot(encodeSnapshot(w, [], new Map())).world;
+    expect(snap.arena.pads).toEqual(w.arena.pads);
+  });
+
+  it("laser fences hurt while they're on, and a dash goes through", () => {
+    const fence = (dash: boolean) => {
+      const w = quiet([{}], 1, "orbital");
+      enterRoom(w, roomSpec(w, "combat", { step: 1 }));
+      w.enemies = [];
+      w.run.room.waves = [];
+      const l = w.run.room.vents.find((v) => v.kind === "laser")!;
+      w.run.room.vents = [l];
+      l.t = l.periodS - l.eruptS + 0.1;
+      const p = w.players[0]!;
+      const mid = { x: (l.pos.x + l.to!.x) / 2, y: (l.pos.y + l.to!.y) / 2 };
+      const across = { x: -(l.to!.y - l.pos.y), y: l.to!.x - l.pos.x };
+      const n = Math.hypot(across.x, across.y);
+      p.pos = { x: mid.x - (across.x / n) * 24, y: mid.y - (across.y / n) * 24 };
+      const move = { x: across.x / n, y: across.y / n };
+      step(w, [input({ move, dash })]);
+      run(w, 15, [input({ move })]);
+      return p.hp < p.maxHp;
+    };
+    expect(fence(false)).toBe(true);
+    expect(fence(true)).toBe(false);
+  });
+
+  it("the autopilot's beams sweep across the room and crates block them", () => {
+    const w = quiet([{}], 1, "orbital");
+    const p = w.players[0]!;
+    const b = dummy(w, "autopilot", 360, 220, 5000);
+    b.cooldowns = b.cooldowns.map((_, i) => (i === 4 ? 0 : 99));
+    p.pos = { x: 360, y: 330 };
+    let swept = false;
+    for (let t = 0; t < 30 * 5; t++) {
+      run(w, 1, [EMPTY_INPUT]);
+      if (b.state === "attack") swept = true;
+    }
+    expect(swept).toBe(true);
+    expect(p.hp).toBeLessThan(p.maxHp);
+    // A crate between the core and you stops a beam short.
+    w.arena.obstacles = [{ x: 390, y: 200, w: 32, h: 40 }];
+    expect(beamLength(w.arena, { x: 360, y: 220 }, { x: 1, y: 0 })).toBeLessThan(40);
+  });
+});
+
+describe("boss signatures", () => {
+  it("every boss has an attack no other boss has", () => {
+    const bosses = Object.values(ENEMIES).filter((d) => d.role === "boss");
+    expect(bosses.length).toBe(4);
+    const sig = (d: (typeof bosses)[number]) => d.attacks.map((a) => (a.type === "lobbedProjectile" && a.cross ? "cross" : a.type));
+    for (const d of bosses) {
+      const others = new Set(bosses.filter((o) => o !== d).flatMap(sig));
+      expect(sig(d).some((t) => !others.has(t))).toBe(true);
+    }
+  });
+
+  it("the Foreman's Slag Cross marches out in lines and leaves burning slag", () => {
+    const w = quiet([{}], 1, "foundry");
+    const p = w.players[0]!;
+    p.pos = { x: 360, y: 360 };
+    const f = dummy(w, "furnace_foreman", 360, 200, 5000);
+    f.cooldowns = f.cooldowns.map((_, i) => (i === 7 ? 0 : 99));
+    run(w, 3);
+    expect(f.attackPoints.length).toBeGreaterThan(12);
+    // One arm aims at you.
+    expect(f.attackPoints.some((pt) => Math.abs(pt.x - 360) < 2 && pt.y > 300)).toBe(true);
+    run(w, 30 * 3);
+    expect(w.hazards.some((h) => h.kind === "fire" && h.owner === "enemy")).toBe(true);
   });
 });
 

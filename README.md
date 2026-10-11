@@ -3,14 +3,17 @@
 A casual, mobile-first co-op looter brawler. The full design lives in
 [Co-op Looter Brawler — Game Design Doc.md](Co-op%20Looter%20Brawler%20—%20Game%20Design%20Doc.md).
 
-**Current state: roadmap phase 5, content (first pass), plus long runs.** Two biomes, the Burning Foundry and the
-Frozen Caverns, playable solo or with up to 4 friends, with four heroes to choose from.
+**Current state: roadmap phase 5, content (first pass), plus long runs.** Four biomes, the Burning Foundry, the
+Frozen Caverns, the Bilge Sewers and the Orbital Deck, playable solo or with up to 4 friends, with four heroes to
+choose from.
 
 **Runs** are long and meant to be lost a few times before they're won:
 
-- **Three acts.** Act 1 is the adventure you picked, act 2 is the other biome, act 3 mixes both (rooms from either
-  biome, enemies from both families) and ends with both bosses at once. Each act is an arrival room, five rooms you
-  choose, and a boss. Enemies get tougher, hit harder and attack faster every act.
+- **Five acts.** Act 1 is the adventure you picked, acts 2 to 4 are the other three biomes in an order the run's seed
+  picks, and act 5 mixes them all (rooms from any biome, enemies from every family) and ends with two bosses at once:
+  that room's own and one other. Each act is an arrival room, five rooms you choose, and a boss. Enemies get tougher,
+  hit harder and attack faster every act; the curve is spread over the five acts, so the finale is as hard as it was
+  when runs had three.
 - **Branching doors.** A cleared room opens two or three doors along the top wall, labelled with what's behind them:
   Fight, Elite Fight (harder, a rare gun each), Event (a fight with a twist), Shrine (two boosts each), Rest Stop
   (half your health back and a suitcase). Stand in a door to vote. Most votes wins, the host breaks ties, and
@@ -28,12 +31,16 @@ Frozen Caverns, playable solo or with up to 4 friends, with four heroes to choos
   behind their friends, ranged enemies sometimes sidestep your shots, and nobody stands in your fire.
 - **Bigger bosses.** Faster windups, four phases (an enrage at 15%), chained triple charges, shockwave rings that
   sweep the whole arena (dash through them, or be inside a dome), rings of bolts, and rain that covers the floor.
+  Each boss also has one attack nobody else has: the Foreman's **Slag Cross** (lines of slag marching out from him,
+  one aimed at you, that burn for a moment; six arms past half health), the Dragon's **frost breath**, the Gator's
+  **Submerge** (it dives out of reach, swims after you and bursts up under you) and the Autopilot's **Laser Sweep**
+  (beams that turn across the room; step over them or dash through, and crates block them).
 - **Endless.** Beat the final boss and choose: fly home with the win, or keep going. Each endless act is harder, and
   every boss after that offers the way home again. Going down in endless still counts as a win.
 - **Rewards** count rooms, kills and bosses, so a lost run still pays. The first boss of the day gives the daily bonus
   and the guaranteed souvenir; first-clear hats need the full win.
-- Dev shortcuts (solo, dev builds): `?seed=123`, `?room=boss` (or `elite`, `event`, `shrine`, `rest`), `&act=2`,
-  `&twist=dark`.
+- Dev shortcuts (solo, dev builds): `?seed=123`, `?biome=sewers` (or `foundry`, `caverns`, `orbital`), `?room=boss`
+  (or `combat`, `elite`, `event`, `shrine`, `rest`), `&act=4` (a later act, in that act's biome), `&twist=dark`.
 
 Everything else from phase 5:
 
@@ -62,6 +69,18 @@ Everything else from phase 5:
   and Snowmen. Mostly armored and frost-immune, so bring Acid. The boss is the **Customer Complaints Dragon**: frost
   breath in a wedge that leaves slush, a tail swipe that sends you sliding, icicles, a belly slide and waiter
   penguins. Pick the adventure in the lobby; in a room, the host picks it.
+- **The Bilge Sewers**: deep water channels where wading is slow and the current carries you (a dash skims across),
+  and sludge pipes in the walls that drip a warning, then blast their lane and shove you down it. The family swims,
+  so it cuts through the water at full speed while you wade: Sewer Roaches, Plunger Ogres, Sewer Eels, Spitting
+  Toads, Sludge Slimes, Drain Shamans, Roach Motels, Toilet mimics and Fatbergs. Mostly flesh, so bring Fire. The
+  boss is the **Lost & Found Gator**: tail slam, sludge spit, snapping lunges, roaches, a sludge spray, a sludge
+  burst and Submerge.
+- **The Orbital Deck**: laser fences between two posts that flicker a warning, then switch on (they hurt and bump
+  you off; dash through), and teleporter pads in color-matched pairs: step onto one and you come out of the other,
+  which the robots can't follow. The family: Roomba Drones, Security Mechs, Rocket Carts, Satellite Crabs, Gray Goo,
+  Holo-Concierges, Drone Docks, Cryo Pod mimics and Space Blobs. Lots of shields, so bring Shock. The boss is **The
+  Autopilot**: EMP stomp, orbital strikes, thruster charges, roombas, plasma rings, a shockwave and Laser Sweep
+  (a third beam past half health).
 - **Signature powers**: rare co-op drops (30% of co-op wins on Normal, more on harder tiers) that change a hero's
   action skill. Sidegrades, each with a catch: Black Hole Dome and Revolving Door (Vanguard), Six Shooter and Dead
   or Alive (Gunslinger), Turret With Legs and Patio Heater (Tinker), Owl Parliament and Rescue Owl (Warden). Equip

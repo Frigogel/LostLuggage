@@ -1,9 +1,10 @@
 import Phaser from "phaser";
-import { ARENA, DOOR, HERO_IDS } from "@lostluggage/sim";
+import { ARENA, DOOR, HERO_IDS, PAD } from "@lostluggage/sim";
 import { SLOT_PALETTES } from "../render/colors";
 import { cosmeticTextures, drawBelt, drawLobby } from "../render/cosmetics";
 import {
   BIOME_ART,
+  drawCargoPod,
   drawCrate,
   drawDoor,
   drawFloor,
@@ -13,9 +14,13 @@ import {
   drawIceFloor,
   drawLava,
   drawOrb,
+  drawOrbitalFloor,
+  drawPad,
   drawRing,
+  drawSewerFloor,
   drawShadow,
   drawSprite,
+  drawStoneBlock,
   drawVent,
   drawVignette,
   FONT_CELL,
@@ -55,6 +60,11 @@ export class BootScene extends Phaser.Scene {
     add("sea-caverns", drawLava(64, BIOME_ART.caverns.sea));
     add("floor", drawFloor(ARENA.w, ARENA.h, FLOOR_PAD));
     add("floor-caverns", drawIceFloor(ARENA.w, ARENA.h, FLOOR_PAD));
+    add("sea-sewers", drawLava(64, BIOME_ART.sewers.sea));
+    add("floor-sewers", drawSewerFloor(ARENA.w, ARENA.h, FLOOR_PAD));
+    add("sea-orbital", drawLava(64, BIOME_ART.orbital.sea));
+    add("floor-orbital", drawOrbitalFloor(ARENA.w, ARENA.h, FLOOR_PAD));
+    add("pad", drawPad(PAD.radius + 2));
     add("vent", drawVent(18));
     add("door-closed", drawDoor(DOOR.w, DOOR.h, false));
     add("door-open", drawDoor(DOOR.w, DOOR.h, true));
@@ -78,6 +88,8 @@ export class BootScene extends Phaser.Scene {
     for (const size of [[32, 32], [48, 16]] as const) {
       add(`crate-${size[0]}x${size[1]}`, drawCrate(size[0], size[1]));
       add(`ice-${size[0]}x${size[1]}`, drawIceBlock(size[0], size[1]));
+      add(`stone-${size[0]}x${size[1]}`, drawStoneBlock(size[0], size[1]));
+      add(`pod-${size[0]}x${size[1]}`, drawCargoPod(size[0], size[1]));
     }
 
     this.cache.bitmapFont.add(

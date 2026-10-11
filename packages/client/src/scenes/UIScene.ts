@@ -27,6 +27,7 @@ import {
   type Pickup,
   type Player,
   type RoomKind,
+  type Biome,
   type RunReward,
   type SimEvent,
   type World,
@@ -48,19 +49,31 @@ const SKILL_COLORS: Record<string, number> = { vanguard: 0x5fd3e8, gunslinger: 0
 const BOSS_PHASES: Record<string, string[]> = {
   furnace_foreman: ["HE'S FILING A COMPLAINT", "HE WANTS A FULL REFUND", "HE'S TAKING THIS TO THE TOP"],
   complaint_dragon: ["IT'S CC'ING YOUR MANAGER", "IT WANTS COMPENSATION. IN GOLD.", "IT'S WRITING A ONE-STAR REVIEW"],
+  lost_found_gator: ["IT FOUND YOUR PASSPORT. IT ATE IT.", "IT'S CLAIMING YOUR LUGGAGE", "NOBODY CLAIMS IT BACK"],
+  autopilot: ["RECALCULATING ROUTE", "DESTINATION: THE SUN", "ALL PASSENGERS ARE NOW CARGO"],
 };
 /** What the big boss attacks want from you, said out loud the first few times. */
 const BOSS_CALLS: Record<string, [string, string]> = {
   shockwave: ["SHOCKWAVE!", "DASH THROUGH THE RING"],
   nova: ["INCOMING!", "SLIP THROUGH THE GAPS"],
   lobbedProjectile: ["IT'S RAINING!", "KEEP MOVING. WATCH THE CIRCLES"],
+  submerge: ["IT WENT UNDER!", "KEEP MOVING. IT COMES UP UNDER YOU"],
+  sweep: ["LASER SWEEP!", "STEP OVER THE BEAM, OR DASH THROUGH IT"],
+};
+/** First time in a biome: what's different about it. */
+const BIOME_HINTS: Partial<Record<Biome, [string, string, number]>> = {
+  caverns: ["MIND THE ICE", "YOU SLIDE. YOUR DASH GOES FURTHER. SPIKES HURT.", 0x9ff3ff],
+  sewers: ["MIND THE WATER", "WADING IS SLOW AND THE CURRENT CARRIES YOU. PIPES BLAST THEIR LANE.", 0x8ab86a],
+  orbital: ["MIND THE LASERS", "FENCES SWITCH ON AND OFF: DASH THROUGH. PADS TELEPORT YOU.", 0x9ff3ff],
 };
 const BOSS_WINS: Record<string, string> = {
   furnace_foreman: "THE FOREMAN HAS BEEN ESCALATED.",
   complaint_dragon: "THE COMPLAINT HAS BEEN FILED. AND IGNORED.",
+  lost_found_gator: "THE GATOR HAS BEEN RETURNED TO SENDER.",
+  autopilot: "THE AUTOPILOT HAS BEEN TURNED OFF AND ON AGAIN.",
 };
 /** Who splits into what, for introducing the pieces. */
-const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball" };
+const SPLITS: Record<string, string> = { foundry: "blobling", caverns: "snowball", sewers: "fatberglet", orbital: "blob_spawn" };
 /** What the pickup button says for each kind of item. */
 const PICKUP_VERBS = { gun: "SWAP", grenade: "SWAP", shrine: "PRAY", chest: "OPEN", heal: "GRAB", boost: "TAKE" };
 const ROOM_ICONS: Record<RoomKind, number> = { intro: 0xc9cfd6, combat: 0xe0533d, elite: 0xff9a2a, event: 0xb46cff, shrine: 0xf2c14e, rest: 0x5fd36a, boss: 0xff3030 };
@@ -324,7 +337,7 @@ export class UIScene extends Phaser.Scene {
           if (room.kind === "boss") {
             if (ev.wave > 1) break;
             const bosses = world.enemies.filter((e) => ENEMIES[e.defId]!.role === "boss");
-            if (bosses.length > 1) this.showBanner("THE COMPLAINTS DEPARTMENT", "BOTH OF THEM. AT ONCE.", 0xff3030, 2600);
+            if (bosses.length > 1) this.showBanner("THE COMPLAINTS DEPARTMENT", "TWO OF THEM. AT ONCE.", 0xff3030, 2600);
             else {
               const boss = ENEMIES[BIOMES[room.biome].boss]!;
               this.showBanner(boss.name.toUpperCase(), boss.flavor.toUpperCase(), 0xff9a2a, 2400);
@@ -353,14 +366,16 @@ export class UIScene extends Phaser.Scene {
           const room = world.run.room;
           const plan = world.run.plans[ev.index];
           const prev = world.run.plans[ev.index - 1];
+          const hint = plan && !plan.mix ? BIOME_HINTS[room.biome] : undefined;
           if (plan && prev && plan.act > prev.act) {
-            // A new act: say where we are.
+            // A new act: say where we are, and the first time in a biome, what's different about it.
             const name = plan.act > FINAL_ACT ? `ENDLESS ${plan.act - FINAL_ACT}` : `ACT ${plan.act + 1}`;
             this.showBanner(name, plan.act === FINAL_ACT ? "A BIT OF EVERYTHING" : BIOMES[room.biome].name.toUpperCase(), 0xf2c14e, 2600);
+            if (hint) this.toastOnce(`biome:${room.biome}`, ...hint);
           } else if (room.twist) this.showBanner(TWISTS[room.twist].name.toUpperCase(), TWISTS[room.twist].text.toUpperCase(), 0xb46cff, 2600);
           else if (ev.kind === "boss") this.showBanner(BIOMES[room.biome].bossRoom.toUpperCase(), "", 0xff9a2a);
           else if (ROOM_BANNERS[ev.kind]) this.showBanner(...ROOM_BANNERS[ev.kind]!, 2400);
-          else if (ev.index === 0 && room.biome === "caverns") this.showBanner("MIND THE ICE", "YOU SLIDE. YOUR DASH GOES FURTHER. SPIKES HURT.", 0x9ff3ff, 2600);
+          else if (ev.index === 0 && hint) this.showBanner(...hint, 2600);
           break;
         }
         case "enemySpawn": {

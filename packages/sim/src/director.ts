@@ -7,14 +7,15 @@ export const MAX_ENEMIES = 40;
 
 // ---------------------------------------------------------------- run shape
 //
-// A run is three acts, each a string of rooms picked at the doors and a boss at the end (design doc: Run structure).
-// Act one is the adventure you picked, act two the other biome, act three a mix of both, ending with both bosses at
-// once. Beat that and you can fly home with the win, or keep going in endless, where every act is harder than the last.
+// A run is five acts, each a string of rooms picked at the doors and a boss at the end (design doc: Run structure).
+// Act one is the adventure you picked, acts two to four the other biomes in an order the run's seed picks, and act
+// five a mix of everything, ending with two of the bosses at once. Beat that and you can fly home with the win, or keep
+// going in endless, where every act is harder than the last.
 
 /** Rooms in an act before its boss: the arrival (step 0), then the rooms picked at the doors. */
 export const ACT_ROOMS = 6;
 /** The act whose boss ends the adventure. Acts after it are endless. */
-export const FINAL_ACT = 2;
+export const FINAL_ACT = 4;
 
 /** One rule that changes how a room plays (shown on the door, explained when you walk in). */
 export const TWISTS: Record<Exclude<TwistId, "">, { name: string; text: string }> = {
@@ -29,30 +30,50 @@ export const TWISTS: Record<Exclude<TwistId, "">, { name: string; text: string }
 };
 export const TWIST_IDS = Object.keys(TWISTS) as Exclude<TwistId, "">[];
 
-/** The act's home biome. Act three (and every third endless act) mixes both, room by room. */
+/** The order a run visits the biomes in: the picked one first, then the others, shuffled by the run's seed. */
+export function actOrder(start: Biome, seed: number): Biome[] {
+  const rest = BIOME_IDS.filter((b) => b !== start);
+  let s = seed >>> 0;
+  for (let i = rest.length - 1; i > 0; i--) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    const j = s % (i + 1);
+    [rest[i], rest[j]] = [rest[j]!, rest[i]!];
+  }
+  return [start, ...rest];
+}
+
+/** The act's home biome. The final act (and every third endless act) mixes them all, room by room. */
 export function actBiome(w: World, act: number): { biome: Biome; mix: boolean } {
-  const start = w.run.biome;
-  const other = BIOME_IDS.find((b) => b !== start) ?? start;
   if (act === FINAL_ACT || (act > FINAL_ACT && (act - FINAL_ACT) % 3 === 0)) return { biome: pick(w, BIOME_IDS), mix: true };
-  return { biome: act % 2 === 0 ? start : other, mix: false };
+  const order = w.run.order.length > 0 ? w.run.order : actOrder(w.run.biome, 0);
+  return { biome: order[act % order.length]!, mix: false };
+}
+
+/**
+ * How hard an act is, on the scale the numbers below were tuned for: the adventure ramps from 0 to 2 over its acts,
+ * so a longer adventure climbs more gently and ends just as hard. Endless adds one per act from there.
+ */
+export function actLevel(act: number): number {
+  return act <= FINAL_ACT ? (act * 2) / FINAL_ACT : act - FINAL_ACT + 2;
 }
 
 /** How deep into the run a room is: what the budgets, elites and enemy toughness grow with. */
-export const depthOf = (spec: Pick<RoomSpec, "act" | "step">): number => spec.act * (ACT_ROOMS + 1) + spec.step;
+export const depthOf = (spec: Pick<RoomSpec, "act" | "step">): number => actLevel(spec.act) * (ACT_ROOMS + 1) + spec.step;
 
 /** Enemy health by act: each act is a step up, and endless keeps climbing. */
 export function actHp(act: number): number {
-  return act <= FINAL_ACT ? 1 + 0.3 * act : 1.6 * Math.pow(1.3, act - FINAL_ACT);
+  const level = actLevel(act);
+  return level <= 2 ? 1 + 0.3 * level : 1.6 * Math.pow(1.3, level - 2);
 }
 
 /** Enemy damage by act. */
 export function actDamage(act: number): number {
-  return 1 + 0.15 * Math.min(act, 8);
+  return 1 + 0.15 * Math.min(actLevel(act), 8);
 }
 
 /** Enemies attack faster in later acts (windups and cooldowns). */
 export function actHaste(act: number): number {
-  return Math.min(1.5, 1 + 0.08 * act);
+  return Math.min(1.5, 1 + 0.08 * actLevel(act));
 }
 
 // ---------------------------------------------------------------- waves
@@ -84,6 +105,8 @@ const PACING = [1.0, 0.7, 1.2, 1.5];
 export const BIOME_LAYOUTS: Record<Biome, { intro: number; combat: number[]; rest: number; boss: number }> = {
   foundry: { intro: 0, combat: [1, 2, 10, 11, 12], rest: 3, boss: 4 },
   caverns: { intro: 5, combat: [6, 7, 13, 14, 15], rest: 8, boss: 9 },
+  sewers: { intro: 16, combat: [17, 18, 19, 20], rest: 21, boss: 22 },
+  orbital: { intro: 23, combat: [24, 25, 26, 27], rest: 28, boss: 29 },
 };
 
 function family(biomes: readonly string[], role: Role): EnemyDef[] {
@@ -230,10 +253,13 @@ export function planCombatWaves(w: World, spec: RoomSpec, tier: number, partySiz
   return waves;
 }
 
-/** The boss (or bosses) at the end of an act. The final act brings both at once. */
+/** The boss (or bosses) at the end of an act. The final act brings two at once: this room's and one other. */
 export function bossWaves(w: World, spec: RoomSpec): string[][] {
-  const both = spec.act === FINAL_ACT || (spec.act > FINAL_ACT && spec.mix);
-  if (both) return [BIOME_IDS.map((b) => BIOMES[b].boss + "@duo")];
+  const duo = spec.act === FINAL_ACT || (spec.act > FINAL_ACT && spec.mix);
+  if (duo) {
+    const other = pick(w, BIOME_IDS.filter((b) => b !== spec.biome));
+    return [[spec.biome, other].map((b) => BIOMES[b].boss + "@duo")];
+  }
   return [[BIOMES[spec.biome].boss]];
 }
 

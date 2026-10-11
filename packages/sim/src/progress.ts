@@ -8,6 +8,7 @@
 // Actions carry their own ids (for exactly-once syncing) and every random choice (new stash ids, the souvenir roll)
 // is decided from data inside the action, never inside the reducer.
 import { COSMETIC_IDS, COSMETICS, cleanOutfit, cosmeticDropChance, DEFAULT_OUTFIT, isStarter, type CosmeticSlot, type Outfit } from "./data/cosmetics";
+import { BIOMES } from "./data/enemies";
 import { GRENADES } from "./data/grenades";
 import { GUNS } from "./data/guns";
 import { HEROES, MAX_LEVEL, tierLevel } from "./data/heroes";
@@ -514,7 +515,7 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     grenadeHand: String(raw.grenadeHand ?? "").slice(0, 40),
     day: String(raw.day ?? "").slice(0, 10),
     helped: raw.helped === true,
-    biome: raw.biome === "caverns" ? "caverns" : "foundry",
+    biome: typeof raw.biome === "string" && raw.biome in BIOMES ? (raw.biome as Biome) : "foundry",
   };
   // Signature powers only come from co-op dungeons.
   const sig = raw.mode === "coop" && typeof raw.signature === "string" && SIGNATURES[raw.signature] && !p.signatures.includes(raw.signature) ? raw.signature : undefined;

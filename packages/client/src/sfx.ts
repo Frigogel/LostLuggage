@@ -268,6 +268,22 @@ class Sfx {
       case "spiked":
         if (this.ok(name, 80)) { this.noise(0.12, 0.4, 5000, 900); this.tone(700, 200, 0.12, "square", 0.2); }
         break;
+      // Bilge Sewers and the Orbital Deck.
+      case "pipeBlast":
+        if (this.ok(name, 100)) { this.noise(0.6, 0.4, 900, 200); this.tone(110, 60, 0.4, "triangle", 0.25); }
+        break;
+      case "laserOn":
+        if (this.ok(name, 100)) this.tone(1800, 2400, 0.12, "sawtooth", 0.1);
+        break;
+      case "warp":
+        if (this.ok(name, 80)) { this.tone(400, 1600, 0.16, "sine", 0.25); this.tone(1600, 800, 0.1, "square", 0.08); }
+        break;
+      case "splash":
+        if (this.ok(name, 120)) { this.noise(0.5, 0.6, 1600, 150); this.tone(90, 40, 0.35, "sine", 0.5); }
+        break;
+      case "sweep":
+        if (this.ok(name, 200)) this.tone(300, 900, 0.6, "sawtooth", 0.18);
+        break;
       case "breath":
         if (this.ok(name, 150)) { this.noise(0.6, 0.5, 6000, 400); this.tone(200, 90, 0.5, "sawtooth", 0.15); }
         break;
