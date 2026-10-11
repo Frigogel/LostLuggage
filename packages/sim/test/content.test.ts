@@ -763,6 +763,36 @@ describe("grabbers", () => {
     expect(g.stunT).toBeGreaterThan(0);
   });
 
+  it("a Claims Agent hooks you from across the room and reels you in for the hold", () => {
+    const w = quiet([{}]);
+    const p = w.players[0]!;
+    p.pos = { x: 440, y: 300 };
+    const g = dummy(w, "claims_agent", 300, 300, 1000);
+    g.cooldowns = [0];
+    for (let t = 0; t < 60 && !p.pinnedBy; t++) run(w, 1);
+    expect(p.pinnedBy).toBe(g.id);
+    expect(dist(p.pos, g.pos)).toBeGreaterThan(60);
+    for (let t = 0; t < 60 && g.attackPoints.length > 0; t++) run(w, 1);
+    expect(p.pinnedBy).toBe(g.id);
+    expect(dist(p.pos, g.pos)).toBeLessThan(g.radius + p.radius + 1);
+  });
+
+  it("dashing through a hook dodges it", () => {
+    const w = quiet([{}]);
+    const p = w.players[0]!;
+    p.pos = { x: 440, y: 300 };
+    const g = dummy(w, "claims_agent", 300, 300, 1000);
+    g.cooldowns = [0];
+    let thrown = false;
+    for (let t = 0; t < 60; t++) {
+      p.iframes = 0.5;
+      run(w, 1);
+      thrown ||= g.state === "attack";
+    }
+    expect(thrown).toBe(true);
+    expect(p.pinnedBy).toBe(0);
+  });
+
   it("co-op clients know who's pinned, and don't predict them moving", () => {
     const { w, p } = grabbed();
     const snap = decodeSnapshot(encodeSnapshot(w, [], new Map())).world;

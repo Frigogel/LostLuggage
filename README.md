@@ -14,10 +14,12 @@ or with up to 4 friends, with four heroes to choose from.
   choose, and a boss. Enemies get tougher, hit harder and attack faster every act; the curve is spread over the five
   acts, so the finale is as hard as it was when runs had three.
 - **Grabbers, from act 2 on.** Every biome has one (Claw Machine, Polar Hugger, U-Bend Lurker, Cargo Loader, Mummy
-  Chaperone), and from act 2 most fights can bring one along. It winds up with its arms out, lunges, and holds whoever
-  it catches: no moving, shooting or throwing, and a squeeze now and then. A teammate standing next to you pulls you
+  Chaperone), and from act 2 most fights can bring one along. Get within arm's reach and it grabs you almost instantly
+  and holds on: no moving, shooting or throwing, and a squeeze now and then. A teammate standing next to you pulls you
   free in under a second; on your own, mash dash (five presses). A third of its health in damage breaks its grip too,
-  and a grabber that loses its grip is dazed. Nobody helps in time and you get thrown.
+  and a grabber that loses its grip is dazed. Nobody helps in time and you get thrown. The Claims Agent, found in every
+  biome, does it from range: after a line telegraph it throws a hook that catches the first player it touches and reels
+  them in for the same hold. Dash through the hook or put cover between you.
 - **Branching doors.** A cleared room opens two or three doors along the top wall, labelled with what's behind them:
   Fight, Elite Fight (harder, a rare gun each), Event (a fight with a twist), Shrine (two boosts each), Rest Stop
   (half your health back and a suitcase). Stand in a door to vote. Most votes wins, the host breaks ties, and

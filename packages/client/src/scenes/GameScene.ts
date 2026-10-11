@@ -1959,6 +1959,7 @@ export class GameScene extends Phaser.Scene {
         sx = 1.15;
         sy = 0.9;
         if (atk.type === "sweep") this.drawSweep(e, pos, 1, t);
+        if (atk.type === "grab" && atk.hook && e.attackPoints[0]) this.drawHook(pos, e.attackPoints[0]);
       } else if (e.state === "move" && !frozen) {
         sy = 1 + Math.sin(t * 0.025 + e.id) * 0.06;
       }
@@ -2121,6 +2122,15 @@ export class GameScene extends Phaser.Scene {
     else if (Math.random() < 0.2) this.goo.get("sludge_slime")?.explode(1, pos.x, pos.y);
   }
 
+  /** A grappler's hook out on its line (flying, or dragging someone in). */
+  private drawHook(from: Vec, tip: Vec): void {
+    const o = this.over;
+    o.lineStyle(2, 0x1b1020, 0.9).lineBetween(from.x, from.y - 2, tip.x, tip.y);
+    o.lineStyle(1, 0xc9cfd6, 1).lineBetween(from.x, from.y - 2, tip.x, tip.y);
+    const a = Math.atan2(tip.y - from.y + 2, tip.x - from.x);
+    o.lineStyle(2, 0xc9cfd6, 1).beginPath().arc(tip.x, tip.y, 4, a - Math.PI * 0.6, a + Math.PI * 0.6).strokePath();
+  }
+
   /** Laser Sweep beams: thin and flickering while it charges (`k` < 1), then solid as they turn. */
   private drawSweep(e: Enemy, pos: Vec, k: number, t: number): void {
     const atk = ENEMIES[e.defId]!.attacks[e.attackIdx]!;
@@ -2214,8 +2224,17 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(1, 0xb48cff, 0.4 + 0.5 * k).strokeCircle(pos.x, pos.y, e.radius + 4 + 10 * (1 - k));
         break;
       case "grab": {
-        // Arms out: the reach it's about to close, in front of it.
         const a = angleOf(e.attackDir);
+        if (atk.hook) {
+          // Winding up a hook: the line it will fly along, filling toward the end as the throw comes.
+          const l = Math.min(atk.hook.range, beamLength(this.world.arena, pos, e.attackDir));
+          const end = { x: pos.x + Math.cos(a) * l, y: pos.y + Math.sin(a) * l };
+          g.lineStyle(3, 0xe0533d, 0.15 + 0.2 * k).lineBetween(pos.x, pos.y, end.x, end.y);
+          g.lineStyle(1, 0xff6a5a, 0.6 + 0.4 * Math.sin(t * 0.03)).lineBetween(pos.x, pos.y, end.x, end.y);
+          g.lineStyle(3, 0xff6a5a, 0.5).lineBetween(pos.x, pos.y, pos.x + Math.cos(a) * l * k, pos.y + Math.sin(a) * l * k);
+          break;
+        }
+        // Arms out: the reach it's about to close, in front of it.
         const reach = e.radius + atk.reach + 6;
         g.fillStyle(0xe0533d, 0.1 + 0.2 * k).slice(pos.x, pos.y, reach, a - 0.9, a + 0.9, false).fillPath();
         g.lineStyle(1, 0xff6a5a, 0.6 + 0.4 * Math.sin(t * 0.03)).slice(pos.x, pos.y, reach, a - 0.9, a + 0.9, false).strokePath();

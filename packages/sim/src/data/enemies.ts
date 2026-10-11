@@ -1,12 +1,22 @@
 import type { AttackDef, Biome, EnemyDef } from "../types";
 
 /**
- * Every grabber's grab: a short windup and lunge, then a hold of a few seconds. A teammate frees you in under a
- * second; mashing dash takes five presses; a third of its health in damage breaks it. Nobody helps and you're thrown.
+ * Every grabber's grab: near-instant once you're in reach (keep your distance, don't count on dodging it), then a
+ * hold of a few seconds. A teammate frees you in under a second; mashing dash takes five presses; a third of its
+ * health in damage breaks it. Nobody helps and you're thrown.
  */
 const GRAB_ATTACK: AttackDef = {
-  type: "grab", telegraph: "redFlash", windupMs: 600, range: 18, reach: 14, damage: 6, squeeze: 5, holdMs: 3200, breakFrac: 0.3,
+  type: "grab", telegraph: "redFlash", windupMs: 120, range: 32, reach: 28, damage: 6, squeeze: 5, holdMs: 3200, breakFrac: 0.3,
   toss: 12, cooldownMs: 4500, recoverMs: 700,
+};
+
+/**
+ * The grappler's hook: a clear line telegraph, then the hook flies straight. Dash through it or put cover between you;
+ * caught, you're reeled in and held like any grab (a teammate can pull you off the line on the way in).
+ */
+const HOOK_ATTACK: AttackDef = {
+  type: "grab", telegraph: "line", windupMs: 550, range: 170, reach: 14, damage: 4, squeeze: 5, holdMs: 2600, breakFrac: 0.3,
+  toss: 10, cooldownMs: 5000, recoverMs: 800, hook: { speed: 340, range: 210, reel: 240 },
 };
 
 // The Burning Foundry family: one enemy per role, plus a split child and the mini-boss.
@@ -1031,6 +1041,22 @@ export const ENEMIES: Record<string, EnemyDef> = {
     movement: { type: "chase" },
     attacks: [GRAB_ATTACK],
     biomes: ["orbital"],
+    threatCost: 3,
+    dropChance: 0.1,
+  },
+  // The ranged grabber: hangs back and hooks you from across the room, in every biome.
+  claims_agent: {
+    id: "claims_agent",
+    name: "Claims Agent",
+    flavor: "Claims your bag. Claims you. No ticket required.",
+    role: "grabber",
+    defense: "flesh",
+    hp: 90,
+    speed: 46,
+    radius: 8,
+    movement: { type: "keepDistance", min: 80, max: 150 },
+    attacks: [HOOK_ATTACK],
+    biomes: ["foundry", "caverns", "sewers", "orbital", "crypt"],
     threatCost: 3,
     dropChance: 0.1,
   },

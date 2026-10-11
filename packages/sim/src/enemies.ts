@@ -8,7 +8,7 @@ import { MARK, tickMark } from "./marks";
 import { add, clamp, dist, distToSegment, dot, fromAngle, angleOf, len, norm, rand, randRange, rotate, scale, sub, type Vec } from "./math";
 import type { Arena, AttackDef, Enemy, EnemyDef, Player, Puddle, World } from "./types";
 import { snuffCandles } from "./crypt";
-import { tryGrab, updateGrab } from "./grabs";
+import { throwHook, tryGrab, updateGrab } from "./grabs";
 import { beltAt, trapPoint, ventState, waterAt } from "./room";
 import { WATER } from "./players";
 import { actHaste } from "./director";
@@ -503,6 +503,10 @@ function executeAttack(w: World, e: Enemy, def: EnemyDef, atk: AttackDef, target
       break;
     }
     case "grab": {
+      if (atk.hook) {
+        throwHook(e, atk.hook);
+        break;
+      }
       // A lunge sells the grab. Catching nobody leaves it off balance for a moment.
       e.knock = add(e.knock, scale(e.attackDir, 150));
       if (!tryGrab(w, e, atk)) e.stateT += 0.3;

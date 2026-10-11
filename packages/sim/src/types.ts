@@ -304,7 +304,13 @@ export type AttackDef =
        * they mash dash, or the grabber takes `breakFrac` of its health in damage. Held too long, they get thrown.
        */
       type: "grab";
-      telegraph: "redFlash";
+      telegraph: "redFlash" | "line";
+      /**
+       * Grapplers: throws a hook straight ahead instead of grabbing in front. It flies `range` px at `speed` px/s and
+       * catches the first player it touches (walls and cover stop it, a dash goes through it), then reels them in at
+       * `reel` px/s for the usual hold. Freeing them works the same way while they're being dragged in.
+       */
+      hook?: { speed: number; range: number; reel: number };
       reach: number;
       /** On the catch. */
       damage: number;

@@ -1065,6 +1065,24 @@ export const SPRITES: Record<string, PixelSprite> = {
       "..kk......kk....",
     ],
   },
+  claims_agent: {
+    palette: { r: "#e0533d", R: "#a8323a", y: "#f2c14e", f: "#f0c8a0", e: "#1b1020", m: "#c9cfd6", M: "#3a3040" },
+    rows: [
+      "....kkkkk...kkk.",
+      "...krrrrrk.kmmmk",
+      "..kyyyyyyykkmkmk",
+      "...kfffefk.kmkk.",
+      "...kffffk..kmk..",
+      "....kffk...kmk..",
+      "..krryrrrrffmk..",
+      "..krrrrrrrkkmk..",
+      "..krryyyyrkkmk..",
+      "..kRRRRRRRkkmk..",
+      "...kMk.kMk.kmk..",
+      "...kMk.kMk.kmk..",
+      "...kkk.kkk..k...",
+    ],
+  },
 
   // ---------------------------------------------------------------- Drowned Crypt
   mummy_chaperone: {

@@ -71,6 +71,7 @@ export const ENEMY_COLORS: Record<string, number[]> = {
   polar_hugger: [0xffffff, 0xcfd8e3, 0xe0533d],
   ubend_lurker: [0x4e8a6a, 0xa7b0bb, 0xf2c14e],
   cargo_loader: [0xf2c14e, 0xc9cfd6, 0x5fd3e8],
+  claims_agent: [0xe0533d, 0xf2c14e, 0xc9cfd6],
   mummy_chaperone: [0xe8dcc0, 0xb8a88a, 0x7ee05a],
   souvenir_hunter: [0xe8e4d8, 0xa8a498, 0xa7b0bb],
   zombie_porter: [0x7aa06a, 0xa8323a, 0xf2c14e],
