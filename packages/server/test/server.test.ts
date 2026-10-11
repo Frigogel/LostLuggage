@@ -240,7 +240,6 @@ describe("accounts", () => {
     const me = room.world.players[0]!;
     const gun = newGun(room.world, "launcher", "epic", "acid", [], "dwarfcorp");
     me.guns[0] = gun;
-    me.haul.push(gun);
     const reward = nextMessage<RewardInfo>(host, "reward");
     let guestReward = false;
     guest.onMessage("reward", () => (guestReward = true));

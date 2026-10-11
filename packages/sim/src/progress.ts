@@ -77,7 +77,7 @@ export interface RunResult {
   /** Bosses beaten (one per act). */
   acts?: number;
   kills: number;
-  /** Guns coming home (everything picked up), with fresh stash ids. */
+  /** Guns coming home (the ones in your hands), with fresh stash ids. */
   guns: StashGun[];
   /** Stash ids of the guns in hand at the end; "" keeps that loadout slot as it was. */
   hand: string[];
@@ -341,7 +341,7 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
   const newId = opts.newId ?? randomId;
   const ids = new Map<number, string>();
   const guns: StashGun[] = [];
-  for (const g of [...p.haul, ...p.guns]) {
+  for (const g of p.guns) {
     if (g.sid || g.loaner || ids.has(g.uid)) continue;
     const id = newId();
     ids.set(g.uid, id);
@@ -455,7 +455,7 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   if (daily) p.lastDailyWin = r.day;
   const { xp, bonuses } = runXp(r, daily);
 
-  // Everything you picked up comes home.
+  // Only the guns in your hands come home.
   let kept = 0;
   let legendaries = 0;
   for (const g of r.guns) {

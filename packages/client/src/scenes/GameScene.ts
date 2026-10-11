@@ -351,7 +351,7 @@ export class GameScene extends Phaser.Scene {
     sfx.unlock();
   }
 
-  /** Solo: saves the run once, at the end or when quitting early (you keep what you picked up). */
+  /** Solo: saves the run once, at the end or when quitting early (you keep the guns in your hands). */
   reportRun(): RunReward | undefined {
     if (this.net || this.reported || !this.onRunEnd) return this.reward;
     this.reported = true;

@@ -336,7 +336,7 @@ describe("progression", () => {
     expect(p.heroes.vanguard!.xp).toBe(0);
   });
 
-  it("brings home everything you picked up and keeps the guns in your hands equipped", () => {
+  it("brings home the guns in your hands and keeps them equipped", () => {
     const p = newProfile();
     const { profile, reward } = act(p, { type: "run", id: "r1", result: result({ guns: [gun("a"), gun("b", "legendary", { legendary: "show_off" })], hand: ["starter-pistol", "b"] }) });
     expect(reward!.kept).toBe(2);

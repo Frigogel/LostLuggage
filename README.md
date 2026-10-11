@@ -100,7 +100,7 @@ From phase 4:
 - **Legendaries**: six named guns, each with one rule-breaking effect (The Ex's pellets come back, Overachiever fires
   a homing rocket every 10th bullet, Hot Take leaves a line of fire, Show-Off ricochets between enemies, Party Favor
   bursts into bomblets, Mood Ring changes element every shot).
-- **Loot comes home**: every gun you pick up in a run goes to your armory, and the two in your hands become your
+- **Loot comes home**: the two guns in your hands at the end of a run go to your armory and become your
   loadout. Equip, compare (green arrows), scrap for XP, or scrap all commons in one tap. The intro room's
   try-out guns are loaners and stay behind.
 - **Souvenirs** (permanent boosts) from solo runs that beat a boss: always from the first of the day, sometimes otherwise. Pick
@@ -165,7 +165,7 @@ Then:
 Every change is applied on the device first, with the same reducer the server uses (`packages/sim/src/progress.ts`),
 then queued and sent to the server, which applies each action exactly once. Solo runs therefore save offline and
 sync when there's a connection; co-op rewards are saved by the server and sent back at the end of the run. Leaving
-a run early (quit or leave room) still takes home the guns you picked up.
+a run early (quit or leave room) still takes home the guns in your hands.
 
 ## Playing together
 

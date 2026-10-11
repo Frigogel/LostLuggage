@@ -184,7 +184,6 @@ function decodePlayer(a: unknown[]): Player {
     streakT: n(32) / T,
     skills: [],
     mods: { damage: 1, speed: n(33) / 1000, dashCd: n(34) / 1000, charge: 1, luck: 0 },
-    haul: [],
     panicUsed: false,
     signature: SIGNATURE_IDS[n(35)] ?? "",
     shield: n(36) / 10,

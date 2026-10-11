@@ -81,7 +81,6 @@ export function makePlayer(w: World, opts: PlayerOptions, pos: Vec, slot = 0): P
     // Veterans keep their wider toolbox in co-op: skills follow the hero's own level, not the synced one.
     skills: validSkills(heroId, level, opts.skills ?? []),
     mods,
-    haul: [],
     panicUsed: false,
     signature: opts.signature && SIGNATURES[opts.signature]?.heroId === heroId ? opts.signature : "",
     shield: 0,
@@ -563,9 +562,6 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       const old = p.guns[p.active]!;
       p.guns[p.active] = pk.gun;
       pk.gun = old;
-      // Everything you pick up comes home with you at the end of the run, except the intro room's loaners.
-      const got = p.guns[p.active]!;
-      if (!got.sid && !got.loaner && !p.haul.some((g) => g.uid === got.uid)) p.haul.push(got);
       p.burstLeft = 0;
       p.charging = false;
       w.events.push({ type: "pickup", id: p.id, gun: p.guns[p.active]! });

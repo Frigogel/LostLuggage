@@ -356,8 +356,6 @@ export interface Player {
   /** Learned skill node ids (see data/skills). */
   skills: string[];
   mods: PlayerMods;
-  /** Every gun that passed through this player's hands this run: it all comes home at the end. */
-  haul: Gun[];
   /** Panic Room skill: the free dome is used up until the next room. */
   panicUsed: boolean;
   /** Equipped signature power (co-op drop that changes the action skill), or "". */

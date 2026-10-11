@@ -530,7 +530,7 @@ export class UIScene extends Phaser.Scene {
         c.add(this.add.bitmapText(0, -14, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
         this.panelButton(c, 0, 26, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
       } else {
-        c.add(this.add.bitmapText(0, -14, "pixel", "QUITTING KEEPS THE GUNS YOU PICKED UP", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        c.add(this.add.bitmapText(0, -14, "pixel", "QUITTING KEEPS THE GUNS IN YOUR HANDS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
         this.panelButton(c, 0, 26, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
       }
       // Your build so far, in two columns.
