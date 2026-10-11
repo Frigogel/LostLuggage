@@ -660,10 +660,8 @@ export function decodeInput(a: unknown): { seq: number; input: PlayerInput } | u
 export interface RoomOptions {
   /** Code-only room for friends, hidden from quick match. */
   private?: boolean;
-  /** Difficulty tier, 0 = Normal. */
+  /** Difficulty tier, 0 = Normal (see director.DIFFICULTIES). */
   tier?: number;
-  /** Which adventure the room runs. */
-  biome?: Biome;
 }
 
 /** Sent when joining. */
@@ -709,8 +707,8 @@ export interface LobbyInfo {
   code: string;
   /** Session id of the host, who starts runs. */
   host: string;
+  /** The difficulty the host picked (see director.DIFFICULTIES). Each run starts in a random adventure. */
   tier: number;
-  biome: Biome;
   /** Goes up every time a run starts. */
   runId: number;
   running: boolean;

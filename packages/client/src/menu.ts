@@ -4,7 +4,7 @@
 import type Phaser from "phaser";
 import {
   ADVENTURE_IDS,
-  BIOMES,
+  DIFFICULTIES,
   COSMETIC_SLOTS,
   COSMETICS,
   cosmeticsFor,
@@ -12,7 +12,6 @@ import {
   HERO_IDS,
   SIGNATURES,
   signaturesFor,
-  type Biome,
   GRENADE_CAP,
   grenadeStats,
   GUNS,
@@ -66,14 +65,14 @@ import type { GameData } from "./scenes/GameScene";
 import type { LobbyScene } from "./scenes/LobbyScene";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const BIOME_KEY = "lostluggage.biome";
+const TIER_KEY = "lostluggage.tier";
 
-function loadBiome(): Biome {
+function loadTier(): number {
   try {
-    const b = localStorage.getItem(BIOME_KEY) as Biome | null;
-    return b && ADVENTURE_IDS.includes(b) ? b : "foundry";
+    const t = Number(localStorage.getItem(TIER_KEY));
+    return Number.isInteger(t) && t >= 0 && t < DIFFICULTIES.length ? t : 0;
   } catch {
-    return "foundry";
+    return 0;
   }
 }
 const SCREENS = ["lobby", "signin", "skills", "armory", "souvenirs", "wardrobe"] as const;
@@ -134,8 +133,8 @@ export class Menu {
   private freshLooks = new Set<string>();
   private wardTab: CosmeticSlot = "hat";
   private armoryTab: ArmoryTab = "guns";
-  /** The adventure for solo runs and rooms you create. Remembered on this device. */
-  private biome: Biome = loadBiome();
+  /** The difficulty for solo runs and rooms you create. Remembered on this device. */
+  private tier = loadTier();
 
   constructor(private game: Phaser.Game) {
     const name = $<HTMLInputElement>("name");
@@ -174,7 +173,7 @@ export class Menu {
       if (this.session) this.session.emote(emote);
       else this.lobbyScene?.emote({ sessionId: LOCAL, emote });
     });
-    $("lobby-biome").addEventListener("click", () => this.nextBiome());
+    $("lobby-tier").addEventListener("click", () => this.nextTier());
     $("lobby-hero").addEventListener("click", () => {
       // Brawl Stars style: switch heroes right in the lobby.
       const p = this.account.profile;
@@ -333,9 +332,10 @@ export class Menu {
     const s = this.session;
     const l = s?.lobby;
     const host = !s || s.isHost;
-    const biome = l?.biome ?? this.biome;
-    this.label("lobby-biome", el("span", {}, BIOMES[biome]?.name ?? "", el("small", { textContent: host ? "Change adventure ▸" : "Host picks" })), "");
-    $<HTMLButtonElement>("lobby-biome").disabled = !host;
+    const tier = DIFFICULTIES[l?.tier ?? this.tier] ?? DIFFICULTIES[0];
+    this.label("lobby-tier", el("span", {}, tier.name, el("small", { textContent: host ? "Change difficulty ▸" : "Host picks" })), "");
+    $("lobby-tier").title = tier.text;
+    $<HTMLButtonElement>("lobby-tier").disabled = !host;
     $("party-solo").hidden = !!s;
     $("party-room").hidden = !s;
     this.label("play", !s ? "Play solo" : (l?.seats.length ?? 1) > 1 ? "Start run" : "Start alone", "");
@@ -355,8 +355,7 @@ export class Menu {
     return {
       code: "",
       host: LOCAL,
-      tier: 0,
-      biome: this.biome,
+      tier: this.tier,
       runId: 0,
       running: false,
       seats: [{ sessionId: LOCAL, name: me.name || "TRAVELER", level: me.level ?? 1, heroId: p.heroId, playerId: -1, connected: true, outfit: p.outfit }],
@@ -369,18 +368,16 @@ export class Menu {
     else this.startSolo();
   }
 
-  private nextBiome(): void {
+  private nextTier(): void {
     const s = this.session;
     if (s && !s.isHost) return;
-    // The Drowned Crypt isn't on the list: every adventure ends there.
-    const ids = ADVENTURE_IDS;
-    this.biome = ids[(ids.indexOf(s?.lobby?.biome ?? this.biome) + 1) % ids.length]!;
+    this.tier = ((s?.lobby?.tier ?? this.tier) + 1) % DIFFICULTIES.length;
     try {
-      localStorage.setItem(BIOME_KEY, this.biome);
+      localStorage.setItem(TIER_KEY, String(this.tier));
     } catch {
       /* private mode: it just won't be remembered */
     }
-    s?.setBiome(this.biome);
+    s?.setTier(this.tier);
     this.render();
   }
 
@@ -752,7 +749,9 @@ export class Menu {
   startSolo(): void {
     this.runScenes({
       profile: this.me,
-      biome: this.biome,
+      tier: this.tier,
+      // Every run starts in a random adventure, then visits the others and ends in the Crypt.
+      biome: ADVENTURE_IDS[Math.floor(Math.random() * ADVENTURE_IDS.length)],
       outfit: this.account.profile.outfit,
       // Solo results are trusted (friends-only game): applied here and synced when there's a connection.
       onRunEnd: (w, p): RunReward | undefined => this.account.dispatch({ type: "run", result: runResult(w, p, { mode: "solo", day: localDay() }) }).reward,
@@ -769,7 +768,7 @@ export class Menu {
     // The server loads your saved loadout, so get the latest changes to it first.
     await within(this.account.sync(), 3000);
     try {
-      const s = await NetSession.connect(how, this.joinOptions, { biome: this.biome });
+      const s = await NetSession.connect(how, this.joinOptions, { tier: this.tier });
       this.session = s;
       this.startedRun = -1;
       s.onLobby = (l) => this.onLobby(l);

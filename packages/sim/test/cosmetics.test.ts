@@ -27,18 +27,20 @@ describe("cosmetics", () => {
     expect(ownsCosmetic(p, "not_a_thing")).toBe(false);
   });
 
-  it("the first win of each adventure and tier gives its cosmetic, once", () => {
+  it("the first win on each difficulty clears every adventure and gives their cosmetics, once", () => {
     let p = newProfile();
     const loss = act(p, { type: "run", id: "l", result: result({ victory: false }) });
     expect(loss.reward!.cosmetics).toBeUndefined();
-    const win = act(p, { type: "run", id: "w1", result: result() });
-    expect(win.reward!.cosmetics).toContain("hat_cone");
+    // Whichever adventure the run started in: a win goes through all of them.
+    const win = act(p, { type: "run", id: "w1", result: result({ biome: "sewers" }) });
+    expect(win.reward!.cosmetics).toEqual(expect.arrayContaining(["hat_cone", "hat_fish", "hat_plunger", "hat_antenna"]));
     p = win.profile;
-    expect(p.clears).toEqual(["foundry:0"]);
+    expect(p.clears).toEqual(["foundry:0", "caverns:0", "sewers:0", "orbital:0"]);
     expect(p.newCosmetics).toContain("hat_cone");
     expect(act(p, { type: "run", id: "w2", result: result() }).reward!.cosmetics ?? []).not.toContain("hat_cone");
     p = act(p, { type: "run", id: "w3", result: result({ biome: "caverns", tier: 2 }) }).profile;
-    expect(p.cosmetics).toContain("hat_iceberg");
+    expect(p.cosmetics).toEqual(expect.arrayContaining(["hat_horns", "hat_iceberg", "hat_gator", "hat_ufo"]));
+    expect(p.cosmetics).not.toContain("hat_captain");
   });
 
   it("wins sometimes drop one, the same way on every device", () => {

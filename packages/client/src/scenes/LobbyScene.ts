@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { BIOMES, DEFAULT_OUTFIT, HEROES, MAX_PLAYERS, type EmoteInfo, type LobbyInfo, type Outfit, type SeatInfo } from "@lostluggage/sim";
+import { DEFAULT_OUTFIT, DIFFICULTIES, HEROES, MAX_PLAYERS, type EmoteInfo, type LobbyInfo, type Outfit, type SeatInfo } from "@lostluggage/sim";
 import { SLOT_COLORS } from "../render/colors";
 import { CASE_COUNT, EMOTE_LINES, gunKey, HAT_ANCHOR, hatKey } from "../render/cosmetics";
 import { trailFx, trailGap, type FxHost } from "../render/trails";
@@ -118,8 +118,8 @@ export class LobbyScene extends Phaser.Scene {
 
   private sync(): void {
     const l = this.lobby!;
-    const biome = (BIOMES[l.biome]?.name ?? "").toUpperCase();
-    this.sign.setText(l.code ? `${biome} - ROOM ${l.code}` : biome);
+    const tier = (DIFFICULTIES[l.tier] ?? DIFFICULTIES[0]).name.toUpperCase();
+    this.sign.setText(l.code ? `${tier} - ROOM ${l.code}` : tier);
     const seats = l.seats.slice(0, MAX_PLAYERS);
     const ids = new Set(seats.map((s) => s.sessionId));
     for (const [id, s] of this.spots) {

@@ -96,6 +96,20 @@ export const ENDLESS = {
 /** Acts past the final boss: 0 during the adventure. */
 export const endlessActs = (act: number): number => Math.max(0, act - FINAL_ACT);
 
+/**
+ * The difficulty the run was started on (the run's `tier`, picked in the lobby). Harder ones bring tougher, harder
+ * hitting enemies and more of them (see roomBudget and eliteShare), and pay for it in XP (progress.runXp) and loot
+ * (luck, mythic, signature and cosmetic drop odds all climb with the tier). In co-op the tier also sets the level
+ * everyone is synced to (heroes.TIER_LEVELS).
+ */
+export const DIFFICULTIES = [
+  { name: "Normal", hp: 1, damage: 1, text: "The adventure as intended" },
+  { name: "Hard", hp: 1.4, damage: 1.25, text: "Tougher crowds, better loot" },
+  { name: "Nightmare", hp: 1.9, damage: 1.5, text: "For the well-travelled. The best loot" },
+] as const;
+
+export const difficulty = (tier: number) => DIFFICULTIES[Math.max(0, Math.min(DIFFICULTIES.length - 1, Math.round(tier) || 0))]!;
+
 /** Enemy damage by act. */
 export function actDamage(act: number): number {
   return 1 + 0.15 * Math.min(actLevel(act), 8);

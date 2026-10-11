@@ -14,7 +14,6 @@ import {
   cleanOutfit,
   HEROES,
   isStarter,
-  type Biome,
   createWorld,
   decodeInput,
   DT,
@@ -50,6 +49,11 @@ const EMOTE_GAP_MS = 1200;
 // Codes skip I and O so nobody reads them as 1 and 0.
 const CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const codesInUse = new Set<string>();
+
+/** A difficulty tier from a client: a whole number in range, Normal for anything else. */
+function clampTier(tier: unknown): number {
+  return Math.max(0, Math.min(TIER_LEVELS.length - 1, Math.round(Number(tier)) || 0));
+}
 
 function newCode(): string {
   for (;;) {
@@ -104,12 +108,10 @@ export class RunRoom extends Room {
   private acc = 0;
   private runId = 0;
   private tier = 0;
-  private biome: Biome = "foundry";
 
   onCreate(options: RoomOptions = {}): void {
     this.roomId = newCode();
-    this.tier = Math.max(0, Math.min(TIER_LEVELS.length - 1, Math.round(Number(options.tier) || 0)));
-    if (options.biome && ADVENTURE_IDS.includes(options.biome)) this.biome = options.biome;
+    this.tier = clampTier(options.tier);
     // Code rooms are for friends; only quick-match rooms show up in matchmaking.
     if (options.private) void this.setPrivate(true);
     void this.setMetadata({ phase: "lobby" });
@@ -136,10 +138,10 @@ export class RunRoom extends Room {
       else this.refresh(seat);
       this.broadcastLobby();
     });
-    // The host picks the adventure from the lobby, between runs.
-    this.onMessage("biome", (client, biome: unknown) => {
-      if (!this.isHost(client) || this.world || typeof biome !== "string" || !ADVENTURE_IDS.includes(biome as Biome)) return;
-      this.biome = biome as Biome;
+    // The host picks the difficulty from the lobby, between runs.
+    this.onMessage("tier", (client, tier: unknown) => {
+      if (!this.isHost(client) || this.world || typeof tier !== "number") return;
+      this.tier = clampTier(tier);
       this.broadcastLobby();
     });
     this.onMessage("emote", (client, emote: unknown) => {
@@ -289,7 +291,8 @@ export class RunRoom extends Room {
       seed: (Math.random() * 2 ** 31) | 0,
       coop: true,
       tier: this.tier,
-      biome: this.biome,
+      // Every run starts in a random adventure, then visits the others and ends in the Crypt.
+      biome: ADVENTURE_IDS[Math.floor(Math.random() * ADVENTURE_IDS.length)],
       players: seats.map((s) => this.optionsFor(s)),
     });
     seats.forEach((s, i) => {
@@ -309,7 +312,6 @@ export class RunRoom extends Room {
       code: this.roomId,
       host: this.order[0] ?? "",
       tier: this.tier,
-      biome: this.biome,
       runId: this.runId,
       running: !!this.world,
       seats: this.order.map((id) => {

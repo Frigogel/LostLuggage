@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import { matchMaker, Server, WebSocketTransport } from "colyseus";
-import { decodeSnapshot, EMPTY_INPUT, encodeInput, enterRoom, FINAL_ACT, newGun, roomSpec, type Action, type EmoteInfo, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
+import { ADVENTURE_IDS, decodeSnapshot, EMPTY_INPUT, encodeInput, enterRoom, FINAL_ACT, newGun, roomSpec, type Action, type EmoteInfo, type LobbyInfo, type Profile, type RewardInfo, type RunReward, type Snapshot, type World } from "@lostluggage/sim";
 import { mountApi } from "../src/api";
 import { Db, setDb } from "../src/db";
 import { cleanName, RunRoom } from "../src/RunRoom";
@@ -261,16 +261,16 @@ describe("accounts", () => {
     await Promise.all([host.leave(), guest.leave()]);
   });
 
-  it("rooms run the adventure they were made for, with each guest's own hero", async () => {
-    const host = await new Client(url).create("run", { private: true, name: "A", heroId: "tinker", biome: "caverns" });
+  it("rooms run the difficulty they were made for, with each guest's own hero", async () => {
+    const host = await new Client(url).create("run", { private: true, name: "A", heroId: "tinker", tier: 2 });
     const friend = await new Client(url).joinById(host.roomId, { name: "B", heroId: "warden" });
     const lobby = await nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats.length === 2);
-    expect(lobby.biome).toBe("caverns");
+    expect(lobby.tier).toBe(2);
     expect(lobby.seats.map((s) => s.heroId)).toEqual(["tinker", "warden"]);
     host.send("start");
     const snap = decodeSnapshot(await nextMessage<Snapshot>(friend, "s"));
-    expect(snap.world.run.biome).toBe("caverns");
-    expect(snap.world.arena.ice).toBe(true);
+    expect(snap.world.run.tier).toBe(2);
+    expect(ADVENTURE_IDS).toContain(snap.world.run.biome);
     expect(snap.world.players.map((p) => p.heroId)).toEqual(["tinker", "warden"]);
     await Promise.all([host.leave(), friend.leave()]);
   });
@@ -347,22 +347,23 @@ describe("lobby looks", () => {
     await host.leave();
   });
 
-  it("lets the host pick the adventure in the lobby, and nobody else", async () => {
-    const host = await new Client(url).create("run", { private: true, name: "H", biome: "foundry" });
+  it("lets the host pick the difficulty in the lobby, and nobody else", async () => {
+    const host = await new Client(url).create("run", { private: true, name: "H" });
     const guest = await new Client(url).joinById(host.roomId, { name: "G" });
     await nextMessage<LobbyInfo>(host, "lobby", (l) => l.seats.length === 2);
-    guest.send("biome", "caverns");
+    guest.send("tier", 1);
     await wait(150);
-    host.send("biome", "atlantis");
-    await wait(150);
+    const clamped = nextMessage<LobbyInfo>(guest, "lobby");
+    host.send("tier", 99);
+    expect((await clamped).tier).toBe(2);
     const changed = nextMessage<LobbyInfo>(guest, "lobby");
-    host.send("biome", "caverns");
-    expect((await changed).biome).toBe("caverns");
+    host.send("tier", 1);
+    expect((await changed).tier).toBe(1);
     host.send("start");
     const run = await nextMessage<LobbyInfo>(host, "lobby", (l) => l.running);
-    expect(run.biome).toBe("caverns");
+    expect(run.tier).toBe(1);
     const room = matchMaker.getLocalRoomById(host.roomId) as unknown as { world: World };
-    expect(room.world.run.biome).toBe("caverns");
+    expect(room.world.run.tier).toBe(1);
     await guest.leave();
     await host.leave();
   });

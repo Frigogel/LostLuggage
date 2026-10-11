@@ -74,8 +74,10 @@ import type { UIScene } from "./UIScene";
 export interface GameData {
   net?: NetSession;
   profile?: PlayerOptions;
-  /** Solo: which adventure. Co-op gets it from the server. */
+  /** Solo: which adventure the run starts in. Co-op gets it from the server. */
   biome?: Biome;
+  /** Solo: the difficulty (see DIFFICULTIES). Co-op gets it from the server. */
+  tier?: number;
   /** Solo: what you're wearing. Co-op gets everyone's from the lobby. */
   outfit?: Outfit;
   /** Solo: saves the run (XP, loot) and says what it earned. Co-op rewards come from the server instead. */
@@ -183,6 +185,7 @@ export class GameScene extends Phaser.Scene {
   private profile: PlayerOptions = {};
   private outfit: Outfit = DEFAULT_OUTFIT;
   private biome?: Biome;
+  private tier = 0;
   private onRunEnd?: GameData["onRunEnd"];
   /** Solo: what this run earned, once it has been saved. */
   reward?: RunReward;
@@ -240,6 +243,7 @@ export class GameScene extends Phaser.Scene {
     this.profile = data.profile ?? {};
     this.outfit = data.outfit ?? DEFAULT_OUTFIT;
     this.biome = data.biome;
+    this.tier = data.tier ?? 0;
     this.onRunEnd = data.onRunEnd;
     this.reward = undefined;
     this.reported = false;
@@ -295,7 +299,7 @@ export class GameScene extends Phaser.Scene {
       const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
       const biome = params.get("biome") as Biome | null;
-      this.world = createWorld({ seed, players: [this.profile], biome: biome && biome in BIOMES ? biome : this.biome });
+      this.world = createWorld({ seed, players: [this.profile], tier: this.tier, biome: biome && biome in BIOMES ? biome : this.biome });
       const room = params.get("room") as RoomKind | null;
       if (room && room in ROOM_NAMES) {
         const act = Number(params.get("act")) || 0;

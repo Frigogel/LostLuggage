@@ -8,7 +8,7 @@
 // Actions carry their own ids (for exactly-once syncing) and every random choice (new stash ids, the souvenir roll)
 // is decided from data inside the action, never inside the reducer.
 import { COSMETIC_IDS, COSMETICS, cleanOutfit, cosmeticDropChance, DEFAULT_OUTFIT, isStarter, type CosmeticSlot, type Outfit } from "./data/cosmetics";
-import { BIOMES } from "./data/enemies";
+import { ADVENTURE_IDS, BIOMES } from "./data/enemies";
 import { GRENADES } from "./data/grenades";
 import { GUNS } from "./data/guns";
 import { HEROES, MAX_LEVEL, tierLevel } from "./data/heroes";
@@ -19,6 +19,7 @@ import { RELICS } from "./data/relics";
 import { SIGNATURES } from "./data/signatures";
 import { validSkills } from "./data/skills";
 import { SOUVENIR_CAP, SOUVENIR_IDS, SOUVENIRS, souvenirTotal, type SouvenirId, type SouvenirRanks } from "./data/souvenirs";
+import { difficulty } from "./director";
 import { gunData, PERKS, RARITIES, STARTER_GRENADE } from "./loot";
 import type { PlayerOptions } from "./players";
 import type { Biome, Element, Grenade, GunData, MakerId, PerkId, Player, Rarity, Relic, World } from "./types";
@@ -436,8 +437,8 @@ export function runXp(r: RunResult, daily: boolean): { xp: number; bonuses: stri
   // Runs are long and rarely won: every room and every act pays, and the win pays a lot.
   let xp = r.rooms * 12 + Math.min(r.kills, 1500) * 0.25 + (r.acts ?? 0) * 40 + (r.victory ? 100 : 0);
   if (r.tier > 0) {
-    xp *= 1 + 0.25 * r.tier;
-    bonuses.push(`HARDER TIER +${25 * r.tier}%`);
+    xp *= 1 + 0.5 * r.tier;
+    bonuses.push(`${difficulty(r.tier).name.toUpperCase()} +${50 * r.tier}%`);
   }
   // Dungeons are the bigger, harder outing: about 160 XP against a solo run's 100.
   if (r.mode === "coop") {
@@ -571,17 +572,19 @@ function scrap(p: Profile, ids: readonly string[]): number {
   return xp;
 }
 
-/** A win's cosmetics: the first clear of an adventure and tier, and sometimes a boss drop. */
+/** A win's cosmetics: the first clear of each adventure on a tier, and sometimes a boss drop. */
 function runCosmetics(p: Profile, id: string, r: RunResult): string[] {
   // A boss is enough for a chance at a drop; first-clear hats need the whole adventure.
   if (!r.victory && !(r.acts && r.acts > 0)) return [];
   const got: string[] = [];
-  const clear = `${r.biome}:${r.tier}`;
-  if (r.victory && !p.clears.includes(clear)) {
+  // A win goes through every adventure (the run picks which one comes first), so it clears all of them.
+  for (const biome of r.victory ? ADVENTURE_IDS : []) {
+    const clear = `${biome}:${r.tier}`;
+    if (p.clears.includes(clear)) continue;
     p.clears.push(clear);
     for (const cid of COSMETIC_IDS) {
       const u = COSMETICS[cid]!.unlock;
-      if (u.kind === "clear" && u.biome === r.biome && u.tier === r.tier && !p.cosmetics.includes(cid)) got.push(cid);
+      if (u.kind === "clear" && u.biome === biome && u.tier === r.tier && !p.cosmetics.includes(cid)) got.push(cid);
     }
   }
   const drops = COSMETIC_IDS.filter((cid) => COSMETICS[cid]!.unlock.kind === "drop" && !p.cosmetics.includes(cid));

@@ -1,4 +1,4 @@
-import { actDamage, actHp } from "./director";
+import { actDamage, actHp, difficulty } from "./director";
 import { CRYPT, inCandleLight, isLit, lightCandles } from "./crypt";
 import { ENEMIES } from "./data/enemies";
 import { HEROES, levelMultiplier } from "./data/heroes";
@@ -334,7 +334,7 @@ export function dropHeal(w: World, at: Vec, amount: number): void {
 export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number, elite?: EliteId): Enemy {
   const def = ENEMIES[defId]!;
   const act = w.run.plans[w.run.room.index]?.act ?? 0;
-  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss) * (elite ? ELITE_HP : 1) * actHp(act));
+  const hp = Math.round(def.hp * partyHpMultiplier(w, !!def.boss) * (elite ? ELITE_HP : 1) * actHp(act) * difficulty(w.run.tier).hp);
   const e: Enemy = {
     id: newId(w),
     defId,
@@ -388,9 +388,9 @@ export function spawnEnemy(w: World, defId: string, pos: Vec, spawnDelay: number
 
 export function hurtPlayer(w: World, p: Player, raw: number): boolean {
   if (p.downed || p.away || p.iframes > 0) return false;
-  // Later acts hit harder; Bubble Wrap and a Hard-Shell Case take the edge off.
+  // Later acts and harder difficulties hit harder; Bubble Wrap and a Hard-Shell Case take the edge off.
   const armor = p.relic && RELICS[p.relic.defId]?.stat === "armor" ? relicAmount(RELICS[p.relic.defId], p.relic.rarity) : 0;
-  const amount = raw * actDamage(w.run.plans[w.run.room.index]?.act ?? 0) * Math.pow(0.9, p.boosts.bubbleWrap ?? 0) * (1 - armor);
+  const amount = raw * actDamage(w.run.plans[w.run.room.index]?.act ?? 0) * difficulty(w.run.tier).damage * Math.pow(0.9, p.boosts.bubbleWrap ?? 0) * (1 - armor);
   // Overheal shields soak the hit first.
   const soaked = Math.min(p.shield, amount);
   p.shield -= soaked;

@@ -9,6 +9,7 @@ import {
   BOOST_IDS,
   boostOffers,
   createWorld,
+  DIFFICULTIES,
   doorRect,
   eliteShare,
   EMPTY_INPUT,
@@ -30,6 +31,7 @@ import {
   planWave,
   rollGrenade,
   rollGun,
+  roomBudget,
   roomSpec,
   step,
   type PlayerInput,
@@ -372,6 +374,22 @@ describe("grenades", () => {
 });
 
 describe("director and run", () => {
+  it("harder difficulties bring tougher, harder-hitting enemies, and more of them", () => {
+    const normal = quiet();
+    const nightmare = quiet();
+    nightmare.run.tier = 2;
+    const hp = (w: World) => spawnEnemy(w, "jet_boar", { x: 300, y: 300 }, 0).hp;
+    expect(hp(nightmare) / hp(normal)).toBeCloseTo(DIFFICULTIES[2].hp, 1);
+    const taken = (w: World) => {
+      const p = w.players[0]!;
+      const before = p.hp;
+      hurtPlayer(w, p, 10);
+      return before - p.hp;
+    };
+    expect(taken(nightmare) / taken(normal)).toBeCloseTo(DIFFICULTIES[2].damage);
+    expect(roomBudget(10, 2, 1)).toBeGreaterThan(roomBudget(10, 0, 1));
+  });
+
   it("endless climbs on a gentle curve, and leans on elites instead", () => {
     // The adventure's health ramp is a straight line up to the final act.
     for (let act = 0; act <= FINAL_ACT; act++) expect(actHp(act)).toBeCloseTo(1 + (0.3 * act * 2) / FINAL_ACT);

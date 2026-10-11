@@ -9,7 +9,11 @@ or with up to 4 friends, with four heroes to choose from.
 
 **Runs** are long and meant to be lost a few times before they're won:
 
-- **Five acts.** Act 1 is the adventure you picked, acts 2 to 4 are the other three in an order the run's seed picks,
+- **Difficulty**, picked in the lobby (the host picks it in a room): **Normal**, **Hard** or **Nightmare**. Harder
+  difficulties bring more enemies (+35% per step), with more health (x1.4 / x1.9) and damage (x1.25 / x1.5), and pay
+  +50% XP per step plus better loot (gun, grenade and relic quality, and mythic, signature and cosmetic drop odds).
+
+- **Five acts.** Act 1 is a random adventure, acts 2 to 4 are the other three in an order the run's seed picks,
   and act 5 is always the **Drowned Crypt**, ending with the Night Auditor. Each act is an arrival room, five rooms you
   choose, and a boss. Enemies get tougher, hit harder and attack faster every act; the curve is spread over the five
   acts, so the finale is as hard as it was when runs had three.
@@ -76,7 +80,7 @@ Everything else from phase 5:
   Waiter Penguins, Yeti Bouncers, Curling Golems, Slush Slimes, Ski Instructors, Penguin Igloos, Ice Machine mimics
   and Snowmen. Mostly armored and frost-immune, so bring Acid. The boss is the **Customer Complaints Dragon**: frost
   breath in a wedge that leaves slush, a tail swipe that sends you sliding, icicles, a belly slide and waiter
-  penguins. Pick the adventure in the lobby; in a room, the host picks it.
+  penguins.
 - **The Bilge Sewers**: deep water channels where wading is slow and the current carries you (a dash skims across),
   and sludge pipes in the walls that drip a warning, then blast their lane and shove you down it. The family swims,
   so it cuts through the water at full speed while you wade: Sewer Roaches, Plunger Ogres, Sewer Eels, Spitting
@@ -115,7 +119,7 @@ Everything else from phase 5:
   hat, tiny second head, crown...), **dash trails** (confetti, bubbles, rubber ducks, afterburner, rainbow...), **gun
   skins** (googly eyes, gold plating, "Property of the Cruise Line"...) and **emotes** (wave, dramatic bow, air guitar,
   the floss but worse...). Hats, trails and skins show in runs too, for everyone in the party.
-  - The first win of each adventure on each tier gives that clear's hat.
+  - The first win on each difficulty clears all four adventures and gives their hats.
   - Runs that beat a boss sometimes drop one (12% solo, 20% co-op, more on harder tiers).
   - Milestones: 10 and 25 wins, 50 runs, 2,000 kills, 3 legendaries, a level 30 hero.
   - Pick them in the **Wardrobe**. Guests wear the starter items only.
@@ -213,7 +217,7 @@ a run early (quit or leave room) still takes home the guns in your hands.
 
 1. Everyone opens the game and types a name (top left of the lobby).
 2. One person taps **Invite friends** (or an open mark on the stage) and reads out the 4-letter code.
-3. Everyone else types the code and taps **Join**. The host picks the adventure and taps **Start run**.
+3. Everyone else types the code and taps **Join**. The host picks the difficulty and taps **Start run**.
 
 Friends can join a run that already started; they appear next to the party with a better second gun. Downed
 teammates show a pulsing ring: stand in it to fill their revive bar. In co-op, the exit waits 4 seconds for

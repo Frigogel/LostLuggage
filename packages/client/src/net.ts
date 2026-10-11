@@ -181,8 +181,8 @@ export class NetSession {
   }
 
   /** Host only, between runs. */
-  setBiome(biome: string): void {
-    this.room.send("biome", biome);
+  setTier(tier: number): void {
+    this.room.send("tier", tier);
   }
 
   emote(id: string): void {
