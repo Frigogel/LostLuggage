@@ -4,6 +4,7 @@ import { updateDomes } from "./domes";
 import { updateEnemies } from "./enemies";
 import { updateGadgets } from "./gadgets";
 import { checkWipe, EMPTY_INPUT, makePlayer, MAX_PLAYERS, startPos, updatePickups, updatePlayer, type PlayerOptions } from "./players";
+import { enterPractice } from "./practice";
 import { updateHazards, updateProjectiles } from "./projectiles";
 import { ARENA, enterRoom, START, updateRoom } from "./room";
 import { ADVENTURE_IDS } from "./data/enemies";
@@ -21,6 +22,8 @@ export interface WorldOptions {
   coop?: boolean;
   /** Which adventure starts the run (default the Burning Foundry). The others follow, then the Drowned Crypt. */
   biome?: Biome;
+  /** The practice range instead of a run: training dummies and a rack of loaners (see practice.ts). */
+  practice?: boolean;
 }
 
 export function createWorld(opts: WorldOptions): World {
@@ -60,6 +63,7 @@ export function createWorld(opts: WorldOptions): World {
   const party = (opts.players ?? [{ heroId: opts.heroId }]).slice(0, MAX_PLAYERS);
   party.forEach((o, i) => w.players.push(makePlayer(w, o, startPos(START, i, party.length), i)));
   enterRoom(w, firstRoom(w));
+  if (opts.practice) enterPractice(w);
   return w;
 }
 

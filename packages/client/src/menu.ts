@@ -200,6 +200,7 @@ export class Menu {
     $("quick").addEventListener("click", () => void this.join({ kind: "quick" }));
     $("create").addEventListener("click", () => void this.join({ kind: "create" }));
     $("join").addEventListener("click", () => void this.join({ kind: "code", code: code.value }));
+    $("practice").addEventListener("click", () => this.startPractice());
     $("leave").addEventListener("click", () => this.leave());
     $("account-btn").addEventListener("click", () => {
       if (this.account.signedIn && !this.account.expired) {
@@ -439,7 +440,7 @@ export class Menu {
   }
 
   private setBusy(busy: boolean): void {
-    for (const id of ["play", "quick", "create", "join"]) $<HTMLButtonElement>(id).disabled = busy;
+    for (const id of ["play", "quick", "create", "join", "practice"]) $<HTMLButtonElement>(id).disabled = busy;
   }
 
   // ---------------------------------------------------------------- account
@@ -809,6 +810,11 @@ export class Menu {
       // Solo results are trusted (friends-only game): applied here and synced when there's a connection.
       onRunEnd: (w, p): RunReward | undefined => this.account.dispatch({ type: "run", result: runResult(w, p, { mode: "solo", day: localDay() }) }).reward,
     });
+  }
+
+  /** The practice range: your loadout against training dummies. Nothing is saved, so there's no `onRunEnd`. */
+  startPractice(): void {
+    this.runScenes({ profile: this.me, practice: true, biome: "foundry", outfit: this.account.profile.outfit });
   }
 
   private async join(how: JoinKind): Promise<void> {

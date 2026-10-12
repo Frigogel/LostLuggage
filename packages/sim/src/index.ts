@@ -54,6 +54,7 @@ export { ACT_ROOMS, DIFFICULTIES, FINAL_ACT, TWISTS, TWIST_IDS, actBiome, grabbe
 export { BOOSTS, BOOST_IDS, boostOffers, playerTags, stacks, type BoostDef, type BoostRarity, type BoostTag } from "./data/boosts";
 export { ELEMENT_INFO, PERKS, RARITIES, gunData, gunDps, gunFromData, gunName, gunStats, grenadeName, grenadeStats, heldGrenade, heldStats, mythicChance, mythicItem, MYTHIC_IDS, newGun, relicDef, relicEffect, relicName, rollGrenade, rollGun, rollMythic, rollRelic, STARTER_GRENADE, unpredictable, type GrenadeStats, type MythicDrop } from "./loot";
 export { ARENA, DOOR, EXIT_WAIT_S, HOLD_S, LAYOUTS, PAD, ROOM_NAMES, START, arenaFor, beltAt, beltsFor, padAt, trapDist, trapPoint, waterAt, doorAt, doorRect, doorVotes, enterRoom, offerBoosts, roomAct, roomSpec, ventState, type VentState } from "./room";
+export { PRACTICE } from "./practice";
 export { createWorld, step, type WorldOptions } from "./world";
 export * from "./progress";
 export * from "./net";

@@ -1,4 +1,4 @@
-import { confine, dropGrenade, dropGun, dropRelic, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
+import { SNACKS_PER_SECOND, confine, dropGrenade, dropGun, dropRelic, DT, healPlayer, hurtPlayer, nearestEnemy, newId, partyLuck, playerExplosion, spawnDome } from "./combat";
 import { BOOSTS } from "./data/boosts";
 import { ENEMIES } from "./data/enemies";
 import { GRENADE } from "./data/guns";
@@ -332,6 +332,8 @@ export function updatePlayer(w: World, p: Player, input: PlayerInput): void {
     updateDowned(w, p);
     return;
   }
+  // Shrine of Snacks: the kill-heal budget refills, so it heals at most a few health a second however much you kill.
+  if (p.boosts.vampire) p.snacks = Math.min(SNACKS_PER_SECOND * p.boosts.vampire, (p.snacks ?? 0) + SNACKS_PER_SECOND * p.boosts.vampire * DT);
   // In-Flight Meal: a little health back while the room is still being fought.
   if (p.boosts.meal && !p.away && !w.run.room.cleared) p.hp = Math.min(p.maxHp, p.hp + p.boosts.meal * DT);
   if (p.away) {

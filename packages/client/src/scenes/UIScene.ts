@@ -21,6 +21,7 @@ import {
   MAKERS,
   MYTHIC_GUNS,
   PERKS,
+  PRACTICE,
   relicDef,
   relicText,
   gunDps,
@@ -154,6 +155,8 @@ export class UIScene extends Phaser.Scene {
   private toastUntil = 0;
   /** When you last emoted (scene ms): the server only takes one every EMOTE_GAP_MS. */
   private emotedAt = -Infinity;
+  /** Practice range damage meter: the current (or last) burst of hits, in world seconds, and the best burst so far. */
+  private meter = { start: 0, last: -Infinity, damage: 0, best: 0 };
 
   constructor() {
     super("ui");
@@ -175,6 +178,7 @@ export class UIScene extends Phaser.Scene {
     this.toastQueue = [];
     this.toastUntil = 0;
     this.emotedAt = -Infinity;
+    this.meter = { start: 0, last: -Infinity, damage: 0, best: 0 };
   }
 
   private get game_(): GameScene {
@@ -223,6 +227,7 @@ export class UIScene extends Phaser.Scene {
     this.partyToast = this.text(SCREEN.w / 2, 132, "").setOrigin(0.5).setAlpha(0);
     this.netText = this.text(4, SCREEN.h - 3, "").setOrigin(0, 1).setTint(0x8a8090);
 
+    if (game.practice) this.showBanner("PRACTICE RANGE", "DUMMIES DON'T HIT BACK. TRY THE RACK OF LOANERS. NOTHING HERE IS SAVED.", 0x5fd3e8, 3600);
     game.events.on("sim", this.onSim, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => game.events.off("sim", this.onSim, this));
 
@@ -445,6 +450,18 @@ export class UIScene extends Phaser.Scene {
     for (const p of world.players) this.names.set(p.id, p.name);
     for (const ev of events) {
       switch (ev.type) {
+        case "hit": {
+          if (!this.game_.practice) break;
+          // A burst starts with the first hit after the dummies had time to heal back up.
+          const m = this.meter;
+          if (world.time - m.last >= PRACTICE.resetS) {
+            m.start = world.time;
+            m.damage = 0;
+          }
+          m.last = world.time;
+          m.damage += ev.damage;
+          break;
+        }
         case "waveStart": {
           const room = world.run.room;
           if (room.kind === "boss") {
@@ -700,7 +717,7 @@ export class UIScene extends Phaser.Scene {
         c.add(this.add.bitmapText(0, -98, "pixel", `ROOM ${net.lobby?.code ?? ""}  THE RUN DOESN'T STOP IN CO-OP`, 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
         this.panelButton(c, 0, -82, this.controls.touchMode ? "LEAVE ROOM" : "LEAVE ROOM (L)", 0xe0533d, () => this.leave());
       } else {
-        c.add(this.add.bitmapText(0, -98, "pixel", "QUITTING KEEPS THE GUNS IN YOUR HANDS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
+        c.add(this.add.bitmapText(0, -98, "pixel", game.practice ? "NOTHING IN THE PRACTICE RANGE IS SAVED" : "QUITTING KEEPS THE GUNS IN YOUR HANDS", 8).setOrigin(0.5).setLetterSpacing(-1).setTint(0xc9cfd6));
         this.panelButton(c, 0, -82, this.controls.touchMode ? "QUIT TO MENU" : "QUIT TO MENU (L)", 0xe0533d, () => this.leave());
       }
       const gearEnd = this.drawGear(c, game.me, -64);
@@ -842,7 +859,26 @@ export class UIScene extends Phaser.Scene {
     this.boostText.setText(total === 0 ? "" : `${total} BOOST${total === 1 ? "" : "S"}${newest ? `  NEW: ${(BOOSTS[newest]?.name ?? "").toUpperCase()}` : ""}`);
   }
 
+  /** The practice range's top bar: damage per second over the current burst of hits, its total, and the best burst. */
+  private drawPractice(world: World): void {
+    const m = this.meter;
+    const live = world.time - m.last < PRACTICE.resetS;
+    // From the burst's first hit to its last. Under a second in, a reading would be mostly noise: count it as a second.
+    const secs = Math.max(1, m.last - m.start);
+    const dps = m.damage > 0 ? Math.round(m.damage / secs) : 0;
+    // Only bursts of a few seconds count for best, so one big sniper shot doesn't set a record nobody can hold.
+    if (secs >= 3) m.best = Math.max(m.best, dps);
+    this.actText.setText("");
+    this.bossName.setVisible(false);
+    this.roomText.setText(`${dps} DPS`).setTint(live ? 0xffffff : 0xc9cfd6);
+    this.killText
+      .setVisible(true)
+      .setText(m.damage > 0 ? `${Math.round(m.damage)} DAMAGE IN ${secs.toFixed(1)}S   BEST ${m.best} DPS` : "SHOOT A DUMMY")
+      .setTint(0xc9cfd6);
+  }
+
   private drawRoomProgress(world: World): void {
+    if (this.game_.practice) return this.drawPractice(world);
     const g = this.gfx;
     const run = world.run;
     const room = run.room;

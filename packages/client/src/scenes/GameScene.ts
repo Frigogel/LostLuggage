@@ -79,6 +79,8 @@ export interface GameData {
   biome?: Biome;
   /** Solo: the difficulty (see DIFFICULTIES). Co-op gets it from the server. */
   tier?: number;
+  /** Solo: the practice range instead of a run (training dummies, nothing saved). */
+  practice?: boolean;
   /** Solo: what you're wearing. Co-op gets everyone's from the lobby. */
   outfit?: Outfit;
   /** Solo: saves the run (XP, loot) and says what it earned. Co-op rewards come from the server instead. */
@@ -145,6 +147,8 @@ interface PickupView {
   rays?: Phaser.GameObjects.Image;
   halo?: Phaser.GameObjects.Image;
   key: string;
+  /** Glow and beam color: a swap can leave the same archetype at a different rarity, which needs a rebuild. */
+  color: number;
 }
 
 interface GadgetView {
@@ -193,6 +197,8 @@ export class GameScene extends Phaser.Scene {
   private outfit: Outfit = DEFAULT_OUTFIT;
   private biome?: Biome;
   private tier = 0;
+  /** The practice range: training dummies instead of a run. */
+  practice = false;
   private onRunEnd?: GameData["onRunEnd"];
   /** Solo: what this run earned, once it has been saved. */
   reward?: RunReward;
@@ -251,6 +257,7 @@ export class GameScene extends Phaser.Scene {
     this.outfit = data.outfit ?? DEFAULT_OUTFIT;
     this.biome = data.biome;
     this.tier = data.tier ?? 0;
+    this.practice = !!data.practice;
     this.onRunEnd = data.onRunEnd;
     this.reward = undefined;
     this.reported = false;
@@ -303,10 +310,10 @@ export class GameScene extends Phaser.Scene {
       // event, shrine, rest) jumps to a room, with &act=4 for a later act (in that act's biome: 4 is the Drowned Crypt)
       // and &twist=belts;
       // ?mythics lays every mythic out on the floor of the first room.
-      const params = import.meta.env.DEV ? new URLSearchParams(location.search) : new URLSearchParams();
+      const params = import.meta.env.DEV && !this.practice ? new URLSearchParams(location.search) : new URLSearchParams();
       const seed = Number(params.get("seed")) || (Math.random() * 2 ** 31) | 0;
       const biome = params.get("biome") as Biome | null;
-      this.world = createWorld({ seed, players: [this.profile], tier: this.tier, biome: biome && biome in BIOMES ? biome : this.biome });
+      this.world = createWorld({ seed, players: [this.profile], tier: this.tier, biome: biome && biome in BIOMES ? biome : this.biome, practice: this.practice });
       const room = params.get("room") as RoomKind | null;
       if (room && room in ROOM_NAMES) {
         const act = Number(params.get("act")) || 0;
@@ -2571,17 +2578,18 @@ export class GameScene extends Phaser.Scene {
       if (pk.owner !== undefined && pk.owner !== this.myId) continue;
       seen.add(pk.id);
       const key = this.pickupKey(pk);
+      const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "grenade" ? RARITY_COLORS[pk.grenade!.rarity] : pk.kind === "relic" ? RARITY_COLORS[pk.relic!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
       let v = this.pickupViews.get(pk.id);
-      if (v && v.key !== key) {
-        // Swapped guns change archetype; rebuild the view.
+      if (v && (v.key !== key || v.color !== color)) {
+        // A swap left a different archetype or rarity on the floor; rebuild the view.
         this.destroyPickupView(v);
         this.pickupViews.delete(pk.id);
         v = undefined;
       }
       if (!v) {
-        const color = pk.kind === "gun" ? RARITY_COLORS[pk.gun!.rarity] : pk.kind === "grenade" ? RARITY_COLORS[pk.grenade!.rarity] : pk.kind === "relic" ? RARITY_COLORS[pk.relic!.rarity] : pk.kind === "heal" ? 0x5fd36a : pk.kind === "boost" ? BOOST_COLORS[BOOSTS[pk.boost!]?.rarity ?? "common"] : 0xf2c14e;
         v = {
           key,
+          color,
           sprite: this.add.image(pk.pos.x, pk.pos.y, key).setOrigin(0.5, pk.kind === "gun" || pk.kind === "grenade" || pk.kind === "relic" ? 0.5 : 1),
           glow: this.add.image(pk.pos.x, pk.pos.y - 2, "glow").setBlendMode(Phaser.BlendModes.ADD).setTint(color).setDepth(D.light),
         };

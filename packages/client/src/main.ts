@@ -54,9 +54,10 @@ if (/Android/i.test(navigator.userAgent)) {
 
 const menu = new Menu(game);
 game.events.once("booted", () => {
-  // Dev shortcuts (?seed=, ?room=, ?mythics) skip the menu straight into a solo run.
+  // Dev shortcuts (?seed=, ?room=, ?mythics) skip the menu straight into a solo run, and ?practice into the range.
   const params = new URLSearchParams(location.search);
-  if (import.meta.env.DEV && (params.has("seed") || params.has("room") || params.has("mythics"))) menu.startSolo();
+  if (import.meta.env.DEV && params.has("practice")) menu.startPractice();
+  else if (import.meta.env.DEV && (params.has("seed") || params.has("room") || params.has("mythics"))) menu.startSolo();
   else menu.show();
 });
 

@@ -53,7 +53,7 @@ const LIST: BoostDef[] = [
   b("overload", "Overload", "Shock chains jump to 2 more enemies", "epic", ["shock"], 1, "shock"),
   b("meltdown", "Meltdown", "Acid lasts twice as long and armor takes 60% more", "epic", ["acid"], 1, "acid"),
   // ---------------------------------------------------------------- kills
-  b("vampire", "Shrine of Snacks", "Kills heal 2 health", "common", ["kill", "tank"], 4),
+  b("vampire", "Shrine of Snacks", "Kills heal 1 health, at most 2 a second", "common", ["kill", "tank"], 3),
   b("souvenirs", "Exploding Souvenirs", "Kills explode for 15 damage", "rare", ["kill"], 3),
   b("refill", "Duty Free Refill", "Kills refill half a pip", "common", ["kill", "shot"], 2),
   b("miles", "Frequent Flyer Miles", "Kills charge your action skill 3%", "common", ["kill", "skill"], 3),

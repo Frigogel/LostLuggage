@@ -1315,6 +1315,34 @@ SPRITES.ice_machine = {
   palette: { r: "#a8c8d8", R: "#6a8ca0", e: "#9ff3ff", p: "#1b3040", t: "#cfe8ff" },
 };
 
+// Practice range dummies: a stitched sack on a post with a target on its chest. The armored one wears a pot; the
+// shielded one is wrapped in bubble wrap; the big one is the plain one at twice the size.
+const DUMMY_ROWS = [
+  "....kkk....",
+  "...kbbbk...",
+  "...kkbkk...",
+  "...kbbbk...",
+  "....kkk....",
+  "kkkkkkkkkkk",
+  "kbBbbbbbBbk",
+  "kkkbrrrbkkk",
+  "..kbrWrbk..",
+  "..kbrrrbk..",
+  "..kBbbbBk..",
+  "...kkwkk...",
+  "....kwk....",
+  "...kwwwk...",
+  "..kkkkkkk..",
+];
+const BURLAP = { b: "#c9a26b", B: "#8a6a3c", r: "#e0533d", w: "#7a5432" };
+SPRITES.dummy = { rows: DUMMY_ROWS, palette: BURLAP };
+SPRITES.dummy_armor = {
+  rows: ["..kkkkkkk..", "..kmmmmmk..", ".kkkkkkkkk.", ...DUMMY_ROWS.slice(2)],
+  palette: { ...BURLAP, b: "#a7b0bb", B: "#6d7682", m: "#c9cfd6" },
+};
+SPRITES.dummy_shield = { rows: DUMMY_ROWS.map((r, y) => [...r].map((c, x) => (c === "b" && (x + y) % 3 === 0 ? "W" : c)).join("")), palette: { ...BURLAP, b: "#7ad7ff", B: "#3b8fd1" } };
+SPRITES.dummy_big = { rows: DUMMY_ROWS.flatMap((r) => Array(2).fill([...r].map((c) => c + c).join(""))), palette: BURLAP };
+
 /** The biome-specific look of the rooms. */
 export const BIOME_ART = {
   foundry: { sea: ["#5a0f12", "#8c1d14", "#c8401a", "#f07a22", "#ffc14a"], glow: 0xff7a1a, ambient: [0xffb238, 0xff7a1a, 0xffe08a], fade: [27, 16, 32] },

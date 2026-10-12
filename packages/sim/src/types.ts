@@ -493,6 +493,8 @@ export interface Player {
   boosts: Partial<Record<BoostId, number>>;
   /** hotStreak perk: kills in a row speed up reload for a moment. */
   streakT: number;
+  /** Shrine of Snacks: health its kills can still heal right now; refills over time so a big pack can't top you off. Server only. */
+  snacks?: number;
   /** Learned skill node ids (see data/skills). */
   skills: string[];
   mods: PlayerMods;
@@ -842,6 +844,18 @@ export interface Candle {
   litT: number;
 }
 
+/** A practice range dummy's spot (see practice.ts). */
+export interface PracticeSpot {
+  defId: string;
+  pos: Vec;
+  /** The dummy standing here, or 0 while it's getting back up. */
+  enemyId: number;
+  /** Seconds until it stands back up, or since it last took damage. */
+  t: number;
+  /** Its health last tick, to notice hits. */
+  hp: number;
+}
+
 export interface Run {
   /** The adventure picked in the lobby: where the run starts, and what first clears count for. */
   biome: Biome;
@@ -863,6 +877,8 @@ export interface Run {
   finale: boolean;
   /** Bosses beaten this run. */
   bosses: number;
+  /** The practice range (see practice.ts): where its dummies stand. Never a real run. Solo only, never sent over the wire. */
+  practice?: PracticeSpot[];
 }
 
 export interface Arena {

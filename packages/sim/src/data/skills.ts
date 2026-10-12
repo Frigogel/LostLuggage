@@ -67,11 +67,11 @@ export const SKILL_TREES: Record<string, SkillTree> = {
       { id: "gs_steady", branch: 1, cost: 3, name: "Steady Hands", text: "While your marks are up, pips reload 50% faster" },
       { id: "gs_lucky", branch: 1, cost: 4, name: "Lucky Streak", text: "Killing a marked enemy gives back a quarter of your skill" },
 
-      { id: "gs_gossip", branch: 2, cost: 1, name: "Word Gets Around", text: "Killing a marked enemy marks the nearest one" },
-      { id: "gs_wanted", branch: 2, cost: 2, name: "Wanted Poster", text: "Marked enemies move 30% slower" },
+      { id: "gs_wanted", branch: 2, cost: 1, name: "Wanted Poster", text: "Marked enemies move 30% slower" },
       { id: "gs_bounty", branch: 2, cost: 2, name: "Bounty", text: "Marked enemies often drop a health snack" },
-      { id: "gs_handsup", branch: 2, cost: 3, name: "Hands Up", text: "Marking stuns enemies for a second" },
-      { id: "gs_outlaw", branch: 2, cost: 4, name: "Most Wanted", text: "Hitting a marked enemy keeps its mark fresh" },
+      { id: "gs_handsup", branch: 2, cost: 2, name: "Hands Up", text: "Marking stuns enemies for a second" },
+      { id: "gs_outlaw", branch: 2, cost: 3, name: "Most Wanted", text: "Hitting a marked enemy keeps its mark fresh" },
+      { id: "gs_gossip", branch: 2, cost: 4, name: "Word Gets Around", text: "Killing a marked enemy marks the nearest one" },
     ],
   },
   tinker: {

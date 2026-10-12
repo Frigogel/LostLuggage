@@ -6,6 +6,7 @@ import { linkPairs, parseElite } from "./elites";
 import { canAct, startPos } from "./players";
 import { CRYPT, updateCandles } from "./crypt";
 import { newGun } from "./loot";
+import { updatePractice } from "./practice";
 import { clamp, dist, distToSegment, norm, randRange, rand, scale, sub, type Rect, type Vec } from "./math";
 import type { Belt, Current, Door, Enemy, Pad, Player, Room, RoomKind, RoomSpec, Vent, World } from "./types";
 
@@ -630,6 +631,7 @@ export function updateRoom(w: World): void {
   run.time += DT;
   updateVents(w, room);
   updateCandles(room, DT);
+  if (run.practice) return updatePractice(w);
 
   if (!room.cleared) {
     updateTwist(w, room);

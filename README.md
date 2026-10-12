@@ -50,7 +50,11 @@ or with up to 4 friends, with four heroes to choose from.
   again in the same order, each act harder, and every boss after that offers the way home again. Going down in endless still counts as a win.
 - **Rewards** count rooms, kills and bosses, so a lost run still pays. The first boss of the day gives the daily bonus
   and the guaranteed souvenir; first-clear hats need the full win.
-- Dev shortcuts (solo, dev builds): `?seed=123`, `?biome=sewers` (or `foundry`, `caverns`, `orbital`), `?room=boss`
+- **Practice range**, from the lobby (solo): your hero and loadout against training dummies that never hit back, one
+  of each defense (flesh, armor, shield) plus a big one. Killed dummies stand back up and ones left alone heal to full,
+  a rack of loaners has every gun archetype and grenade, and the top bar reads your damage per second. Nothing in it is
+  saved.
+- Dev shortcuts (solo, dev builds): `?practice` (straight into the practice range), `?seed=123`, `?biome=sewers` (or `foundry`, `caverns`, `orbital`), `?room=boss`
   (or `combat`, `elite`, `event`, `shrine`, `rest`), `&act=4` (a later act, in that act's biome; act 4 is the Drowned
   Crypt), `&twist=dark`, `?mythics` (every mythic on the floor of the first room).
 

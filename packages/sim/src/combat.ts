@@ -261,7 +261,11 @@ function onKill(w: World, e: Enemy, def: EnemyDef, o: DamageOpts, p: Player | un
   if (mythic === "baggage" && !def.boss) raiseGhost(w, p, e);
   // In-Flight Service: sometimes a snack, for whoever needs it.
   if (mythic === "service" && rand(w) < MYTHIC.snackChance) dropHeal(w, e.pos, MYTHIC.snackHeal);
-  if (p.boosts.vampire) p.hp = Math.min(p.maxHp, p.hp + 2 * p.boosts.vampire);
+  if (p.boosts.vampire) {
+    const heal = Math.min(p.boosts.vampire, p.snacks ?? SNACKS_PER_SECOND * p.boosts.vampire);
+    p.snacks = (p.snacks ?? SNACKS_PER_SECOND * p.boosts.vampire) - heal;
+    p.hp = Math.min(p.maxHp, p.hp + heal);
+  }
   if (p.boosts.souvenirs) playerExplosion(w, e.pos, 30, 15 * p.boosts.souvenirs * levelMultiplier(p.syncLevel), 100, p.id, "none", true);
   if (p.boosts.refill) {
     const g = p.guns[p.active]!;
@@ -444,6 +448,8 @@ export function shovePlayer(p: Player, v: Vec): void {
 
 /** Overheal shield caps (Warden's Overheal and Bubble Wrap). */
 export const OVERHEAL = { cap: 30, padded: 60 };
+/** Shrine of Snacks: the most its kills can heal in a second, per stack. Without it, endgame packs heal you to full. */
+export const SNACKS_PER_SECOND = 2;
 
 /** Heals a player. With a Warden's Overheal, what doesn't fit becomes a shield. Returns the amount that landed. */
 export function healPlayer(w: World, p: Player, amount: number, healer?: Player): number {

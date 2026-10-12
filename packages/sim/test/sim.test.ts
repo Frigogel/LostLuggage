@@ -29,15 +29,17 @@ import {
   planDoors,
   planRoom,
   planWave,
+  PRACTICE,
   rollGrenade,
   rollGun,
   roomBudget,
   roomSpec,
   step,
+  TICK_HZ,
   type PlayerInput,
   type World,
 } from "../src";
-import { damageEnemy, hurtPlayer, spawnEnemy } from "../src/combat";
+import { damageEnemy, hurtPlayer, SNACKS_PER_SECOND, spawnEnemy } from "../src/combat";
 import { applyBoost } from "../src/players";
 import { newGun } from "../src/loot";
 
@@ -666,5 +668,53 @@ describe("twists", () => {
     };
     expect(ring(false)).toBe(true);
     expect(ring(true)).toBe(false);
+  });
+});
+
+describe("practice range", () => {
+  const hit = (w: World, id: number, dmg: number) =>
+    damageEnemy(w, w.enemies.find((e) => e.id === id)!, dmg, { dir: { x: 1, y: 0 }, knockback: 0, sourcePlayerId: w.players[0]!.id, element: "none" });
+
+  it("has a dummy of every defense and a rack of loaners, and never clears", () => {
+    const w = createWorld({ seed: 3, practice: true });
+    const defs = new Set(w.enemies.map((e) => ENEMIES[e.defId]!.defense));
+    expect([...defs].sort()).toEqual(["armor", "flesh", "shield"]);
+    expect(w.pickups.filter((k) => k.kind === "gun").map((k) => k.gun!.defId).sort()).toEqual(Object.keys(GUNS).sort());
+    expect(w.pickups.every((k) => k.kind !== "gun" || k.gun!.loaner)).toBe(true);
+    run(w, 300, input({ fire: true, autoAim: true }));
+    expect(w.run.room.cleared).toBe(false);
+    expect(w.run.room.doors).toEqual([]);
+    expect(w.players[0]!.hp).toBe(w.players[0]!.maxHp);
+  });
+
+  it("stands killed dummies back up without loot, and heals ones left alone", () => {
+    const w = createWorld({ seed: 4, practice: true });
+    const [big, small] = [w.enemies.find((e) => e.defId === "dummy_big")!, w.enemies.find((e) => e.defId === "dummy")!];
+    const pickups = w.pickups.length;
+    hit(w, small.id, 99999);
+    hit(w, big.id, 500);
+    run(w, 10);
+    expect(w.enemies.some((e) => e.id === small.id)).toBe(false);
+    expect(w.pickups.length).toBe(pickups);
+    run(w, Math.ceil((PRACTICE.resetS + 0.2) * TICK_HZ));
+    expect(w.enemies.filter((e) => e.defId === "dummy").length).toBe(2);
+    const again = w.enemies.find((e) => e.id === big.id)!;
+    expect(again.hp).toBe(again.maxHp);
+  });
+});
+
+describe("Shrine of Snacks", () => {
+  it("heals at most a couple of health a second however many kills there are", () => {
+    const w = quiet(5);
+    const p = w.players[0]!;
+    applyBoost(w, p, "vampire");
+    run(w, TICK_HZ * 2); // fill the budget
+    p.hp = 10;
+    for (let i = 0; i < 30; i++) {
+      const e = spawnEnemy(w, "cone_rat", { x: 100 + i, y: 100 }, 0);
+      e.noLoot = true;
+      damageEnemy(w, e, 99999, { dir: { x: 1, y: 0 }, knockback: 0, sourcePlayerId: p.id, element: "none" });
+    }
+    expect(p.hp).toBe(10 + SNACKS_PER_SECOND);
   });
 });

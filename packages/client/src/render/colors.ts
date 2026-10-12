@@ -25,6 +25,11 @@ export const SHIELD_COLOR = 0x5fb3ff;
 /** Particle colors for each enemy's death burst. */
 export const ENEMY_COLORS: Record<string, number[]> = {
   cone_rat: [0x8a7f7a, 0xff7a1a, 0xffffff],
+  // Practice range: stuffing.
+  dummy: [0xc9a26b, 0x8a6a3c, 0xf4ecd8],
+  dummy_armor: [0xa7b0bb, 0x6d7682, 0xf4ecd8],
+  dummy_shield: [0x7ad7ff, 0xffffff, 0xf4ecd8],
+  dummy_big: [0xc9a26b, 0x8a6a3c, 0xf4ecd8],
   jet_boar: [0x8a5a3c, 0xa7b0bb, 0xffb238],
   mortar_beetle: [0x3e8f5a, 0x8fd18f, 0xa7b0bb],
   slag_golem: [0x6d5f66, 0x8f8088, 0xff7a1a],
