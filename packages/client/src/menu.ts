@@ -255,6 +255,11 @@ export class Menu {
     for (const b of document.querySelectorAll<HTMLElement>("#menu [data-icon]")) this.label(b, b.textContent ?? "", "");
     this.account.onChange(() => this.render());
     game.events.on("leave", () => this.leave());
+    // Closing the page mid co-op run leaves the room now, so the server saves your loot right away instead of
+    // holding the seat for a reconnect. (A page kept for back/forward just drops and reconnects as usual.)
+    addEventListener("pagehide", (e) => {
+      if (!e.persisted) this.session?.leave();
+    });
     game.events.on("soloAgain", () => this.startSolo());
     // Tapping an empty mark on the stage: bring friends.
     game.events.on("invite", () => {
@@ -332,6 +337,10 @@ export class Menu {
   /** Back to the lobby on your own, after a run or when leaving a room. */
   show(status = ""): void {
     this.showStage();
+    // The game was closed mid-run last time: say that run came home (once).
+    const back = this.account.recovered;
+    this.account.recovered = undefined;
+    if (back && !status) status = `YOUR LAST RUN CAME HOME: +${back.xp} XP${back.kept ? `, ${back.kept} GUN${back.kept === 1 ? "" : "S"}` : ""}`;
     $("status").textContent = status;
     this.setBusy(false);
     void this.account.sync();
@@ -801,6 +810,8 @@ export class Menu {
   }
 
   startSolo(): void {
+    // A run that never got its ending comes home before the next one starts.
+    this.account.bankRun();
     this.runScenes({
       profile: this.me,
       tier: this.tier,
@@ -809,6 +820,7 @@ export class Menu {
       outfit: this.account.profile.outfit,
       // Solo results are trusted (friends-only game): applied here and synced when there's a connection.
       onRunEnd: (w, p): RunReward | undefined => this.account.dispatch({ type: "run", result: runResult(w, p, { mode: "solo", day: localDay() }) }).reward,
+      onCheckpoint: (w, p) => this.account.checkpoint(runResult(w, p, { mode: "solo", day: localDay() })),
     });
   }
 

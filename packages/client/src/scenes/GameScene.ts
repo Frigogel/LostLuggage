@@ -85,8 +85,12 @@ export interface GameData {
   outfit?: Outfit;
   /** Solo: saves the run (XP, loot) and says what it earned. Co-op rewards come from the server instead. */
   onRunEnd?: (w: World, me: Player) => RunReward | undefined;
+  /** Solo: saves the run so far, so closing the game mid-run still brings it home next time. */
+  onCheckpoint?: (w: World, me: Player) => void;
 }
 
+/** Solo events that save the run so far. */
+const CHECKPOINT_EVENTS = new Set<SimEvent["type"]>(["roomCleared", "roomEnter", "pickup", "grenadePickup", "relicPickup"]);
 /** How long an emote's hops last. */
 const EMOTE_HOP_MS = 400;
 const SHADOW_FOR = (r: number) => (r <= 5 ? "shadow-s" : r <= 7 ? "shadow-m" : r <= 11 ? "shadow-l" : "shadow-xl");
@@ -200,6 +204,7 @@ export class GameScene extends Phaser.Scene {
   /** The practice range: training dummies instead of a run. */
   practice = false;
   private onRunEnd?: GameData["onRunEnd"];
+  private onCheckpoint?: GameData["onCheckpoint"];
   /** Solo: what this run earned, once it has been saved. */
   reward?: RunReward;
   private reported = false;
@@ -259,6 +264,7 @@ export class GameScene extends Phaser.Scene {
     this.tier = data.tier ?? 0;
     this.practice = !!data.practice;
     this.onRunEnd = data.onRunEnd;
+    this.onCheckpoint = data.onCheckpoint;
     this.reward = undefined;
     this.reported = false;
     this.myId = -1;
@@ -403,9 +409,12 @@ export class GameScene extends Phaser.Scene {
 
     this.game.events.on(Phaser.Core.Events.HIDDEN, this.onHidden, this);
     this.game.events.on(Phaser.Core.Events.VISIBLE, this.onVisible, this);
+    const closing = (): void => this.checkpoint();
+    addEventListener("pagehide", closing);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden, this);
       this.game.events.off(Phaser.Core.Events.VISIBLE, this.onVisible, this);
+      removeEventListener("pagehide", closing);
     });
   }
 
@@ -415,6 +424,8 @@ export class GameScene extends Phaser.Scene {
     // Phones background the tab all the time. Solo pauses; co-op can't, so the server takes you out of harm's way.
     if (this.net) this.net.setAway(true);
     else this.paused = true;
+    // A backgrounded phone may never come back: save the run so far.
+    this.checkpoint();
   }
 
   private onVisible(): void {
@@ -429,6 +440,12 @@ export class GameScene extends Phaser.Scene {
     this.reported = true;
     this.reward = this.onRunEnd(this.world, this.me);
     return this.reward;
+  }
+
+  /** Solo: saves the run so far (until it's reported), in case the game gets closed before it ends. */
+  private checkpoint(): void {
+    if (this.net || this.reported || !this.onCheckpoint || !this.world) return;
+    this.onCheckpoint(this.world, this.me);
   }
 
   resume(): void {
@@ -902,6 +919,8 @@ export class GameScene extends Phaser.Scene {
   private stepWorld(input: PlayerInput): void {
     simStep(this.world, [input]);
     for (const ev of this.world.events) this.onEvent(ev);
+    // Progress worth keeping: a room done, a new room, or loot picked up.
+    if (this.world.events.some((ev) => CHECKPOINT_EVENTS.has(ev.type))) this.checkpoint();
     this.events.emit("sim", this.world.events);
   }
 

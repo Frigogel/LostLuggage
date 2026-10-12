@@ -203,7 +203,8 @@ export class RunRoom extends Room {
       // If they don't make it back in time, Colyseus calls onLeave and the seat opens up.
       this.allowReconnection(client, RECONNECT_S).catch(() => {});
     } catch {
-      // The room is shutting down: nothing to come back to.
+      // The room is shutting down: nothing to come back to, but the loot still goes home.
+      if (this.world) this.award(seat, this.world, undefined);
     }
   }
 
@@ -228,6 +229,9 @@ export class RunRoom extends Room {
   }
 
   onDispose(): void {
+    // A server shutdown mid-run: everyone still seated takes their loot home.
+    const w = this.world;
+    if (w) for (const seat of this.seats.values()) this.award(seat, w, undefined);
     codesInUse.delete(this.roomId);
   }
 

@@ -4,7 +4,8 @@
 // Signed-in players keep their profile on this device too. Every change is an Action applied right away with the
 // sim's own reducer (so solo works offline), then queued and sent to the server, which applies the same actions.
 // Whatever the server says wins; actions it hasn't seen yet are replayed on top.
-import { applyAction, cleanProfile, newProfile, randomId, type Action, type Profile, type RunReward } from "@lostluggage/sim";
+// A solo run in progress is saved as it goes, so closing the game mid-run still brings it home on the next launch.
+import { applyAction, cleanProfile, newProfile, randomId, type Action, type Profile, type RunResult, type RunReward } from "@lostluggage/sim";
 import { serverUrl } from "./net";
 
 const KEY = "lostluggage.account";
@@ -18,6 +19,8 @@ interface Saved {
   username: string;
   profile: unknown;
   queue: Action[];
+  /** The solo run in progress, as it stood at its last checkpoint. */
+  run?: RunResult;
 }
 
 function read<T>(key: string): T | undefined {
@@ -39,6 +42,10 @@ export class AccountStore {
   offline = false;
   /** The server no longer accepts our token: sign in again (local progress is kept until then). */
   expired = false;
+  /** What a run cut short last time (the game was closed mid-run) earned when it came home at launch. */
+  recovered?: RunReward;
+  /** The solo run in progress, saved with the profile so it's never lost or counted twice. */
+  private run?: RunResult;
   private syncing?: Promise<void>;
   private listeners = new Set<() => void>();
 
@@ -49,9 +56,12 @@ export class AccountStore {
       this.username = saved.username;
       this.profile = cleanProfile(saved.profile, saved.username);
       this.queue = Array.isArray(saved.queue) ? saved.queue : [];
+      this.run = saved.run;
     } else {
       this.profile = newProfile(read<{ name?: string }>(GUEST_NAME_KEY)?.name ?? "");
     }
+    // The game was closed mid-run last time: that run comes home now.
+    this.recovered = this.bankRun();
     addEventListener("online", () => void this.sync());
     // Ask the browser not to clear our save under storage pressure (matters most on iPhone).
     void navigator.storage?.persist?.().catch(() => {});
@@ -73,7 +83,7 @@ export class AccountStore {
 
   private save(): void {
     try {
-      if (this.token) localStorage.setItem(KEY, JSON.stringify({ token: this.token, username: this.username ?? "", profile: this.profile, queue: this.queue } satisfies Saved));
+      if (this.token) localStorage.setItem(KEY, JSON.stringify({ token: this.token, username: this.username ?? "", profile: this.profile, queue: this.queue, run: this.run } satisfies Saved));
       else localStorage.setItem(GUEST_NAME_KEY, JSON.stringify({ name: this.profile.name }));
     } catch {
       /* private mode or full storage: the server copy still has it */
@@ -85,10 +95,25 @@ export class AccountStore {
     const action = { ...a, id: randomId() } as Action;
     const r = applyAction(this.profile, action);
     this.profile = r.profile;
+    // A run's result replaces its checkpoint in the same save.
+    if (action.type === "run") this.run = undefined;
     if (this.token) this.queue.push(action);
     this.changed();
     void this.sync();
     return { reward: r.reward, xp: r.xp };
+  }
+
+  /** Saves the solo run so far. Guests keep nothing, so there's nothing to save for them. */
+  checkpoint(result: RunResult): void {
+    if (!this.token) return;
+    this.run = result;
+    this.save();
+  }
+
+  /** Brings home a checkpointed run that never got its ending (the game was closed mid-run). */
+  bankRun(): RunReward | undefined {
+    const run = this.run;
+    return run ? this.dispatch({ type: "run", result: run }).reward : undefined;
   }
 
   /** The server's copy, plus whatever it hasn't seen yet. */
@@ -155,7 +180,10 @@ export class AccountStore {
       this.token = data.token;
       this.username = data.username;
       this.expired = false;
-      if (!same) this.queue = [];
+      if (!same) {
+        this.queue = [];
+        this.run = undefined;
+      }
       this.adoptServer(data.profile!, this.queue);
       this.changed();
       void this.sync();
@@ -175,6 +203,7 @@ export class AccountStore {
     }
     this.token = this.username = undefined;
     this.queue = [];
+    this.run = undefined;
     this.expired = false;
     this.profile = newProfile();
     this.changed();
