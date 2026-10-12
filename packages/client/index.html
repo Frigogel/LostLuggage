@@ -159,6 +159,73 @@
       #menu .thumb canvas { transform: scale(3); }
       #menu .guns li .act button { display: flex; align-items: center; justify-content: center; gap: 6px; }
       #menu .guns li .act .icon { width: 16px; height: 16px; }
+      /* The armory: a header, tabs with counts, a grid of tiles beside the picked item's panel, and the bulk tools below. */
+      #menu .armory-head { display: flex; align-items: center; gap: 10px; }
+      #menu .armory-head h2 { flex: 1; margin: 0; }
+      #menu .armory-head button, #menu .armory-tools button { width: auto; flex: none; margin: 0; min-height: 40px; padding: 0 12px; font-size: 12px; }
+      #menu .armory-head .spacer { width: 96px; flex: none; }
+      #menu #armory-tabs button { line-height: 1.1; }
+      #menu #armory-tabs button small, #menu .armory-tools button small { display: block; font-size: 9px; color: #c9cfd6; text-align: left; }
+      #menu #armory-tabs button > span:first-child { display: inline-block; text-align: left; }
+      #menu #armory .hint { text-align: left; margin: 6px 0; }
+      #menu .armory-body { display: flex; gap: 10px; align-items: flex-start; text-align: left; }
+      #menu .armory-grid { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; align-content: start; }
+      #menu .tile {
+        position: relative; margin: 0; padding: 0; min-height: 0; aspect-ratio: 1; overflow: hidden;
+        display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--r); background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--r) 28%, #2a1c30) 0%, #1b1020 85%);
+      }
+      #menu .tile:hover { border-color: var(--r); filter: brightness(1.25); }
+      #menu .tile.on { border-color: #fff; box-shadow: 0 0 0 2px #f2c14e; z-index: 1; }
+      #menu .tile .chip { position: absolute; top: 0; left: 0; padding: 0 4px; font-size: 9px; line-height: 14px; background: #f2c14e; color: #1b1020; }
+      #menu .tile .star { position: absolute; top: 2px; right: 1px; margin: 0; color: #f2c14e; }
+      #menu .tile .new { position: absolute; bottom: 0; right: 0; padding: 0 3px; font-size: 8px; line-height: 12px; background: #5fd3e8; color: #1b1020; }
+      #menu .tile .better { position: absolute; bottom: 1px; left: 3px; font-size: 11px; color: #5fd36a; }
+      #menu .tile > canvas.px { height: auto; }
+      #menu .tile .thumb.mythic { width: 100%; height: 100%; }
+      #menu .tile .thumb.mythic canvas { width: 72%; height: auto; }
+      #menu .tile.mythic { animation: mythic-edge 3s linear infinite; }
+      /* Sticks beside the grid as it scrolls, and never taller than the screen, so its buttons stay in reach. */
+      #menu .armory-detail { flex: 0 0 270px; box-sizing: border-box; position: sticky; top: 8px; max-height: calc(var(--app-h, 100vh) - 16px); overflow-y: auto; padding: 10px; text-transform: none; font-size: 11px; line-height: 1.35; }
+      #menu .armory-detail[hidden] { display: none; }
+      #menu .armory-detail .big {
+        height: 100px; margin-bottom: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+        border: 2px solid var(--r); background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--r) 30%, #2a1c30) 0%, #1b1020 80%);
+      }
+      #menu .armory-detail .big > canvas.px { height: 56%; width: auto; max-width: 85%; object-fit: contain; }
+      #menu .armory-detail .big .thumb.mythic { width: 84px; height: 84px; }
+      #menu .armory-detail .big .thumb.mythic canvas { width: 64px; height: 64px; }
+      #menu .armory-detail h3 { display: flex; align-items: center; margin: 0; font-size: 14px; text-transform: uppercase; }
+      #menu .armory-detail h3 .star { color: #f2c14e; }
+      #menu .armory-detail .sub { margin: 2px 0 6px; font-size: 10px; color: #c9cfd6; }
+      #menu .armory-detail p { margin: 4px 0; }
+      #menu .armory-detail .stat { font-size: 12px; text-transform: uppercase; }
+      #menu .armory-detail .flavor { color: #c9cfd6; font-style: italic; }
+      #menu .armory-detail .perk { color: #5fd3e8; }
+      #menu .armory-detail .act { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+      #menu .armory-detail .act button { flex: 1 1 0; margin: 0; min-height: 40px; font-size: 11px; padding: 0 6px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+      #menu .armory-detail .act .icon { width: 16px; height: 16px; }
+      #menu .armory-detail .act .scrap { flex: 1 1 100%; }
+      #menu .armory-detail .act .fav { flex: 0 0 44px; padding: 0; color: #8a7f8a; }
+      #menu .armory-detail .act .fav .ic { margin: 0; }
+      #menu .armory-detail .act .fav.on { color: #f2c14e; border-color: #f2c14e; background: #4a3020; }
+      #menu .armory-detail.mythic { animation: mythic-edge 3s linear infinite; }
+      #menu .armory-detail.mythic h3 span { background: linear-gradient(90deg, #62f5e0, #b46cff, #ff6ad5, #ffd34d, #62f5e0); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: mythic-pearl 3s linear infinite; }
+      #menu .armory-tools { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+      #menu .armory-tools button[hidden] { display: none; }
+      #menu .armory-tools .status { flex: 1; margin: 0; align-self: center; text-align: left; }
+      @media (max-height: 500px) {
+        #menu .armory-detail .big { height: 64px; }
+        #menu .armory-detail .big .thumb.mythic { width: 56px; height: 56px; }
+        #menu .armory-detail .big .thumb.mythic canvas { width: 44px; height: 44px; }
+      }
+      @media (max-width: 640px) {
+        /* Narrow screens: the picked item sits above the grid and stays put while the grid scrolls under it. */
+        #menu .armory-body { flex-direction: column; align-items: stretch; }
+        #menu .armory-detail { order: -1; flex: none; top: 0; z-index: 2; max-height: 48vh; overflow-y: auto; background: #1b1020; }
+        #menu .armory-detail .big { height: 72px; }
+        #menu .armory-head .spacer { display: none; }
+      }
       #menu .offers button .thumb { margin: 2px auto 8px; width: 64px; height: 64px; }
       #menu .offers button .thumb canvas { transform: scale(5); }
       /* Mythics: the framed icon inside a turning rainbow ring, a shine sweeping over it, and a pearly moving title. */
@@ -174,7 +241,7 @@
       #menu li.mythic > div > b:first-child { background: linear-gradient(90deg, #62f5e0, #b46cff, #ff6ad5, #ffd34d, #62f5e0); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent !important; animation: mythic-pearl 3s linear infinite; }
       #menu .mythic-text { color: #62f5e0; }
       @media (prefers-reduced-motion: reduce) {
-        #menu .thumb.mythic::before, #menu .thumb.mythic::after, #menu li.mythic, #menu li.mythic > div > b:first-child { animation: none; }
+        #menu .thumb.mythic::before, #menu .thumb.mythic::after, #menu li.mythic, #menu li.mythic > div > b:first-child, #menu .tile.mythic, #menu .armory-detail.mythic, #menu .armory-detail.mythic h3 span { animation: none; }
       }
       /* Hero preview and the wardrobe. Sprites are tiny, so they're scaled up with crisp pixels. */
       #menu canvas.px { image-rendering: pixelated; image-rendering: crisp-edges; }
@@ -288,12 +355,22 @@
         <div class="row3"><button id="skills-reset" class="ib" data-icon="reset">Reset (free)</button><button class="back ib" data-icon="back">Back</button></div>
       </div>
       <div class="card wide" id="armory" hidden>
-        <h2 data-icon="armory">Armory</h2>
+        <div class="armory-head">
+          <button class="back ib" data-icon="back">Back</button>
+          <h2 data-icon="armory">Armory</h2>
+          <span class="spacer"></span>
+        </div>
         <div class="pick" id="armory-tabs"><button data-tab="guns">Guns</button><button data-tab="grenades">Grenades</button><button data-tab="relics">Relics</button></div>
         <p class="hint" id="armory-hint"></p>
-        <ul class="guns" id="armory-list"></ul>
-        <div class="row3"><button id="armory-scrap" class="ib" data-icon="scrap">Scrap all commons</button><button class="back ib" data-icon="back">Back</button></div>
-        <p class="status" id="armory-status"></p>
+        <div class="armory-body">
+          <div class="armory-grid" id="armory-list"></div>
+          <aside class="armory-detail panel" id="armory-detail" hidden></aside>
+        </div>
+        <div class="armory-tools">
+          <p class="status" id="armory-status"></p>
+          <button id="armory-auto" class="ib" data-icon="scrap">Auto-scrap</button>
+          <button id="armory-scrap" class="ib" data-icon="scrap">Scrap commons</button>
+        </div>
       </div>
       <div class="card wide" id="souvenirs" hidden>
         <h2 data-icon="souvenirs">Souvenirs</h2>

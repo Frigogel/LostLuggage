@@ -518,6 +518,8 @@ export interface Player {
   freeProgress: number;
   /** Orbital Deck: seconds until teleporter pads take you again. */
   padCd: number;
+  /** Everything picked up this run that isn't from the stash: it all comes home to the armory. Never sent over the wire. */
+  found?: { guns: Gun[]; grenades: Grenade[]; relics: Relic[] };
 }
 
 export type EnemyState = "move" | "windup" | "attack" | "recover" | "hidden" | "reveal";

@@ -4,6 +4,7 @@
 import type Phaser from "phaser";
 import {
   ADVENTURE_IDS,
+  AUTO_SCRAP_OPTIONS,
   DIFFICULTIES,
   COSMETIC_SLOTS,
   COSMETICS,
@@ -34,6 +35,7 @@ import {
   skillPoints,
   SLOT_NAMES,
   SOUVENIR_CAP,
+  STASH_CAP,
   souvenirOffers,
   SOUVENIRS,
   SOUVENIR_IDS,
@@ -43,15 +45,14 @@ import {
   gunName,
   unlockText,
   xpToNext,
+  type AutoScrap,
   type CosmeticSlot,
   type JoinOptions,
   type LobbyInfo,
   type PlayerOptions,
   type Rarity,
   type RunReward,
-  type StashGrenade,
   type StashGun,
-  type StashRelic,
 } from "@lostluggage/sim";
 import { AccountStore } from "./account";
 import { NetSession, type JoinKind } from "./net";
@@ -98,12 +99,19 @@ const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<vo
 /** Worst to best, for sorting the armory. */
 const RARITY_ORDER: Rarity[] = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
 
-/** Legendaries and mythics ask before they go. */
-function confirmScrap(rarity: Rarity, name: string): boolean {
+/** Favorites, legendaries and mythics ask before they go. */
+function confirmScrap(rarity: Rarity, name: string, favorite = false): boolean {
   if (rarity === "mythic") return confirm(`Scrap ${name}? It's a MYTHIC: the rarest thing in the game. You may never see another.`);
+  if (favorite) return confirm(`Scrap ${name}? It's one of your favorites.`);
   if (rarity === "legendary") return confirm(`Scrap ${name}? Legendaries are rare.`);
   return true;
 }
+
+/** What the auto-scrap button says for each setting. */
+const AUTO_SCRAP_NAMES: Record<AutoScrap, string> = { "": "Off", common: "Commons", uncommon: "Uncommon & worse", rare: "Rare & worse", epic: "Epic & worse" };
+
+/** Armory tiles sort equipped first, then favorites, then best to worst. */
+const tileRank = (equipped: number, favorite: boolean | undefined, rarity: Rarity) => (equipped >= 0 ? -20 + equipped : 0) + (favorite ? -6 : 0) - RARITY_ORDER.indexOf(rarity);
 
 /** A mythic's armory tile: the framed icon inside a turning rainbow ring, with a shine sweeping over it. */
 function mythicThumb(id: string): HTMLElement {
@@ -119,6 +127,40 @@ function loadoutArchetype(id: string | undefined, stash: readonly StashGun[]): s
 }
 
 type ArmoryTab = "guns" | "grenades" | "relics";
+type ArmoryKind = "gun" | "grenade" | "relic";
+
+const TAB_NAMES: Record<ArmoryTab, string> = { guns: "Guns", grenades: "Grenades", relics: "Relics" };
+
+/** One thing in the armory: a tile in the grid, and what the detail panel shows when it's picked. */
+interface ArmoryItem {
+  id: string;
+  kind: ArmoryKind;
+  rarity: Rarity;
+  favorite?: boolean;
+  /** Sort key: equipped first, then favorites, then best to worst. */
+  rank: number;
+  /** The tile's corner chip when it's equipped ("1", "2" or "ON"); equipped things can't be scrapped. */
+  chip: string;
+  /** A gun that hits harder than one you carry. */
+  better?: boolean;
+  /** Mythic art id: mythics get the turning rainbow ring instead of a sprite. */
+  myth?: string;
+  /** The sprite, and how much of a tile's width it fills (guns are long; grenades and charms are small and round). */
+  art: () => HTMLCanvasElement;
+  fill: number;
+  name: string;
+  /** "RARE SMG · WIZARD · SHOCK" and the like. */
+  sub: string;
+  body: HTMLElement[];
+  /** Equip buttons; favorite and scrap are added for every kind. */
+  actions: HTMLElement[];
+}
+
+function scrapAction(kind: ArmoryKind, id: string): { type: "scrap"; gunIds: string[]; grenadeIds?: string[]; relicIds?: string[] } {
+  if (kind === "grenade") return { type: "scrap", gunIds: [], grenadeIds: [id] };
+  if (kind === "relic") return { type: "scrap", gunIds: [], relicIds: [id] };
+  return { type: "scrap", gunIds: [id] };
+}
 
 export class Menu {
   readonly account = new AccountStore();
@@ -196,6 +238,10 @@ export class Menu {
     $("si-register").addEventListener("click", () => void this.signIn("register"));
     $("skills-reset").addEventListener("click", () => this.account.dispatch({ type: "skills", heroId: this.account.profile.heroId, skills: [] }));
     $("armory-scrap").addEventListener("click", () => this.scrapCommons());
+    $("armory-auto").addEventListener("click", () => {
+      const opts = AUTO_SCRAP_OPTIONS;
+      this.account.dispatch({ type: "autoScrap", rarity: opts[(opts.indexOf(this.account.profile.autoScrap) + 1) % opts.length]! });
+    });
     for (const b of $("armory-tabs").querySelectorAll<HTMLButtonElement>("button")) {
       b.addEventListener("click", () => {
         this.armoryTab = b.dataset.tab === "grenades" || b.dataset.tab === "relics" ? b.dataset.tab : "guns";
@@ -472,175 +518,178 @@ export class Menu {
   }
 
   private renderArmory(): void {
+    const p = this.account.profile;
+    const tab = this.armoryTab;
+    const lists: Record<ArmoryTab, [{ id: string }[], number]> = { guns: [p.stash, STASH_CAP], grenades: [p.grenades, GRENADE_CAP], relics: [p.relics, RELIC_CAP] };
     for (const b of $("armory-tabs").querySelectorAll<HTMLButtonElement>("button")) {
-      const tab = b.dataset.tab;
-      const p = this.account.profile;
-      const list: { id: string }[] = tab === "grenades" ? p.grenades : tab === "relics" ? p.relics : p.stash;
-      b.classList.toggle("on", tab === this.armoryTab);
-      b.replaceChildren(tab === "grenades" ? "Grenades" : tab === "relics" ? "Relics" : "Guns", ...(list.some((g) => this.fresh.has(g.id)) ? [el("span", { className: "badge", textContent: "!" })] : []));
+      const t = (b.dataset.tab ?? "guns") as ArmoryTab;
+      const [list, cap] = lists[t];
+      b.classList.toggle("on", t === tab);
+      b.replaceChildren(el("span", {}, TAB_NAMES[t], el("small", { textContent: `${list.length}/${cap}` })), ...(list.some((g) => this.fresh.has(g.id)) ? [el("span", { className: "badge", textContent: "!" })] : []));
     }
-    if (this.armoryTab === "grenades") this.renderGrenades();
-    else if (this.armoryTab === "relics") this.renderRelics();
-    else this.renderGuns();
+    // Auto-scrap is for guns: they're the ones that pile up.
+    $("armory-auto").hidden = tab !== "guns";
+    this.label("armory-auto", el("span", {}, "Auto-scrap", el("small", { textContent: AUTO_SCRAP_NAMES[p.autoScrap] })), "");
+    this.label("armory-scrap", el("span", {}, "Scrap commons", el("small", { textContent: "Not equipped or starred" })), "");
+
+    const items = (tab === "grenades" ? this.grenadeItems() : tab === "relics" ? this.relicItems() : this.gunItems()).sort((a, b) => a.rank - b.rank);
+    // Something is always picked, so the panel is never empty: what you tapped, or else the first tile.
+    const picked = items.find((t) => t.id === this.openGun) ?? items[0];
+    const guest = this.account.signedIn ? "" : " GUESTS KEEP NOTHING: SIGN IN TO SAVE IT.";
+    const empty = tab === "relics" ? "NO RELICS YET. BOSSES ALWAYS DROP ONE; ELITES AND SUITCASES SOMETIMES DO." : `NO ${tab.toUpperCase()} YET.`;
+    $("armory-hint").textContent = (items.length ? "EVERYTHING YOU PICK UP IN A RUN COMES HOME." : empty) + guest;
+    $("armory-list").replaceChildren(...items.map((t) => this.tileEl(t, t === picked)));
+    $("armory-detail").hidden = !picked;
+    if (picked) this.renderDetail(picked);
   }
 
-  private renderRelics(): void {
-    const p = this.account.profile;
-    const rank = (r: StashRelic) => (r.id === p.relic ? -10 : 0) - RARITY_ORDER.indexOf(r.rarity);
-    const relics = [...p.relics].sort((a, b) => rank(a) - rank(b));
-    $("armory-hint").textContent =
-      relics.length === 0
-        ? `NO RELICS YET. BOSSES ALWAYS DROP ONE; ELITES AND SUITCASES SOMETIMES DO. THE ONE IN YOUR POCKET COMES HOME.${this.account.signedIn ? "" : " GUESTS KEEP NOTHING."}`
-        : `${p.relics.length}/${RELIC_CAP} RELICS. TAP ONE TO EQUIP OR SCRAP IT. THE ONE IN YOUR POCKET COMES HOME.${this.account.signedIn ? "" : " GUESTS KEEP NOTHING."}`;
-    $("armory-list").replaceChildren(
-      ...relics.map((r) => {
-        const def = relicDef(r);
-        const on = r.id === p.relic;
-        const myth = mythicArtId(r);
-        const li = el("li", { className: myth ? "art mythic" : "art" });
-        li.style.borderColor = toCss(RARITY_COLORS[r.rarity]);
-        if (myth) li.append(mythicThumb(myth));
-        else {
-          const art = drawSprite(SPRITES[`relic_${r.defId}`]!);
-          // Charms are tiny sprites, like grenades: drawn bigger so they fill the tile.
-          art.style.transform = "scale(5)";
-          li.append(el("span", { className: "thumb" }, Object.assign(art, { className: "px" })));
-        }
-        const body = el("div");
-        li.append(body);
-        const title = el("b", { textContent: def.name });
-        title.style.color = toCss(RARITY_COLORS[r.rarity]);
-        body.append(title, on ? "  [EQUIPPED]" : "", this.fresh.has(r.id) ? el("span", { className: "badge", textContent: "NEW" }) : "", el("br"), `${r.rarity.toUpperCase()} RELIC`, el("br"));
-        body.append(el("span", { className: myth ? "mythic-text" : "up", textContent: relicText(def, r.rarity) }), el("br"), `"${def.flavor}"`);
-        if (this.openGun === r.id) {
-          const act = el("div", { className: "act" });
-          const eq = el("button", {}, iconEl(on ? "check" : "equip"), on ? "Take off" : "Equip");
-          eq.addEventListener("click", (e) => {
-            e.stopPropagation();
-            this.account.dispatch({ type: "equipRelic", relicId: on ? "" : r.id });
-          });
-          const scrap = el("button", { disabled: on }, iconEl("scrap"), `Scrap +${SCRAP_XP[r.rarity]} XP`);
-          scrap.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (confirmScrap(r.rarity, def.name)) this.account.dispatch({ type: "scrap", gunIds: [], relicIds: [r.id] });
-          });
-          act.append(eq, scrap);
-          body.append(act);
-        }
-        li.addEventListener("click", () => {
-          this.openGun = this.openGun === r.id ? "" : r.id;
-          this.renderArmory();
-        });
-        return li;
-      }),
+  /** A sprite (or a mythic's ring), drawn to fill a tile or, bigger, the detail panel. */
+  private itemArt(t: ArmoryItem, big: boolean): HTMLElement {
+    if (t.myth) return mythicThumb(t.myth);
+    const art = t.art();
+    art.className = "px";
+    if (!big) art.style.width = `${t.fill}%`;
+    return art;
+  }
+
+  private tileEl(t: ArmoryItem, picked: boolean): HTMLElement {
+    const b = el("button", { className: `tile${picked ? " on" : ""}${t.myth ? " mythic" : ""}`, title: t.name }, this.itemArt(t, false));
+    b.style.setProperty("--r", toCss(RARITY_COLORS[t.rarity]));
+    if (t.chip) b.append(el("span", { className: "chip", textContent: t.chip }));
+    if (t.favorite) b.append(Object.assign(iconEl("star"), { className: "ic star" }));
+    if (this.fresh.has(t.id)) b.append(el("span", { className: "new", textContent: "NEW" }));
+    if (t.better) b.append(el("span", { className: "better", textContent: "▲" }));
+    b.addEventListener("click", () => {
+      this.openGun = t.id;
+      this.renderArmory();
+    });
+    return b;
+  }
+
+  /** The picked item up close: big art, everything about it, and what you can do with it. */
+  private renderDetail(t: ArmoryItem): void {
+    const d = $("armory-detail");
+    d.className = `armory-detail panel${t.myth ? " mythic" : ""}`;
+    d.style.setProperty("--r", toCss(RARITY_COLORS[t.rarity]));
+    const title = el("h3", {}, el("span", { textContent: t.name }));
+    title.style.color = toCss(RARITY_COLORS[t.rarity]);
+    if (t.favorite) title.prepend(Object.assign(iconEl("star"), { className: "ic star" }));
+    const scrap = el("button", { className: "scrap", disabled: !!t.chip, title: t.chip ? "Equipped: unequip it to scrap it" : "" }, iconEl("scrap"), `Scrap +${SCRAP_XP[t.rarity]} XP`);
+    scrap.addEventListener("click", () => {
+      if (!confirmScrap(t.rarity, t.name, t.favorite)) return;
+      this.openGun = "";
+      this.account.dispatch(scrapAction(t.kind, t.id));
+    });
+    d.replaceChildren(
+      el("div", { className: "big" }, this.itemArt(t, true)),
+      title,
+      el("div", { className: "sub", textContent: t.sub }),
+      ...t.body,
+      el("div", { className: "act" }, ...t.actions, this.favButton(t.kind, t), scrap),
     );
   }
 
-  private renderGrenades(): void {
-    const p = this.account.profile;
-    const rank = (g: StashGrenade) => (g.id === p.grenade ? -10 : 0) - RARITY_ORDER.indexOf(g.rarity);
-    const nades = [...p.grenades].sort((a, b) => rank(a) - rank(b));
-    $("armory-hint").textContent = `${p.grenades.length}/${GRENADE_CAP} GRENADES. TAP ONE TO EQUIP OR SCRAP IT. THE ONE ON YOUR BELT COMES HOME.${this.account.signedIn ? "" : " GUESTS KEEP NOTHING."}`;
-    $("armory-list").replaceChildren(
-      ...nades.map((g) => {
-        const st = grenadeStats(g);
-        const on = g.id === p.grenade;
-        const elem = st.def.element;
-        const myth = mythicArtId(g);
-        const li = el("li", { className: myth ? "art mythic" : "art" });
-        li.style.borderColor = toCss(RARITY_COLORS[g.rarity]);
-        if (myth) li.append(mythicThumb(myth));
-        else {
-          const art = drawGrenade(elem !== "none" ? toCss(ELEMENT_COLORS[elem]) : undefined);
-          // Grenades are tiny sprites: drawn bigger than guns so they fill the tile.
-          art.style.transform = "scale(7)";
-          li.append(el("span", { className: "thumb" }, Object.assign(art, { className: "px" })));
-        }
-        const body = el("div");
-        li.append(body);
-        const title = el("b", { textContent: st.def.name });
-        title.style.color = toCss(RARITY_COLORS[g.rarity]);
-        const elemText = elem !== "none" ? ` · ${ELEMENT_INFO[elem].adjective.toUpperCase()}` : "";
-        body.append(title, on ? "  [EQUIPPED]" : "", this.fresh.has(g.id) ? el("span", { className: "badge", textContent: "NEW" }) : "", el("br"), `${g.rarity.toUpperCase()} GRENADE${elemText}`, el("br"));
-        // No better/worse arrow: effect grenades trade damage for what they do, so damage alone would mislead.
-        body.append(`DMG ${Math.round(st.damage)} · EVERY ${st.cooldown.toFixed(1)}S`);
-        body.append(el("br"), el("span", { className: "up", textContent: st.def.text }), el("br"), `"${st.def.flavor}"`);
-        if (this.openGun === g.id) {
-          const act = el("div", { className: "act" });
-          const eq = el("button", { disabled: on }, iconEl(on ? "check" : "equip"), on ? "Equipped" : "Equip");
-          eq.addEventListener("click", (e) => {
-            e.stopPropagation();
-            this.account.dispatch({ type: "equipGrenade", grenadeId: g.id });
-          });
-          const scrap = el("button", { disabled: on }, iconEl("scrap"), `Scrap +${SCRAP_XP[g.rarity]} XP`);
-          scrap.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (confirmScrap(g.rarity, st.def.name)) this.account.dispatch({ type: "scrap", gunIds: [], grenadeIds: [g.id] });
-          });
-          act.append(eq, scrap);
-          body.append(act);
-        }
-        li.addEventListener("click", () => {
-          this.openGun = this.openGun === g.id ? "" : g.id;
-          this.renderArmory();
-        });
-        return li;
-      }),
-    );
+  /** Stars or unstars an item: favorites sort to the top, survive a full stash, and ask before you scrap them. */
+  private favButton(kind: ArmoryKind, item: { id: string; favorite?: boolean }): HTMLElement {
+    const b = el("button", { className: item.favorite ? "fav on" : "fav", title: item.favorite ? "Remove from favorites" : "Add to favorites" }, iconEl("star"));
+    b.setAttribute("aria-label", b.title);
+    b.addEventListener("click", () => this.account.dispatch({ type: "favorite", kind, itemId: item.id, on: !item.favorite }));
+    return b;
   }
 
-  private renderGuns(): void {
+  private equipButton(on: boolean, onText: string, offText: string, act: () => void, canUndo = false): HTMLElement {
+    const b = el("button", { className: "equip", disabled: on && !canUndo }, iconEl(on ? "check" : "equip"), on ? onText : offText);
+    b.addEventListener("click", act);
+    return b;
+  }
+
+  private gunItems(): ArmoryItem[] {
     const p = this.account.profile;
-    const equipped = p.loadout;
     const eqDps = Math.min(...p.loadout.map((id) => p.stash.find((g) => g.id === id)).filter(Boolean).map((g) => gunDps(g!)));
-    const rank = (g: StashGun) => (equipped.includes(g.id) ? -10 + equipped.indexOf(g.id) : 0) - RARITY_ORDER.indexOf(g.rarity);
-    const guns = [...p.stash].sort((a, b) => rank(a) - rank(b));
-    $("armory-hint").textContent = `${p.stash.length}/40 GUNS. TAP ONE TO EQUIP OR SCRAP IT. SCRAPPING GIVES XP.${this.account.signedIn ? "" : " GUESTS KEEP NOTHING."}`;
-    $("armory-list").replaceChildren(
-      ...guns.map((g) => {
-        const slot = equipped.indexOf(g.id);
-        const dps = Math.round(gunDps(g));
-        const better = slot < 0 && dps > eqDps;
-        const myth = mythicArtId(g);
-        const li = el("li", { className: myth ? "art mythic" : "art" });
-        li.style.borderColor = toCss(RARITY_COLORS[g.rarity]);
-        const body = el("div");
-        li.append(myth ? mythicThumb(myth) : el("span", { className: "thumb" }, Object.assign(drawGun(GUNS[g.defId]!.archetype, p.outfit.skin), { className: "px" })), body);
-        const title = el("b", { textContent: gunName(g) });
-        title.style.color = toCss(RARITY_COLORS[g.rarity]);
-        body.append(title, slot >= 0 ? `  [SLOT ${slot + 1}]` : "", this.fresh.has(g.id) ? el("span", { className: "badge", textContent: "NEW" }) : "", el("br"), this.gunLine(g), el("br"));
-        body.append(el("span", { className: better ? "up" : "", textContent: `${better ? "▲ " : ""}DPS ${dps}` }));
-        const leg = g.legendary ? LEGENDARIES[g.legendary] : undefined;
-        const mdef = g.mythic ? MYTHIC_GUNS[g.mythic] : undefined;
-        if (mdef) body.append(el("br"), el("span", { className: "mythic-text", textContent: mdef.text }), el("br"), `"${mdef.flavor}"`);
-        else if (leg) body.append(el("br"), el("span", { className: "up", textContent: leg.text }), el("br"), `"${leg.flavor}"`);
-        else body.append(el("br"), MAKERS[g.maker].quirk);
-        for (const perk of g.perks) body.append(el("br"), `+ ${PERKS[perk].text}`);
-        if (this.openGun === g.id) {
-          const act = el("div", { className: "act" });
-          for (const s of [0, 1]) {
-            const b = el("button", { disabled: slot === s }, iconEl(slot === s ? "check" : "equip"), slot === s ? `In slot ${s + 1}` : `Equip slot ${s + 1}`);
-            b.addEventListener("click", (e) => {
-              e.stopPropagation();
-              this.account.dispatch({ type: "equip", slot: s, gunId: g.id });
-            });
-            act.append(b);
-          }
-          const scrap = el("button", { disabled: slot >= 0 }, iconEl("scrap"), `Scrap +${SCRAP_XP[g.rarity]} XP`);
-          scrap.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (confirmScrap(g.rarity, gunName(g))) this.account.dispatch({ type: "scrap", gunIds: [g.id] });
-          });
-          act.append(scrap);
-          body.append(act);
-        }
-        li.addEventListener("click", () => {
-          this.openGun = this.openGun === g.id ? "" : g.id;
-          this.renderArmory();
-        });
-        return li;
-      }),
-    );
+    return p.stash.map((g) => {
+      const slot = p.loadout.indexOf(g.id);
+      const dps = Math.round(gunDps(g));
+      const better = slot < 0 && dps > eqDps;
+      const leg = g.legendary ? LEGENDARIES[g.legendary] : undefined;
+      const mdef = g.mythic ? MYTHIC_GUNS[g.mythic] : undefined;
+      const special = mdef ?? leg;
+      return {
+        id: g.id,
+        kind: "gun",
+        rarity: g.rarity,
+        favorite: g.favorite,
+        rank: tileRank(slot, g.favorite, g.rarity),
+        chip: slot >= 0 ? String(slot + 1) : "",
+        better,
+        myth: mythicArtId(g),
+        art: () => drawGun(GUNS[g.defId]!.archetype, p.outfit.skin),
+        fill: 80,
+        name: gunName(g),
+        sub: this.gunLine(g),
+        body: [
+          el("p", { className: `stat${better ? " up" : ""}`, textContent: `${better ? "▲ " : ""}DPS ${dps}${better ? `  (BEATS YOUR ${Math.round(eqDps)})` : ""}` }),
+          ...(special
+            ? [el("p", { className: mdef ? "mythic-text" : "up", textContent: special.text }), el("p", { className: "flavor", textContent: `"${special.flavor}"` })]
+            : [el("p", { textContent: MAKERS[g.maker].quirk })]),
+          ...g.perks.map((k) => el("p", { className: "perk", textContent: `+ ${PERKS[k].text}` })),
+        ],
+        actions: [0, 1].map((s) => this.equipButton(slot === s, `In slot ${s + 1}`, `Equip slot ${s + 1}`, () => this.account.dispatch({ type: "equip", slot: s, gunId: g.id }))),
+      };
+    });
+  }
+
+  private grenadeItems(): ArmoryItem[] {
+    const p = this.account.profile;
+    return p.grenades.map((g) => {
+      const st = grenadeStats(g);
+      const on = g.id === p.grenade;
+      const elem = st.def.element;
+      return {
+        id: g.id,
+        kind: "grenade",
+        rarity: g.rarity,
+        favorite: g.favorite,
+        rank: tileRank(on ? 0 : -1, g.favorite, g.rarity),
+        chip: on ? "ON" : "",
+        myth: mythicArtId(g),
+        art: () => drawGrenade(elem !== "none" ? toCss(ELEMENT_COLORS[elem]) : undefined),
+        fill: 42,
+        name: st.def.name,
+        sub: `${g.rarity.toUpperCase()} GRENADE${elem !== "none" ? ` · ${ELEMENT_INFO[elem].adjective.toUpperCase()}` : ""}`,
+        // No better/worse arrow: effect grenades trade damage for what they do, so damage alone would mislead.
+        body: [
+          el("p", { className: "stat", textContent: `DMG ${Math.round(st.damage)} · EVERY ${st.cooldown.toFixed(1)}S` }),
+          el("p", { className: "up", textContent: st.def.text }),
+          el("p", { className: "flavor", textContent: `"${st.def.flavor}"` }),
+        ],
+        actions: [this.equipButton(on, "On your belt", "Equip", () => this.account.dispatch({ type: "equipGrenade", grenadeId: g.id }))],
+      };
+    });
+  }
+
+  private relicItems(): ArmoryItem[] {
+    const p = this.account.profile;
+    return p.relics.map((r) => {
+      const def = relicDef(r);
+      const on = r.id === p.relic;
+      const myth = mythicArtId(r);
+      return {
+        id: r.id,
+        kind: "relic",
+        rarity: r.rarity,
+        favorite: r.favorite,
+        rank: tileRank(on ? 0 : -1, r.favorite, r.rarity),
+        chip: on ? "ON" : "",
+        myth,
+        art: () => drawSprite(SPRITES[`relic_${r.defId}`]!),
+        fill: 52,
+        name: def.name,
+        sub: `${r.rarity.toUpperCase()} RELIC`,
+        body: [el("p", { className: myth ? "mythic-text" : "up", textContent: relicText(def, r.rarity) }), el("p", { className: "flavor", textContent: `"${def.flavor}"` })],
+        // Tap the equipped relic's button again to empty your pocket.
+        actions: [this.equipButton(on, "Take off", "Equip", () => this.account.dispatch({ type: "equipRelic", relicId: on ? "" : r.id }), true)],
+      };
+    });
   }
 
   private scrapCommons(): void {
@@ -648,10 +697,10 @@ export class Menu {
     const tab = this.armoryTab;
     const ids =
       tab === "grenades"
-        ? p.grenades.filter((g) => g.rarity === "common" && g.id !== p.grenade).map((g) => g.id)
+        ? p.grenades.filter((g) => g.rarity === "common" && !g.favorite && g.id !== p.grenade).map((g) => g.id)
         : tab === "relics"
-          ? p.relics.filter((r) => r.rarity === "common" && r.id !== p.relic).map((r) => r.id)
-          : p.stash.filter((g) => g.rarity === "common" && !p.loadout.includes(g.id)).map((g) => g.id);
+          ? p.relics.filter((r) => r.rarity === "common" && !r.favorite && r.id !== p.relic).map((r) => r.id)
+          : p.stash.filter((g) => g.rarity === "common" && !g.favorite && !p.loadout.includes(g.id)).map((g) => g.id);
     if (ids.length === 0) {
       $("armory-status").textContent = "NO SPARE COMMONS";
       return;

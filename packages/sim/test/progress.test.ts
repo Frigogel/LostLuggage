@@ -33,6 +33,8 @@ import {
 } from "../src";
 import { spawnEnemy } from "../src/combat";
 import { newGun } from "../src/loot";
+import { RELICS } from "../src/data/relics";
+import type { Pickup } from "../src/types";
 
 const input = (over: Partial<PlayerInput> = {}): PlayerInput => ({ ...EMPTY_INPUT, ...over });
 
@@ -421,20 +423,81 @@ describe("progression", () => {
     const me = w.players[0]!;
     expect(me.grenade).toEqual({ defId: "frag", rarity: "common", sid: "starter-frag" });
     // Keeping the starter brings nothing new home.
-    expect(runResult(w, me, { mode: "solo", day: "2026-10-10" }).grenade).toBeUndefined();
+    expect(runResult(w, me, { mode: "solo", day: "2026-10-10" }).grenades).toEqual([]);
     me.pos = { x: 100, y: 100 };
     w.pickups.push({ id: 7777, kind: "grenade", pos: { ...me.pos }, grenade: { defId: "vortex", rarity: "epic" }, used: false });
     step(w, [input({ interact: true })]);
     const r = runResult(w, me, { mode: "solo", day: "2026-10-10", newId: () => "nade1" });
-    expect(r.grenade).toMatchObject({ id: "nade1", defId: "vortex", rarity: "epic" });
+    expect(r.grenades).toMatchObject([{ id: "nade1", defId: "vortex", rarity: "epic" }]);
     const { profile, reward } = act(p, { type: "run", id: "x", result: r });
     p = profile;
-    expect(reward!.grenade).toBe(true);
+    expect(reward!.grenades).toBe(1);
     expect(p.grenades.map((g) => g.id)).toEqual(["starter-frag", "nade1"]);
     expect(p.grenade).toBe("nade1");
     expect(createWorld({ seed: 6, players: [playerOptions(p)] }).players[0]!.grenade).toEqual({ defId: "vortex", rarity: "epic", sid: "nade1" });
     // Replaying it doesn't duplicate it.
     expect(act(p, { type: "run", id: "y", result: r }).profile.grenades.length).toBe(2);
+  });
+
+  it("everything picked up in a run comes home, even what you swapped away", () => {
+    const p = newProfile("Cy");
+    const w = createWorld({ seed: 5, players: [playerOptions(p)] });
+    const me = w.players[0]!;
+    me.pos = { x: 100, y: 100 };
+    const pick = (pk: Omit<Pickup, "id" | "pos" | "used">) => {
+      w.pickups = [{ id: 7777, pos: { ...me.pos }, used: false, ...pk } as Pickup];
+      step(w, [input({ interact: true })]);
+      step(w, [input()]);
+    };
+    // Two guns into the same slot: the first ends up back on the floor.
+    pick({ kind: "gun", gun: newGun(w, "launcher", "epic") });
+    pick({ kind: "gun", gun: newGun(w, "smg", "rare") });
+    // Two grenades and two relics, same deal; picking the first one up again doesn't count twice.
+    pick({ kind: "grenade", grenade: { defId: "vortex", rarity: "epic" } });
+    const vortex = me.grenade;
+    pick({ kind: "grenade", grenade: { defId: "acid", rarity: "rare" } });
+    pick({ kind: "grenade", grenade: vortex });
+    pick({ kind: "relic", relic: { defId: "headphones", rarity: "mythic" } });
+    pick({ kind: "relic", relic: { defId: Object.keys(RELICS).find((id) => !RELICS[id]!.mythic)!, rarity: "rare" } });
+    let n = 0;
+    const r = runResult(w, me, { mode: "solo", day: "2026-10-10", newId: () => `n${n++}` });
+    expect(r.guns.map((g) => g.defId).sort()).toEqual(["launcher", "smg"]);
+    expect(r.grenades!.map((g) => g.defId).sort()).toEqual(["acid", "vortex"]);
+    expect(r.relics).toHaveLength(2);
+    const { profile, reward } = act(p, { type: "run", id: "x", result: r });
+    expect(reward).toMatchObject({ kept: 2, grenades: 2, relics: 2, mythics: 1 });
+    expect(profile.grenade).toBe(r.grenadeHand);
+    expect(profile.grenades.find((g) => g.id === profile.grenade)!.defId).toBe("vortex");
+    expect(profile.relics.find((x) => x.id === profile.relic)!.rarity).toBe("rare");
+  });
+
+  it("favorites survive a full stash and are toggled by id", () => {
+    let p = newProfile();
+    p.stash.push(...Array.from({ length: 40 }, (_, i) => gun(`old${i}`, "common")));
+    p = act(p, { type: "favorite", id: "f", kind: "gun", itemId: "old0", on: true }).profile;
+    expect(p.stash.find((g) => g.id === "old0")!.favorite).toBe(true);
+    p = act(p, { type: "run", id: "r", result: result({ guns: [gun("new", "epic")] }) }).profile;
+    expect(p.stash.some((g) => g.id === "old0")).toBe(true);
+    expect(p.stash.some((g) => g.id === "old1")).toBe(false);
+    // Favorites still scrap by hand (the armory asks first), and survive a save round trip.
+    expect(cleanProfile(JSON.parse(JSON.stringify(p))).stash.find((g) => g.id === "old0")!.favorite).toBe(true);
+    p = act(p, { type: "favorite", id: "f2", kind: "gun", itemId: "old0", on: false }).profile;
+    expect(p.stash.find((g) => g.id === "old0")!.favorite).toBeUndefined();
+    p = act(p, { type: "favorite", id: "f3", kind: "grenade", itemId: "starter-frag", on: true }).profile;
+    expect(p.grenades[0]!.favorite).toBe(true);
+  });
+
+  it("auto-scrap turns found guns at or below the chosen rarity into XP, never the ones in hand", () => {
+    let p = act(newProfile(), { type: "autoScrap", id: "a", rarity: "rare" }).profile;
+    expect(p.autoScrap).toBe("rare");
+    expect(act(p, { type: "autoScrap", id: "b", rarity: "legendary" as never }).profile.autoScrap).toBe("rare");
+    expect(cleanProfile(JSON.parse(JSON.stringify(p))).autoScrap).toBe("rare");
+    const guns = [gun("c", "common"), gun("r", "rare"), gun("e", "epic"), gun("l", "legendary", { legendary: "show_off" }), gun("held", "common")];
+    const base = act(newProfile(), { type: "run", id: "x", result: result({ guns, hand: ["held", ""] }) }).reward!;
+    const { profile, reward } = act(p, { type: "run", id: "x", result: result({ guns, hand: ["held", ""] }) });
+    expect(profile.stash.map((g) => g.id).filter((id) => !id.startsWith("starter")).sort()).toEqual(["e", "held", "l"]);
+    expect(reward!.autoScrapped).toBe(2);
+    expect(reward!.xp).toBe(base.xp + SCRAP_XP.common + SCRAP_XP.rare);
   });
 
   it("equips and scraps grenades, never the one on your belt", () => {

@@ -653,10 +653,11 @@ export class UIScene extends Phaser.Scene {
     const up = r.levelAfter > r.levelBefore;
     lines[0]!.setText(`+${r.xp} XP${up ? `   LEVEL UP! LV ${r.levelAfter}` : ""}`).setTint(up ? 0xf2c14e : 0x5fd3e8);
     lines[1]!.setText(r.bonuses.join("  ")).setTint(0xc9cfd6);
-    const extras = [r.grenade ? "GRENADE" : "", r.relic ? "RELIC" : ""].filter(Boolean).join(" + A NEW ");
-    const nade = extras ? (r.kept === 0 ? `A NEW ${extras} BROUGHT HOME` : ` + A NEW ${extras}`) : "";
-    const loot = r.kept === 0 ? nade || "NO NEW GUNS THIS TIME" : `${r.kept} GUN${r.kept === 1 ? "" : "S"} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}${nade}`;
-    lines[2]!.setText(loot + (r.scrapped ? ` (${r.scrapped} SCRAPPED: STASH FULL)` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
+    const count = (n: number | undefined, what: string) => (n ? `${n} ${what}${n === 1 ? "" : "S"}` : "");
+    const items = [count(r.kept, "GUN"), count(r.grenades, "GRENADE"), count(r.relics, "RELIC")].filter(Boolean).join(" + ");
+    const loot = items ? `${items} BROUGHT HOME${r.legendaries ? `, ${r.legendaries} LEGENDARY!` : ""}` : "NOTHING NEW THIS TIME";
+    const gone = [r.autoScrapped ? `${r.autoScrapped} AUTO-SCRAPPED` : "", r.scrapped ? `${r.scrapped} SCRAPPED: STASH FULL` : ""].filter(Boolean).join(", ");
+    lines[2]!.setText(loot + (gone ? ` (${gone})` : "")).setTint(r.legendaries ? 0xff9a2a : 0xffffff);
     // The last two lines go to the rarest news first.
     const sig = r.signature ? SIGNATURES[r.signature] : undefined;
     const looks = (r.cosmetics ?? []).map((id) => COSMETICS[id]?.name.toUpperCase()).filter(Boolean);

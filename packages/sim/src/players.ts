@@ -174,7 +174,7 @@ export function addPlayer(w: World, opts: PlayerOptions): Player | undefined {
   confine(w, p.pos, p.radius);
   // Late joiners get a better second gun so they aren't stuck with starter gear.
   const room = w.run.room.index;
-  if (room > 0) p.guns[1] = rollGun(w, 0.3 * room, "uncommon");
+  if (room > 0) noteFound(p, "guns", (p.guns[1] = rollGun(w, 0.3 * room, "uncommon")));
   p.iframes = 2;
   w.players.push(p);
   w.events.push({ type: "playerJoined", id: p.id });
@@ -669,6 +669,14 @@ export function interactable(w: World, p: Player): Pickup | undefined {
   return best;
 }
 
+/** Remembers a pickup so it comes home at the end of the run, even if it's swapped away later. */
+export function noteFound<K extends keyof NonNullable<Player["found"]>>(p: Player, kind: K, item: NonNullable<Player["found"]>[K][number]): void {
+  if (item.sid || (item as Gun).loaner) return;
+  const found = (p.found ??= { guns: [], grenades: [], relics: [] });
+  const list = found[kind] as object[];
+  if (!list.includes(item)) list.push(item);
+}
+
 /** Health snacks are grabbed on touch; guns, grenades, shrines and suitcases wait for the pickup button. */
 export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
   w.players.forEach((p, i) => {
@@ -688,6 +696,7 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       // Swap: your old gun stays on the floor so you can change your mind.
       const old = p.guns[p.active]!;
       p.guns[p.active] = pk.gun;
+      noteFound(p, "guns", pk.gun);
       pk.gun = old;
       p.burstLeft = 0;
       p.charging = false;
@@ -696,12 +705,14 @@ export function updatePickups(w: World, inputs: readonly PlayerInput[]): void {
       // Same deal for grenades: the old one stays on the floor.
       const old = p.grenade;
       p.grenade = pk.grenade;
+      noteFound(p, "grenades", pk.grenade);
       pk.grenade = old;
       w.events.push({ type: "grenadePickup", id: p.id, grenade: p.grenade });
     } else if (pk.kind === "relic" && pk.relic) {
       // Relics too: pocket this one, and the old one stays on the floor. An empty pocket leaves nothing behind.
       const old = p.relic;
       equipRelic(p, pk.relic);
+      noteFound(p, "relics", pk.relic);
       if (old) pk.relic = old;
       else w.pickups.splice(w.pickups.indexOf(pk), 1);
       w.events.push({ type: "relicPickup", id: p.id, relic: p.relic! });

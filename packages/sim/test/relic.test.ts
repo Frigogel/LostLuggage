@@ -227,13 +227,13 @@ describe("relics: progress", () => {
     let p = newProfile("Cy");
     const w = createWorld({ seed: 5, players: [playerOptions(p)] });
     const me = w.players[0]!;
-    expect(runResult(w, me, { mode: "solo", day: "2026-10-10" }).relic).toBeUndefined();
+    expect(runResult(w, me, { mode: "solo", day: "2026-10-10" }).relics).toEqual([]);
     equipRelic(me, { defId: "headphones", rarity: "mythic" });
     const r = runResult(w, me, { mode: "solo", day: "2026-10-10", newId: () => "rel1" });
-    expect(r.relic).toMatchObject({ id: "rel1", defId: "headphones", rarity: "mythic" });
+    expect(r.relics).toMatchObject([{ id: "rel1", defId: "headphones", rarity: "mythic" }]);
     const { profile, reward } = act(p, { type: "run", id: "x", result: r });
     p = profile;
-    expect(reward!.relic).toBe(true);
+    expect(reward!.relics).toBe(1);
     expect(reward!.mythics).toBe(1);
     expect(p.relic).toBe("rel1");
     expect(createWorld({ seed: 6, players: [playerOptions(p)] }).players[0]!.relic).toEqual({ defId: "headphones", rarity: "mythic", sid: "rel1" });

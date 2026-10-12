@@ -33,23 +33,32 @@ export const GRENADE_CAP = 20;
 export const RELIC_CAP = 20;
 /** XP for scrapping a gun, by rarity. Recycling is good for you. */
 export const SCRAP_XP: Record<Rarity, number> = { common: 4, uncommon: 8, rare: 15, epic: 30, legendary: 60, mythic: 250 };
+/** Auto-scrap settings for guns coming home: off, or this rarity and worse. Legendaries and mythics always come home. */
+export const AUTO_SCRAP_OPTIONS = ["", "common", "uncommon", "rare", "epic"] as const;
+export type AutoScrap = (typeof AUTO_SCRAP_OPTIONS)[number];
 
 export interface StashGun extends GunData {
   id: string;
   /** Not looked at in the armory yet. */
   new?: boolean;
+  /** Starred in the armory: never scrapped automatically, and scrapping it by hand asks first. */
+  favorite?: boolean;
 }
 
 export interface StashGrenade extends Grenade {
   id: string;
   /** Not looked at in the armory yet. */
   new?: boolean;
+  /** Starred in the armory, like guns. */
+  favorite?: boolean;
 }
 
 export interface StashRelic extends Relic {
   id: string;
   /** Not looked at in the armory yet. */
   new?: boolean;
+  /** Starred in the armory, like guns. */
+  favorite?: boolean;
 }
 
 export interface HeroProgress {
@@ -94,6 +103,8 @@ export interface Profile {
   outfit: Outfit;
   /** Adventures won, as "biome:tier", for first-clear cosmetics. */
   clears: string[];
+  /** Guns found in runs at this rarity or worse are scrapped for XP on the way home. "" keeps everything. */
+  autoScrap: AutoScrap;
 }
 
 export interface RunResult {
@@ -106,15 +117,19 @@ export interface RunResult {
   /** Bosses beaten (one per act). */
   acts?: number;
   kills: number;
-  /** Guns coming home (the ones in your hands), with fresh stash ids. */
+  /** Guns coming home (everything picked up, plus the ones in your hands), with fresh stash ids. */
   guns: StashGun[];
   /** Stash ids of the guns in hand at the end; "" keeps that loadout slot as it was. */
   hand: string[];
-  /** The grenade on your belt at the end, if it's new to the stash (with a fresh stash id). */
+  /** Grenades picked up this run that are new to the stash, with fresh stash ids. */
+  grenades?: StashGrenade[];
+  /** Older results: just the grenade on your belt at the end, if it was new. */
   grenade?: StashGrenade;
   /** Stash id of the grenade on your belt at the end; "" or missing keeps the equipped one. */
   grenadeHand?: string;
-  /** The relic in your pocket at the end, if it's new to the stash (with a fresh stash id). */
+  /** Relics picked up this run that are new to the stash, with fresh stash ids. */
+  relics?: StashRelic[];
+  /** Older results: just the relic in your pocket at the end, if it was new. */
   relic?: StashRelic;
   /** Stash id of the relic in your pocket at the end; "" or missing keeps the equipped one. */
   relicHand?: string;
@@ -138,10 +153,12 @@ export interface RunReward {
   kept: number;
   /** Guns (and grenades) scrapped because the stash was full. */
   scrapped: number;
-  /** A new grenade came home. */
-  grenade?: boolean;
-  /** A new relic came home. */
-  relic?: boolean;
+  /** Guns turned into XP on the way home by the auto-scrap setting. */
+  autoScrapped?: number;
+  /** New grenades that came home. */
+  grenades?: number;
+  /** New relics that came home. */
+  relics?: number;
   legendaries: number;
   /** Mythic guns, grenades and relics that came home. */
   mythics?: number;
@@ -156,6 +173,8 @@ export type Action =
   | { type: "run"; id: string; result: RunResult }
   | { type: "equip"; id: string; slot: number; gunId: string }
   | { type: "scrap"; id: string; gunIds: string[]; grenadeIds?: string[]; relicIds?: string[] }
+  | { type: "favorite"; id: string; kind: "gun" | "grenade" | "relic"; itemId: string; on: boolean }
+  | { type: "autoScrap"; id: string; rarity: AutoScrap }
   | { type: "equipGrenade"; id: string; grenadeId: string }
   /** "" empties the pocket. */
   | { type: "equipRelic"; id: string; relicId: string }
@@ -237,6 +256,7 @@ export function newProfile(name = ""): Profile {
     newCosmetics: [],
     outfit: { ...DEFAULT_OUTFIT },
     clears: [],
+    autoScrap: "",
   };
 }
 
@@ -326,6 +346,7 @@ export function cleanGun(raw: unknown): StashGun | undefined {
     Object.assign(out, { mythic: myth.id, defId: myth.defId, maker: myth.maker, rarity: "mythic" });
   } else if (out.rarity === "mythic") out.rarity = "common";
   if (g.new === true) out.new = true;
+  if (g.favorite === true) out.favorite = true;
   return out;
 }
 
@@ -344,6 +365,7 @@ export function cleanRelic(raw: unknown): StashRelic | undefined {
   else if (rarity === "mythic") rarity = "common";
   const out: StashRelic = { id, defId, rarity };
   if (r.new === true) out.new = true;
+  if (r.favorite === true) out.favorite = true;
   return out;
 }
 
@@ -360,6 +382,7 @@ export function cleanGrenade(raw: unknown): StashGrenade | undefined {
   else if (rarity === "mythic") rarity = "common";
   const out: StashGrenade = { id, defId, rarity };
   if (g.new === true) out.new = true;
+  if (g.favorite === true) out.favorite = true;
   return out;
 }
 
@@ -416,6 +439,7 @@ export function cleanProfile(raw: unknown, name = ""): Profile {
   if (Array.isArray(r.cosmetics)) p.cosmetics = [...new Set(r.cosmetics.filter(known))];
   if (Array.isArray(r.newCosmetics)) p.newCosmetics = [...new Set(r.newCosmetics.filter((x) => known(x) && p.cosmetics.includes(x)))];
   p.outfit = cleanOutfit(r.outfit, (id) => ownsCosmetic(p, id));
+  if (AUTO_SCRAP_OPTIONS.includes(r.autoScrap as AutoScrap)) p.autoScrap = r.autoScrap as AutoScrap;
   if (Array.isArray(r.clears)) p.clears = [...new Set(r.clears.filter((c): c is string => typeof c === "string" && /^[a-z]+:[0-2]$/.test(c)))].slice(0, 20);
   return p;
 }
@@ -461,7 +485,8 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
   const newId = opts.newId ?? randomId;
   const ids = new Map<number, string>();
   const guns: StashGun[] = [];
-  for (const g of p.guns) {
+  // Everything you picked up comes home, not just what's in your hands at the end.
+  for (const g of [...(p.found?.guns ?? []), ...p.guns]) {
     if (g.sid || g.loaner || ids.has(g.uid)) continue;
     const id = newId();
     ids.set(g.uid, id);
@@ -479,27 +504,38 @@ export function runResult(w: World, p: Player, opts: { mode: "solo" | "coop"; da
     kills: w.run.kills,
     guns,
     hand: p.guns.map((g) => g.sid ?? ids.get(g.uid) ?? ""),
-    ...grenadeHome(p.grenade, newId),
-    ...relicHome(p.relic, newId),
+    ...grenadesHome(p, newId),
+    ...relicsHome(p, newId),
     day: opts.day,
     helped: opts.helped || undefined,
     biome: w.run.biome,
   };
 }
 
-/** The grenade on your belt comes home too, unless it already lives there. */
-function grenadeHome(g: Grenade, newId: () => string): Pick<RunResult, "grenade" | "grenadeHand"> {
-  if (g.sid) return { grenadeHand: g.sid };
-  const id = newId();
-  return { grenade: { defId: g.defId, rarity: g.rarity, id, new: true }, grenadeHand: id };
+/** Every grenade you picked up comes home too (the one on your belt stays equipped), unless it already lives there. */
+function grenadesHome(p: Player, newId: () => string): Pick<RunResult, "grenades" | "grenadeHand"> {
+  const ids = new Map<Grenade, string>();
+  const grenades: StashGrenade[] = [];
+  for (const g of [...(p.found?.grenades ?? []), p.grenade]) {
+    if (g.sid || ids.has(g)) continue;
+    const id = newId();
+    ids.set(g, id);
+    grenades.push({ defId: g.defId, rarity: g.rarity, id, new: true });
+  }
+  return { grenades, grenadeHand: p.grenade.sid ?? ids.get(p.grenade) };
 }
 
-/** The relic in your pocket comes home too, unless it already lives there. */
-function relicHome(r: Relic | undefined, newId: () => string): Pick<RunResult, "relic" | "relicHand"> {
-  if (!r) return {};
-  if (r.sid) return { relicHand: r.sid };
-  const id = newId();
-  return { relic: { defId: r.defId, rarity: r.rarity, id, new: true }, relicHand: id };
+/** Same for relics: they all come home, and the one in your pocket stays in it. */
+function relicsHome(p: Player, newId: () => string): Pick<RunResult, "relics" | "relicHand"> {
+  const ids = new Map<Relic, string>();
+  const relics: StashRelic[] = [];
+  for (const r of [...(p.found?.relics ?? []), ...(p.relic ? [p.relic] : [])]) {
+    if (r.sid || ids.has(r)) continue;
+    const id = newId();
+    ids.set(r, id);
+    relics.push({ defId: r.defId, rarity: r.rarity, id, new: true });
+  }
+  return { relics, relicHand: p.relic && (p.relic.sid ?? ids.get(p.relic)) };
 }
 
 /** A signature power for this profile's hero that it doesn't own yet, or any it doesn't own. The roll is in [0, 1). */
@@ -605,9 +641,10 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
     kills: int(raw.kills, 0, 5000),
     guns: (Array.isArray(raw.guns) ? raw.guns : []).slice(0, 80).map(cleanGun).filter((g): g is StashGun => !!g),
     hand: (Array.isArray(raw.hand) ? raw.hand : []).slice(0, 2).map((h) => String(h ?? "")),
-    grenade: cleanGrenade(raw.grenade),
+    // Older queued results only carry the one grenade and relic in hand.
+    grenades: [...(Array.isArray(raw.grenades) ? raw.grenades.slice(0, 40) : []), raw.grenade].map(cleanGrenade).filter((g): g is StashGrenade => !!g),
     grenadeHand: String(raw.grenadeHand ?? "").slice(0, 40),
-    relic: cleanRelic(raw.relic),
+    relics: [...(Array.isArray(raw.relics) ? raw.relics.slice(0, 40) : []), raw.relic].map(cleanRelic).filter((x): x is StashRelic => !!x),
     relicHand: String(raw.relicHand ?? "").slice(0, 40),
     day: String(raw.day ?? "").slice(0, 10),
     helped: raw.helped === true,
@@ -622,12 +659,20 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   if (daily) p.lastDailyWin = r.day;
   const { xp, bonuses } = runXp(r, daily);
 
-  // Only the guns in your hands come home.
+  // Every gun you picked up comes home, unless auto-scrap turns it into XP on the way (never the ones in your hands).
   let kept = 0;
   let legendaries = 0;
   let mythics = 0;
+  let autoScrapped = 0;
+  let scrapXp = 0;
+  const scrapUpTo = p.autoScrap ? RARITIES.indexOf(p.autoScrap) : -1;
   for (const g of r.guns) {
     if (p.stash.some((s) => s.id === g.id)) continue;
+    if (!r.hand.includes(g.id) && RARITIES.indexOf(g.rarity) <= scrapUpTo) {
+      scrapXp += SCRAP_XP[g.rarity];
+      autoScrapped++;
+      continue;
+    }
     p.stash.push({ ...g, new: true });
     kept++;
     if (g.legendary) legendaries++;
@@ -637,45 +682,44 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   r.hand.forEach((gid, slot) => {
     if (gid && p.stash.some((s) => s.id === gid) && !p.loadout.some((l, i) => l === gid && i !== slot)) p.loadout[slot] = gid;
   });
-  // The grenade on your belt comes home and stays equipped.
-  let grenade = false;
-  const newNade = r.grenade;
-  if (newNade && !p.grenades.some((g) => g.id === newNade.id)) {
-    p.grenades.push({ ...newNade, new: true });
-    grenade = true;
-    if (newNade.rarity === "mythic") mythics++;
+  // Every grenade comes home too, and the one on your belt stays equipped.
+  let grenades = 0;
+  for (const g of r.grenades ?? []) {
+    if (p.grenades.some((s) => s.id === g.id)) continue;
+    p.grenades.push({ ...g, new: true });
+    grenades++;
+    if (g.rarity === "mythic") mythics++;
   }
-  // So does the relic in your pocket.
-  let relic = false;
-  const newRelic = r.relic;
-  if (newRelic && !p.relics.some((x) => x.id === newRelic.id)) {
-    p.relics.push({ ...newRelic, new: true });
-    relic = true;
-    if (newRelic.rarity === "mythic") mythics++;
+  // So does every relic, and the one in your pocket stays in it.
+  let relics = 0;
+  for (const x of r.relics ?? []) {
+    if (p.relics.some((s) => s.id === x.id)) continue;
+    p.relics.push({ ...x, new: true });
+    relics++;
+    if (x.rarity === "mythic") mythics++;
   }
   // Bad-luck protection: every boss without a mythic makes the next one a little likelier; one coming home resets it.
   p.mythicPity = mythics > 0 ? 0 : Math.min(1e6, p.mythicPity + (r.acts ?? 0));
   if (r.grenadeHand && p.grenades.some((g) => g.id === r.grenadeHand)) p.grenade = r.grenadeHand;
   if (r.relicHand && p.relics.some((x) => x.id === r.relicHand)) p.relic = r.relicHand;
-  // A full stash scraps its worst unequipped guns, oldest first.
+  // A full stash scraps its worst unequipped guns, oldest first. Favorites are never scrapped.
   let scrapped = 0;
-  let scrapXp = 0;
   while (p.stash.length > STASH_CAP) {
-    const spare = p.stash.filter((g) => !p.loadout.includes(g.id));
+    const spare = p.stash.filter((g) => !p.loadout.includes(g.id) && !g.favorite);
     if (spare.length === 0) break;
     const worst = spare.reduce((a, b) => (RARITIES.indexOf(b.rarity) < RARITIES.indexOf(a.rarity) ? b : a));
     scrapXp += scrap(p, [worst.id]);
     scrapped++;
   }
   while (p.grenades.length > GRENADE_CAP) {
-    const spare = p.grenades.filter((g) => g.id !== p.grenade);
+    const spare = p.grenades.filter((g) => g.id !== p.grenade && !g.favorite);
     if (spare.length === 0) break;
     const worst = spare.reduce((a, b) => (RARITIES.indexOf(b.rarity) < RARITIES.indexOf(a.rarity) ? b : a));
     scrapXp += scrapGrenades(p, [worst.id]);
     scrapped++;
   }
   while (p.relics.length > RELIC_CAP) {
-    const spare = p.relics.filter((x) => x.id !== p.relic);
+    const spare = p.relics.filter((x) => x.id !== p.relic && !x.favorite);
     if (spare.length === 0) break;
     const worst = spare.reduce((a, b) => (RARITIES.indexOf(b.rarity) < RARITIES.indexOf(a.rarity) ? b : a));
     scrapXp += scrapRelics(p, [worst.id]);
@@ -700,8 +744,9 @@ function applyRun(p: Profile, id: string, raw: RunResult): RunReward {
   const reward: RunReward = { xp: xp + scrapXp, bonuses, levelBefore, levelAfter: heroOf(p, heroId).level, kept, scrapped, legendaries, souvenir };
   if (sig) reward.signature = sig;
   if (mythics) reward.mythics = mythics;
-  if (grenade) reward.grenade = true;
-  if (relic) reward.relic = true;
+  if (grenades) reward.grenades = grenades;
+  if (relics) reward.relics = relics;
+  if (autoScrapped) reward.autoScrapped = autoScrapped;
   if (cosmetics.length) reward.cosmetics = cosmetics;
   return reward;
 }
@@ -740,6 +785,17 @@ export function applyAction(profile: Profile, action: Action): { profile: Profil
       grantMilestones(p);
       return { profile: p, xp };
     }
+    case "favorite": {
+      const list: { id: string; favorite?: boolean }[] = action.kind === "grenade" ? p.grenades : action.kind === "relic" ? p.relics : p.stash;
+      const item = list.find((x) => x.id === String(action.itemId));
+      if (!item) break;
+      if (action.on === true) item.favorite = true;
+      else delete item.favorite;
+      break;
+    }
+    case "autoScrap":
+      if (AUTO_SCRAP_OPTIONS.includes(action.rarity)) p.autoScrap = action.rarity;
+      break;
     case "skills": {
       if (!HEROES[action.heroId]) break;
       const h = (p.heroes[action.heroId] ??= { level: 1, xp: 0, skills: [] });
