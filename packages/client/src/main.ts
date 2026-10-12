@@ -58,7 +58,10 @@ game.events.once("booted", () => {
   const params = new URLSearchParams(location.search);
   if (import.meta.env.DEV && params.has("practice")) menu.startPractice();
   else if (import.meta.env.DEV && (params.has("seed") || params.has("room") || params.has("mythics"))) menu.startSolo();
-  else menu.show();
+  else {
+    menu.show();
+    void menu.resume();
+  }
 });
 
 // Cache the game for offline solo runs. Only in builds: in development it would get in the way of hot reload.

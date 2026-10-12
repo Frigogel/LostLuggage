@@ -784,6 +784,8 @@ export class UIScene extends Phaser.Scene {
     } else if (world.run.room.exitT >= 0 && !world.run.victory) {
       status = [`GOING THROUGH IN ${Math.ceil(world.run.room.exitT)}... (MOST VOTES WINS, HOST BREAKS TIES)`, 0x5fd36a];
     }
+    // The connection dropped: the world is frozen until it's back, and that matters more than anything above.
+    if (net?.reconnecting) status = ["RECONNECTING...", 0xff8a5a];
     if (status) {
       // Set every frame, so it wins over the banner's fade-out tween without cancelling it.
       this.subBanner.setText(status[0]).setTint(status[1]).setAlpha(1);

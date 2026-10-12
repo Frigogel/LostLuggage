@@ -34,6 +34,16 @@ import {
 const INTERP_TICKS = SNAPSHOT_EVERY * 2;
 const MAX_BUFFER = 30;
 const CONNECT_TIMEOUT_MS = 10000;
+/** Where the seat's reconnect token is kept, so a reload or a killed app can take the same hero back. */
+const RESUME_KEY = "lostluggage.resume";
+/** The server holds a dropped seat for 60 s; give up a little sooner so we never knock on a seat that's gone. */
+const RESUME_MS = 50000;
+
+interface Resume {
+  token: string;
+  /** When the connection was last known to be alive (the server's countdown starts after that). */
+  at: number;
+}
 
 export function serverUrl(): string {
   const env = import.meta.env.VITE_SERVER_URL as string | undefined;
@@ -69,11 +79,34 @@ export interface Frame {
 
 export type JoinKind = { kind: "quick" } | { kind: "create" } | { kind: "code"; code: string };
 
+function readResume(): Resume | undefined {
+  try {
+    const r = JSON.parse(localStorage.getItem(RESUME_KEY) ?? "null") as Resume | null;
+    if (r && typeof r.token === "string" && Date.now() - r.at < RESUME_MS) return r;
+    localStorage.removeItem(RESUME_KEY);
+  } catch {
+    // No storage (private window): there's just nothing to resume.
+  }
+  return undefined;
+}
+
+function clearResume(): void {
+  try {
+    localStorage.removeItem(RESUME_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export class NetSession {
   lobby?: LobbyInfo;
   onLobby?: (l: LobbyInfo) => void;
   /** Connection gone for good (left, kicked, or reconnecting failed). */
   onClosed?: (reason: string) => void;
+  /** The connection dropped and is being re-established (true), or it came back (false). */
+  onReconnecting?: (reconnecting: boolean) => void;
+  /** True while a dropped connection is being re-established: the world on screen is frozen. */
+  reconnecting = false;
   /** Joined with an account: the server saves this player's rewards. */
   isAccount = false;
   /** What the server saved to your account for the last run that ended (accounts only). */
@@ -128,10 +161,56 @@ export class NetSession {
     });
     room.onLeave((code) => {
       clearInterval(this.pingTimer);
+      clearResume();
+      this.reconnecting = false;
       if (!this.leaving) this.onClosed?.(code === 4000 ? "LEFT THE ROOM" : "CONNECTION LOST");
     });
-    this.pingTimer = setInterval(() => room.ping((ms) => (this.rtt = ms)), 3000);
+    room.onDrop(() => {
+      this.reconnecting = true;
+      this.onReconnecting?.(true);
+    });
+    room.onReconnect(() => {
+      this.reconnecting = false;
+      this.saveResume();
+      this.onReconnecting?.(false);
+    });
+    // The SDK won't retry a connection younger than this; a phone can lose signal right after joining.
+    room.reconnection.minUptime = 1000;
+    this.pingTimer = setInterval(() => {
+      room.ping((ms) => (this.rtt = ms));
+      if (!this.reconnecting) this.saveResume();
+    }, 3000);
     room.ping((ms) => (this.rtt = ms));
+    this.saveResume();
+  }
+
+  /** Remembers this seat (refreshed while connected) so a reload or a restarted app can come back to it. */
+  saveResume(): void {
+    if (this.leaving) return;
+    try {
+      localStorage.setItem(RESUME_KEY, JSON.stringify({ token: this.room.reconnectionToken, at: Date.now() } satisfies Resume));
+    } catch {
+      // No storage: reloading just won't resume.
+    }
+  }
+
+  /** A seat this device dropped recently enough that the server should still be holding it. */
+  static get canResume(): boolean {
+    return !!readResume();
+  }
+
+  /** Takes back the seat (same hero, mid-run) this device dropped by reloading or closing the game. */
+  static async resume(url = serverUrl()): Promise<NetSession> {
+    const saved = readResume();
+    if (!saved) throw new Error("nothing to resume");
+    const client = new Client(url);
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timed out")), CONNECT_TIMEOUT_MS));
+    try {
+      return new NetSession(await Promise.race([client.reconnect(saved.token), timeout]));
+    } catch (err) {
+      clearResume();
+      throw err;
+    }
   }
 
   /** `room` only matters when a room gets made: which adventure it runs. */
@@ -196,6 +275,7 @@ export class NetSession {
   leave(): void {
     this.leaving = true;
     clearInterval(this.pingTimer);
+    clearResume();
     void this.room.leave(true);
   }
 

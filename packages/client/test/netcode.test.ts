@@ -98,3 +98,57 @@ describe("co-op netcode under latency", () => {
     expect(r.friend.starved / r.friend.frames).toBeLessThan(0.1);
   }, 20000);
 });
+
+describe("coming back after a reload", () => {
+  it("takes the same hero back mid-run from the saved token, and its inputs count again", async () => {
+    server.simulateLatency(0);
+    // Node has no localStorage: a plain in-memory one, like a browser's.
+    const store = new Map<string, string>();
+    const g = globalThis as { localStorage?: unknown };
+    const hadStorage = "localStorage" in g;
+    const old = g.localStorage;
+    g.localStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    try {
+      const host = await NetSession.connect({ kind: "create" }, { name: "A" }, {}, url);
+      await until(() => !!host.lobby);
+      const friend = await NetSession.connect({ kind: "code", code: host.lobby!.code }, { name: "B" }, {}, url);
+      await until(() => host.lobby?.seats.length === 2);
+      host.start();
+      await until(() => host.ready && friend.ready && host.myId > 0);
+      const myId = host.myId;
+      expect(NetSession.canResume).toBe(true);
+
+      // The page dies: the socket closes without a goodbye, and nothing on this side gets to tidy up.
+      // Both test clients share this storage; on a phone only one session writes it.
+      host.saveResume();
+      const saved = new Map(store);
+      host.room.reconnection.enabled = false;
+      host.room.connection.close(4001); // anything but 4000 (a consented leave) is a drop
+      await until(() => friend.lobby?.seats.some((s) => !s.connected) === true);
+      for (const [k, v] of saved) store.set(k, v);
+
+      const back = await NetSession.resume(url);
+      await until(() => back.ready && back.myId === myId && friend.lobby?.seats.every((s) => s.connected) === true);
+      expect(friend.lobby!.seats.length).toBe(2);
+
+      // The reloaded page counts inputs from 1 again; the server must take them.
+      const truth = () => (back as unknown as { latest: { world: { players: { id: number; pos: { x: number } }[] } } }).latest.world.players.find((p) => p.id === myId)!.pos.x;
+      const before = truth();
+      await play(back, 1, undefined, () => ({ ...EMPTY_INPUT, move: { x: 1, y: 0 } }));
+      await wait(200);
+      expect(truth()).toBeGreaterThan(before + 20);
+
+      back.leave();
+      friend.leave();
+      expect(NetSession.canResume).toBe(false);
+      await wait(100);
+    } finally {
+      if (hadStorage) g.localStorage = old;
+      else delete g.localStorage;
+    }
+  }, 20000);
+});

@@ -213,6 +213,8 @@ export class RunRoom extends Room {
     if (!seat) return;
     seat.connected = true;
     seat.backgrounded = false;
+    // A reloaded page comes back as a new client counting its inputs from 1 again.
+    seat.lastSeq = -1;
     this.syncAway(seat);
     this.broadcastLobby();
   }

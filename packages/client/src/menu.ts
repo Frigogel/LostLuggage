@@ -255,11 +255,9 @@ export class Menu {
     for (const b of document.querySelectorAll<HTMLElement>("#menu [data-icon]")) this.label(b, b.textContent ?? "", "");
     this.account.onChange(() => this.render());
     game.events.on("leave", () => this.leave());
-    // Closing the page mid co-op run leaves the room now, so the server saves your loot right away instead of
-    // holding the seat for a reconnect. (A page kept for back/forward just drops and reconnects as usual.)
-    addEventListener("pagehide", (e) => {
-      if (!e.persisted) this.session?.leave();
-    });
+    // Closing or reloading the page mid co-op run only drops the connection: the server holds the seat for a minute
+    // and, opened again in time, the game takes the same hero back (see `resume`). Otherwise the loot goes home then.
+    addEventListener("pagehide", () => this.session?.saveResume());
     game.events.on("soloAgain", () => this.startSolo());
     // Tapping an empty mark on the stage: bring friends.
     game.events.on("invite", () => {
@@ -839,29 +837,53 @@ export class Menu {
     // The server loads your saved loadout, so get the latest changes to it first.
     await within(this.account.sync(), 3000);
     try {
-      const s = await NetSession.connect(how, this.joinOptions, { tier: this.tier });
-      this.session = s;
-      this.startedRun = -1;
-      s.onLobby = (l) => this.onLobby(l);
-      s.onReward = (r) => this.account.adopt(r.profile);
-      s.onEmote = (e) => {
-        this.lobbyScene?.emote(e);
-        this.gameScene?.emoteFrom(e);
-      };
-      s.onClosed = (reason) => {
-        if (this.session !== s) return;
-        this.session = undefined;
-        this.stopScenes();
-        this.show(reason);
-      };
-      $("status").textContent = "";
-      this.setBusy(false);
-      if (s.lobby) this.onLobby(s.lobby);
-      else this.render();
+      this.adopt(await NetSession.connect(how, this.joinOptions, { tier: this.tier }));
     } catch (err) {
       const msg = String((err as Error)?.message ?? err);
       this.show(how.kind === "code" && /not found|invalid|locked|full/i.test(msg) ? "NO OPEN ROOM WITH THAT CODE" : "CAN'T REACH THE SERVER");
     }
+  }
+
+  /** Opened again soon after closing mid co-op: take the same seat (and hero, mid-run) back. True if it worked. */
+  async resume(): Promise<boolean> {
+    if (!NetSession.canResume || this.session) return false;
+    this.setBusy(true);
+    $("status").textContent = "REJOINING YOUR PARTY...";
+    try {
+      const s = await NetSession.resume();
+      s.isAccount = this.account.signedIn;
+      this.adopt(s);
+      return true;
+    } catch {
+      // The seat is gone (too late, or the room closed): carry on from the menu.
+      this.show();
+      return false;
+    }
+  }
+
+  private adopt(s: NetSession): void {
+    this.session = s;
+    this.startedRun = -1;
+    s.onLobby = (l) => this.onLobby(l);
+    s.onReward = (r) => this.account.adopt(r.profile);
+    s.onEmote = (e) => {
+      this.lobbyScene?.emote(e);
+      this.gameScene?.emoteFrom(e);
+    };
+    s.onClosed = (reason) => {
+      if (this.session !== s) return;
+      this.session = undefined;
+      this.stopScenes();
+      this.show(reason);
+    };
+    // In a run the HUD says so; in the lobby, the status line does.
+    s.onReconnecting = (on) => {
+      if (this.session === s) $("status").textContent = on ? "RECONNECTING..." : "";
+    };
+    $("status").textContent = "";
+    this.setBusy(false);
+    if (s.lobby) this.onLobby(s.lobby);
+    else this.render();
   }
 
   private onLobby(l: LobbyInfo): void {
