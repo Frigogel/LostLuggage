@@ -38,7 +38,7 @@ import {
   type SimEvent,
   type World,
 } from "@lostluggage/sim";
-import { BUTTONS, Controls, SCREEN, STICK_R, WEAPON_SLOTS, stickValue, type ButtonId, type Stick } from "../controls";
+import { BUTTONS, Controls, PADS, SCREEN, STICK_R, WEAPON_SLOTS, stickValue, type ButtonId, type Stick } from "../controls";
 import { ELEMENT_COLORS, RARITY_COLORS, SLOT_COLORS } from "../render/colors";
 import { mythicArtId, mythicHue } from "../render/mythics";
 import { BOOST_COLORS, type GameScene } from "./GameScene";
@@ -758,8 +758,8 @@ export class UIScene extends Phaser.Scene {
     else this.buttonText.get("pause")!.setText("");
 
     if (touch) {
-      this.drawStick(this.controls.moveStick, 0xffffff);
-      this.drawStick(this.controls.aimStick, 0xffb238);
+      this.drawStick(this.controls.moveStick, 0xffffff, PADS.move);
+      this.drawStick(this.controls.aimStick, 0xffb238, PADS.aim);
       this.drawStick(this.controls.grenadeStick, 0x8fd18f);
     }
 
@@ -1058,10 +1058,16 @@ export class UIScene extends Phaser.Scene {
     this.buttonText.get(id)!.setText(touch ? (label ?? BUTTON_LABELS[id].touch) : BUTTON_LABELS[id].keys).setTint(ready ? 0xffffff : 0x8a8090);
   }
 
-  private drawStick(s: Stick | undefined, color: number): void {
+  private drawStick(s: Stick | undefined, color: number, pad?: { x: number; y: number }): void {
+    const g = this.gfx;
+    // An idle pad rests at its home spot so thumbs know where to land; in use, it's drawn wherever the thumb is.
+    if (pad && !s) {
+      g.fillStyle(0x1b1020, 0.2).fillCircle(pad.x, pad.y, STICK_R);
+      g.lineStyle(1, color, 0.25).strokeCircle(pad.x, pad.y, STICK_R);
+      g.fillStyle(color, 0.3).fillCircle(pad.x, pad.y, 8);
+    }
     if (!s) return;
     const v = stickValue(s);
-    const g = this.gfx;
     g.fillStyle(0x1b1020, 0.35).fillCircle(s.base.x, s.base.y, STICK_R);
     g.lineStyle(1, color, 0.5).strokeCircle(s.base.x, s.base.y, STICK_R);
     g.fillStyle(color, 0.7).fillCircle(s.base.x + v.x * STICK_R, s.base.y + v.y * STICK_R, 8);

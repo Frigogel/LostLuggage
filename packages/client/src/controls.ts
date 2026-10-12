@@ -5,6 +5,13 @@ import { sfx } from "./sfx";
 export const SCREEN = { w: 480, h: 270 };
 export const STICK_R = 26;
 const DEADZONE = 5;
+/** Resting spots for the touch pads, always drawn so thumbs know where to go. */
+export const PADS = {
+  move: { x: 50, y: 214 },
+  aim: { x: 428, y: 220 },
+};
+/** A touch landing this close to a pad grabs it at its fixed center; farther out the stick floats under the thumb. */
+const PAD_SNAP = STICK_R + 22;
 /** A touch fire that can't happen yet (pips empty, between shots) is buffered this long. */
 const FIRE_BUFFER_MS = 220;
 
@@ -34,6 +41,8 @@ export const WEAPON_SLOTS = [
 export interface Stick {
   pointerId: number;
   base: Vec;
+  /** Where the thumb first landed: a tap is judged from here, since a locked base isn't under the thumb. */
+  start: Vec;
   cur: Vec;
 }
 
@@ -47,7 +56,12 @@ export function stickValue(s: Stick): Vec {
   return scale(clampLen(sub(s.cur, s.base), STICK_R), 1 / STICK_R);
 }
 
-const isDragging = (s: Stick | undefined): s is Stick => !!s && len(sub(s.cur, s.base)) > DEADZONE;
+const isDragging = (s: Stick | undefined): s is Stick => !!s && len(sub(s.cur, s.start)) > DEADZONE;
+
+function padStick(pointerId: number, at: Vec, pad: Vec): Stick {
+  const base = len(sub(at, pad)) <= PAD_SNAP ? { ...pad } : { ...at };
+  return { pointerId, base, start: { ...at }, cur: { ...at } };
+}
 
 export class Controls {
   touchMode = false;
@@ -140,13 +154,13 @@ export class Controls {
       else if (btn === "interact") this.interactLatch = true;
       else if (btn === "emote") this.emoteLatch = true;
       else if (btn === "pause") return;
-      else if (!this.grenadeStick) this.grenadeStick = { pointerId: p.id, base: at, cur: at };
+      else if (!this.grenadeStick) this.grenadeStick = { pointerId: p.id, base: at, start: at, cur: at };
       return;
     }
     if (p.x < SCREEN.w * 0.45) {
-      if (!this.moveStick) this.moveStick = { pointerId: p.id, base: at, cur: { ...at } };
+      if (!this.moveStick) this.moveStick = padStick(p.id, at, PADS.move);
     } else if (!this.aimStick) {
-      this.aimStick = { pointerId: p.id, base: at, cur: { ...at } };
+      this.aimStick = padStick(p.id, at, PADS.aim);
     }
   }
 
